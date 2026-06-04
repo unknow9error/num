@@ -1,7 +1,10 @@
 use crate::compatibility::CompatibilityReport;
 use crate::package::{DependencySource, PackageManifest};
 use num_compiler::ast::{Declaration, Module, Risk};
+use num_compiler::SourceFile;
 use serde_json::{json, Value};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct DeploymentPlan {
@@ -64,6 +67,17 @@ pub struct DependencyDeployment {
     pub name: String,
     pub version: String,
     pub source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentArtifactReport {
+    pub artifact_root: PathBuf,
+    pub plan_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub modules_dir: PathBuf,
+    pub runbook_path: PathBuf,
+    pub metadata_path: PathBuf,
+    pub files: Vec<String>,
 }
 
 pub fn build_deployment_plan(
@@ -139,6 +153,20 @@ pub fn build_deployment_plan(
                 source: dependency_source_label(&dependency.source),
             })
             .collect(),
+    }
+}
+
+pub fn default_artifact_root(manifest: &PackageManifest) -> PathBuf {
+    let artifact = PathBuf::from(&manifest.deployment.artifact);
+    let path = if artifact.is_absolute() {
+        artifact
+    } else {
+        manifest.root.join(artifact)
+    };
+    if path.extension().is_some() {
+        path.with_extension("")
+    } else {
+        path
     }
 }
 
@@ -239,6 +267,123 @@ impl DeploymentPlan {
     }
 }
 
+impl DeploymentArtifactReport {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "artifact_root": self.artifact_root.display().to_string(),
+            "plan_path": self.plan_path.display().to_string(),
+            "manifest_path": self.manifest_path.display().to_string(),
+            "modules_dir": self.modules_dir.display().to_string(),
+            "runbook_path": self.runbook_path.display().to_string(),
+            "metadata_path": self.metadata_path.display().to_string(),
+            "files": self.files,
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "Deployment artifact: {}\n",
+            self.artifact_root.display()
+        ));
+        out.push_str(&format!("Plan: {}\n", self.plan_path.display()));
+        out.push_str(&format!("Manifest: {}\n", self.manifest_path.display()));
+        out.push_str(&format!("Modules: {}\n", self.modules_dir.display()));
+        out.push_str(&format!("Runbook: {}\n", self.runbook_path.display()));
+        out.push_str(&format!("Files: {}\n", self.files.len()));
+        out
+    }
+}
+
+pub fn materialize_deployment_artifact(
+    plan: &DeploymentPlan,
+    manifest: &PackageManifest,
+    source_files: &[SourceFile],
+    artifact_root: &Path,
+    replace: bool,
+) -> Result<DeploymentArtifactReport, String> {
+    if artifact_root.exists() {
+        if !replace {
+            return Err(format!(
+                "deployment artifact {} already exists; pass --replace to overwrite it",
+                artifact_root.display()
+            ));
+        }
+        fs::remove_dir_all(artifact_root)
+            .map_err(|err| format!("failed to replace {}: {err}", artifact_root.display()))?;
+    }
+
+    let modules_dir = artifact_root.join("modules");
+    fs::create_dir_all(&modules_dir)
+        .map_err(|err| format!("failed to create {}: {err}", modules_dir.display()))?;
+
+    let mut files = Vec::new();
+    let plan_path = artifact_root.join("num-deploy.json");
+    let manifest_path = artifact_root.join("num.toml");
+    let metadata_path = artifact_root.join("manifest.json");
+    let runbook_path = artifact_root.join("RUNBOOK.md");
+
+    write_text(
+        &plan_path,
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&plan.to_json())
+                .map_err(|err| format!("failed to render deployment plan JSON: {err}"))?
+        ),
+        artifact_root,
+        &mut files,
+    )?;
+    copy_file(&manifest.path, &manifest_path, artifact_root, &mut files)?;
+
+    let mut module_entries = Vec::new();
+    for (index, source_file) in source_files.iter().enumerate() {
+        let module_path = modules_dir.join(module_artifact_name(index, &source_file.name));
+        write_text(&module_path, &source_file.source, artifact_root, &mut files)?;
+        module_entries.push(json!({
+            "source": source_file.name,
+            "artifact": relative_to(&module_path, artifact_root)?,
+        }));
+    }
+
+    write_text(
+        &metadata_path,
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "package": {
+                    "name": plan.package_name,
+                    "version": plan.package_version,
+                },
+                "target": plan.target,
+                "service": plan.service,
+                "modules": module_entries,
+                "plan": relative_to(&plan_path, artifact_root)?,
+                "manifest": relative_to(&manifest_path, artifact_root)?,
+            }))
+            .map_err(|err| format!("failed to render deployment metadata JSON: {err}"))?
+        ),
+        artifact_root,
+        &mut files,
+    )?;
+    write_text(
+        &runbook_path,
+        &render_runbook(plan),
+        artifact_root,
+        &mut files,
+    )?;
+
+    files.sort();
+    Ok(DeploymentArtifactReport {
+        artifact_root: artifact_root.to_path_buf(),
+        plan_path,
+        manifest_path,
+        modules_dir,
+        runbook_path,
+        metadata_path,
+        files,
+    })
+}
+
 fn compatibility_from_report(report: &CompatibilityReport) -> CompatibilityDeployment {
     CompatibilityDeployment {
         language_version: report.language_version.clone(),
@@ -295,12 +440,107 @@ fn risk_label(risk: Risk) -> &'static str {
     }
 }
 
+fn write_text(
+    path: &Path,
+    contents: &str,
+    artifact_root: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    fs::write(path, contents)
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    files.push(relative_to(path, artifact_root)?);
+    Ok(())
+}
+
+fn copy_file(
+    from: &Path,
+    to: &Path,
+    artifact_root: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    fs::copy(from, to).map_err(|err| {
+        format!(
+            "failed to copy {} to {}: {err}",
+            from.display(),
+            to.display()
+        )
+    })?;
+    files.push(relative_to(to, artifact_root)?);
+    Ok(())
+}
+
+fn relative_to(path: &Path, root: &Path) -> Result<String, String> {
+    path.strip_prefix(root)
+        .map_err(|err| format!("failed to relativize {}: {err}", path.display()))
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn module_artifact_name(index: usize, source_name: &str) -> String {
+    let sanitized = source_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("{index:04}-{sanitized}")
+}
+
+fn render_runbook(plan: &DeploymentPlan) -> String {
+    let mut out = String::new();
+    out.push_str("# num Deployment Runbook\n\n");
+    out.push_str(&format!(
+        "Package: {} {}\n\n",
+        plan.package_name, plan.package_version
+    ));
+    out.push_str(&format!("Target: `{}`\n\n", plan.target));
+    if let Some(service) = &plan.service {
+        out.push_str(&format!("Service: `{service}`\n\n"));
+    }
+    if let Some(region) = &plan.region {
+        out.push_str(&format!("Region: `{region}`\n\n"));
+    }
+    out.push_str("## Included Artifacts\n\n");
+    out.push_str("- `num-deploy.json` checked deployment plan\n");
+    out.push_str("- `num.toml` source package manifest\n");
+    out.push_str("- `modules/` compiled source module snapshot\n");
+    out.push_str("- `manifest.json` artifact metadata and module map\n\n");
+    out.push_str("## Operations Boundary\n\n");
+    out.push_str(
+        "This bundle is a reproducible local/CI deployment artifact. Cloud, container, or Kubernetes execution is intentionally handled by a later deployment executor.\n",
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_deployment_plan;
+    use super::{build_deployment_plan, materialize_deployment_artifact};
     use crate::package::PackageManifest;
-    use num_compiler::compile;
-    use std::path::Path;
+    use num_compiler::{compile, SourceFile};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("num_deploy_{name}_{stamp}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
 
     #[test]
     fn deployment_plan_collects_runtime_surface() {
@@ -368,5 +608,77 @@ service BillingApi {
         assert!(plan
             .render_text()
             .contains("Deployment plan: billing 1.2.3"));
+    }
+
+    #[test]
+    fn materializes_deployment_artifact_bundle() {
+        let root = temp_dir("bundle_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.1.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+
+[deployment]
+target = "container"
+artifact = "dist/num-deploy.json"
+"#,
+        )
+        .unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: "module app.main\n\nworkflow main() {\n    audit(\"main\")\n}\n".to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        assert!(report.plan_path.is_file());
+        assert!(report.manifest_path.is_file());
+        assert!(report.runbook_path.is_file());
+        assert!(report.metadata_path.is_file());
+        assert_eq!(report.files.len(), 5);
+        assert!(artifact_root
+            .join("modules")
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some());
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("Package: billing 1.2.3"));
+        assert!(materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap_err()
+        .contains("already exists"));
+
+        let replaced =
+            materialize_deployment_artifact(&plan, &manifest, &[source], &artifact_root, true)
+                .unwrap();
+        assert_eq!(replaced.files.len(), 5);
+        fs::remove_dir_all(root).unwrap();
     }
 }

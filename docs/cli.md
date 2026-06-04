@@ -379,13 +379,30 @@ compiled `.num` module graph.
 cargo run -p num -- deploy examples/refund_workflow
 cargo run -p num -- deploy examples/refund_workflow --json
 cargo run -p num -- deploy examples/refund_workflow --out dist/num-deploy.json
+cargo run -p num -- deploy examples/refund_workflow --apply --dir dist/refund-deploy
+cargo run -p num -- deploy examples/refund_workflow --apply --replace --json
 ```
 
 The plan includes package name/version, deployment target metadata, runtime
 store metadata, security mode, compiled module count, workflows, actions,
 service routes, connectors, process connector bindings, and direct
 dependencies. It also embeds the manifest language/schema compatibility
-contract. This is deployment planning, not cloud/container execution.
+contract.
+
+With `--apply`, the command materializes a reproducible local/CI deployment
+bundle. The bundle includes:
+
+- `num-deploy.json` - checked deployment plan;
+- `num.toml` - source package manifest;
+- `modules/` - source module snapshot used for compilation;
+- `manifest.json` - artifact metadata and module map;
+- `RUNBOOK.md` - operations boundary and handoff notes.
+
+The default bundle directory is derived from `[deployment].artifact` by removing
+the file extension. Use `--dir <artifact-dir>` to choose a different output
+directory. Existing bundle directories are protected by default; pass
+`--replace` to overwrite them. This is deployment artifact materialization, not
+cloud/container execution.
 
 ### `compat`
 

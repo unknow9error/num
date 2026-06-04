@@ -149,7 +149,8 @@ Owns user-facing commands:
 `project.rs` owns source discovery, including direct path dependency source
 loading, and project scaffolding. `package.rs` owns `num.toml`
 package/dependency parsing and deterministic `num.lock` generation. `deploy.rs`
-owns deployment plan construction from checked projects. `compatibility.rs`
+owns deployment plan construction and local/CI deployment bundle materialization
+from checked projects. `compatibility.rs`
 owns language-version, manifest-schema, and compatibility-policy validation for
 projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata.

@@ -128,7 +128,8 @@ This repository contains a working production-grade foundation for:
 - workflow and service `rate limit` metadata enforced by the demo interpreter
   rate limiter;
 - scripted CLI debugger over runtime trace events;
-- deployment plan artifact generation from checked projects;
+- deployment plan artifact generation and local/CI deployment bundle
+  materialization from checked projects;
 - manifest language/schema version compatibility checks and manifest migration
   planning/application;
 - local filesystem registry publish/list/install workflow for package
@@ -142,4 +143,4 @@ include a complete expression type checker, event-driven workflow runner, real
 network-native connector SDKs, remote package registry APIs, dashboard,
 interactive debugger, distributed workflow engine, full standard library,
 broader OpenAPI/database imports, async runtime, automatic source migrations,
-and deployment execution.
+and cloud/container deployment execution.
