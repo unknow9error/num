@@ -1,0 +1,119 @@
+{
+  "scopeName": "source.num",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#storage" },
+    { "include": "#types" },
+    { "include": "#permissions" },
+    { "include": "#functions" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.num",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.num",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.num",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.num",
+          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.num",
+          "match": "\\b(if|else|return|match|await|async|for)\\b"
+        },
+        {
+          "name": "keyword.declaration.num",
+          "match": "\\b(module|use|permission|role|policy|type|enum|fn|workflow|action|connector|service|test)\\b"
+        },
+        {
+          "name": "keyword.operator.authorization.num",
+          "match": "\\b(allow|deny|requires|require|rollback|transaction|saga|risk|cost|timeout|budget|audit|assert|expect_deny|expect_allow|expect_workflow_success|expect_workflow_failure|expect_audit|mock_ai|mock_connector|confidence|actor|event|input|as|from)\\b"
+        }
+      ]
+    },
+    "storage": {
+      "patterns": [
+        {
+          "name": "storage.modifier.privacy.num",
+          "match": "\\b(private|public|internal|sensitive|secret|regulated)\\b"
+        },
+        {
+          "name": "storage.modifier.trust.num",
+          "match": "\\b(trusted|untrusted|verified)\\b"
+        },
+        {
+          "name": "storage.type.variable.num",
+          "match": "\\b(let|var)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.num",
+          "match": "\\b(Text|Int|Float|Decimal|Bool|Date|DateTime|Duration|Uuid|Email|PhoneNumber|Url|Json|Bytes|Result|Option|List|Map|Set|Money|Secret|Uncertain|Document|Pdf|Docx|Image)\\b"
+        }
+      ]
+    },
+    "permissions": {
+      "patterns": [
+        {
+          "name": "support.constant.permission.num",
+          "match": "\\bPermission\\.[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.call.num",
+          "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.type.declaration.num",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.arrow.num",
+          "match": "(->|=>)"
+        },
+        {
+          "name": "keyword.operator.comparison.num",
+          "match": "(==|!=|<=|>=|=|\\+|-|\\*|/|\\?|<|>|\\|)"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "schema": "num.contract.v0",
+  "source": "../src/main.num",
+  "module": "examples.contract_driven_refund",
+  "workflow": {
+    "name": "process_refund",
+    "input": "RefundRequest",
+    "entryPermissions": ["ViewBilling"],
+    "steps": [
+      {
+        "kind": "connector",
+        "connector": "payments",
+        "operation": "find",
+        "assignTo": "payment"
+      },
+      {
+        "kind": "aiDecision",
+        "connector": "ai",
+        "operation": "assess_refund_risk",
+        "assignTo": "risk",
+        "resultType": "Uncertain<RiskLevel>",
+        "minimumConfidence": 0.85,
+        "onLowConfidence": {
+          "kind": "humanApproval",
+          "action": "issue_refund"
+        }
+      },
+      {
+        "kind": "permission",
+        "permission": "IssueRefund"
+      },
+      {
+        "kind": "permission",
+        "permission": "NotifyCustomer"
+      },
+      {
+        "kind": "saga",
+        "steps": ["issue_refund", "notify_customer"],
+        "auditOnComplete": "refund_workflow_completed"
+      }
+    ]
+  },
+  "roles": {
+    "SupportAgent": ["ViewBilling"],
+    "FinanceManager": ["ViewBilling", "IssueRefund", "NotifyCustomer"]
+  },
+  "actions": {
+    "issue_refund": {
+      "risk": "high",
+      "requires": ["IssueRefund"],
+      "connector": "payment_gateway",
+      "operation": "refund",
+      "timeoutMs": 10000,
+      "rollback": "reverse_refund",
+      "audit": ["refund_issued"]
+    },
+    "notify_customer": {
+      "risk": "medium",
+      "requires": ["NotifyCustomer"],
+      "connector": "mailer",
+      "operation": "send",
+      "audit": ["refund_customer_notified"]
+    }
+  },
+  "dataPolicies": [
+    {
+      "decision": "allow",
+      "from": "public PublicData",
+      "to": "ExternalApi"
+    },
+    {
+      "decision": "deny",
+      "from": "private UserInput",
+      "to": "ExternalApi"
+    },
+    {
+      "decision": "allow",
+      "from": "private UserInput",
+      "to": "InternalService"
+    },
+    {
+      "decision": "allow",
+      "from": "private UserInput",
+      "to": "ai.assess_refund_risk"
+    },
+    {
+      "decision": "allow",
+      "from": "private Database",
+      "to": "mailer.send"
+    }
+  ],
+  "connectors": {
+    "payments.find": {
+      "input": ["PaymentId"],
+      "output": "Payment"
+    },
+    "payment_gateway.refund": {
+      "input": ["PaymentId", "Money<KZT>"],
+      "output": "Unit",
+      "externalAction": true
+    },
+    "mailer.send": {
+      "input": ["Email"],
+      "output": "Unit",
+      "externalAction": true
+    },
+    "ai.assess_refund_risk": {
+      "input": ["RefundRequest"],
+      "output": "Uncertain<RiskLevel>",
+      "ai": true
+    }
+  }
+}

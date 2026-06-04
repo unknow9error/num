@@ -1,0 +1,363 @@
+use serde_json::Value;
+use std::fs;
+use std::path::Path;
+
+pub fn import_openapi(path: &Path, module_name: Option<&str>) -> Result<String, String> {
+    let source = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    let document: Value = serde_json::from_str(&source)
+        .map_err(|err| format!("failed to parse OpenAPI JSON: {err}"))?;
+    Ok(render_openapi_connector(&document, module_name))
+}
+
+pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> String {
+    let module_name = module_name.unwrap_or("generated.openapi");
+    let connector_name = document
+        .pointer("/info/title")
+        .and_then(Value::as_str)
+        .map(to_identifier)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "openapi".to_string());
+
+    let mut out = String::new();
+    out.push_str("module ");
+    out.push_str(module_name);
+    out.push_str("\n\n");
+
+    for (name, schema) in component_schemas(document) {
+        render_type(&mut out, name, schema);
+        out.push('\n');
+    }
+
+    out.push_str("connector ");
+    out.push_str(&connector_name);
+    out.push_str(" {\n");
+    for operation in operations(document) {
+        out.push_str("    ");
+        out.push_str(&operation.name);
+        out.push('(');
+        for (index, param) in operation.params.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&param.name);
+            out.push_str(": ");
+            out.push_str(&param.ty);
+        }
+        out.push_str(") -> ");
+        out.push_str(&operation.result);
+        out.push('\n');
+    }
+    out.push_str("}\n");
+
+    out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Operation {
+    name: String,
+    params: Vec<OperationParam>,
+    result: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OperationParam {
+    name: String,
+    ty: String,
+}
+
+fn component_schemas(document: &Value) -> Vec<(&str, &Value)> {
+    let mut schemas = document
+        .pointer("/components/schemas")
+        .and_then(Value::as_object)
+        .map(|schemas| {
+            schemas
+                .iter()
+                .map(|(name, schema)| (name.as_str(), schema))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    schemas.sort_by(|left, right| left.0.cmp(right.0));
+    schemas
+}
+
+fn render_type(out: &mut String, name: &str, schema: &Value) {
+    out.push_str("type ");
+    out.push_str(&to_type_name(name));
+    out.push_str(" {\n");
+
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        out.push_str("    value: Json\n");
+        out.push_str("}\n");
+        return;
+    };
+
+    let mut fields = properties.iter().collect::<Vec<_>>();
+    fields.sort_by(|left, right| left.0.cmp(right.0));
+    for (field, schema) in fields {
+        out.push_str("    ");
+        out.push_str(&to_identifier(field));
+        out.push_str(": ");
+        out.push_str(&schema_type(schema));
+        out.push('\n');
+    }
+    out.push_str("}\n");
+}
+
+fn operations(document: &Value) -> Vec<Operation> {
+    let mut operations = Vec::new();
+    let Some(paths) = document.get("paths").and_then(Value::as_object) else {
+        return operations;
+    };
+
+    for (path, path_item) in paths {
+        let Some(methods) = path_item.as_object() else {
+            continue;
+        };
+        for method in ["get", "post", "put", "patch", "delete"] {
+            let Some(operation) = methods.get(method) else {
+                continue;
+            };
+            operations.push(Operation {
+                name: operation
+                    .get("operationId")
+                    .and_then(Value::as_str)
+                    .map(to_identifier)
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| fallback_operation_name(method, path)),
+                params: operation_params(operation),
+                result: operation_result(operation),
+            });
+        }
+    }
+
+    operations.sort_by(|left, right| left.name.cmp(&right.name));
+    operations
+}
+
+fn operation_params(operation: &Value) -> Vec<OperationParam> {
+    let mut params = Vec::new();
+
+    if let Some(raw_params) = operation.get("parameters").and_then(Value::as_array) {
+        for param in raw_params {
+            let Some(name) = param.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let ty = param
+                .get("schema")
+                .map(schema_type)
+                .unwrap_or_else(|| "Json".to_string());
+            params.push(OperationParam {
+                name: to_identifier(name),
+                ty,
+            });
+        }
+    }
+
+    if let Some(schema) = operation
+        .pointer("/requestBody/content/application~1json/schema")
+        .or_else(|| {
+            operation.pointer("/requestBody/content/application~1x-www-form-urlencoded/schema")
+        })
+    {
+        params.push(OperationParam {
+            name: "body".to_string(),
+            ty: schema_type(schema),
+        });
+    }
+
+    params
+}
+
+fn operation_result(operation: &Value) -> String {
+    let Some(responses) = operation.get("responses").and_then(Value::as_object) else {
+        return "Unit".to_string();
+    };
+
+    for code in ["200", "201", "202", "204", "default"] {
+        let Some(response) = responses.get(code) else {
+            continue;
+        };
+        if code == "204" {
+            return "Unit".to_string();
+        }
+        if let Some(schema) = response.pointer("/content/application~1json/schema") {
+            return schema_type(schema);
+        }
+    }
+
+    "Unit".to_string()
+}
+
+fn schema_type(schema: &Value) -> String {
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        return reference
+            .rsplit('/')
+            .next()
+            .map(to_type_name)
+            .unwrap_or_else(|| "Json".to_string());
+    }
+
+    match schema.get("type").and_then(Value::as_str) {
+        Some("string") => "Text".to_string(),
+        Some("integer") => "Int".to_string(),
+        Some("number") => "Float".to_string(),
+        Some("boolean") => "Bool".to_string(),
+        Some("array") => {
+            let inner = schema
+                .get("items")
+                .map(schema_type)
+                .unwrap_or_else(|| "Json".to_string());
+            format!("List<{inner}>")
+        }
+        Some("object") => "Json".to_string(),
+        _ => "Json".to_string(),
+    }
+}
+
+fn fallback_operation_name(method: &str, path: &str) -> String {
+    let mut name = method.to_string();
+    for part in path.split('/') {
+        let part = part.trim_matches(|ch| ch == '{' || ch == '}');
+        if part.is_empty() {
+            continue;
+        }
+        name.push('_');
+        name.push_str(&to_identifier(part));
+    }
+    name
+}
+
+fn to_type_name(value: &str) -> String {
+    let mut output = String::new();
+    for part in identifier_parts(value) {
+        output.push_str(&capitalize_identifier_part(&part));
+    }
+    if output.is_empty() {
+        "GeneratedType".to_string()
+    } else {
+        output
+    }
+}
+
+fn to_identifier(value: &str) -> String {
+    let mut parts = identifier_parts(value).into_iter();
+    let mut output = parts
+        .next()
+        .map(|part| lower_first(&normalize_identifier_part(&part)))
+        .unwrap_or_else(|| "value".to_string());
+    for part in parts {
+        output.push_str(&capitalize_identifier_part(&part));
+    }
+    if output.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        output.insert(0, '_');
+    }
+    output
+}
+
+fn identifier_parts(value: &str) -> Vec<String> {
+    value
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn normalize_identifier_part(part: &str) -> String {
+    if part.chars().all(|ch| ch.is_ascii_uppercase()) {
+        part.to_ascii_lowercase()
+    } else {
+        part.to_string()
+    }
+}
+
+fn capitalize_identifier_part(part: &str) -> String {
+    let part = normalize_identifier_part(part);
+    let mut chars = part.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut output = String::new();
+    output.extend(first.to_uppercase());
+    output.push_str(chars.as_str());
+    output
+}
+
+fn lower_first(part: &str) -> String {
+    let mut chars = part.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut output = String::new();
+    output.extend(first.to_lowercase());
+    output.push_str(chars.as_str());
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_components_and_connector_methods() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Billing API", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "RefundRequest": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" },
+          "amount": { "type": "number" }
+        }
+      },
+      "RefundResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "approved": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/refunds": {
+      "post": {
+        "operationId": "create_refund",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefundRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RefundResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.billing"));
+
+        assert!(rendered.contains("module generated.billing"));
+        assert!(rendered.contains("type RefundRequest"));
+        assert!(rendered.contains("payment_id: Text"));
+        assert!(rendered.contains("connector billingApi"));
+        assert!(rendered.contains("create_refund(body: RefundRequest) -> RefundResponse"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+}

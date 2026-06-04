@@ -1,0 +1,13 @@
+[language]
+version = "0.1.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "ai-agent"
+version = "0.1.0"
+source = "src"
+entry = "src/main.num"
+
+[security]
+policy_mode = "strict"

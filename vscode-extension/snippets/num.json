@@ -1,0 +1,158 @@
+{
+  "Workflow": {
+    "prefix": "workflow",
+    "body": [
+      "workflow ${1:name}(${2:input}: ${3:Input}) {",
+      "    require Permission.${4:Execute} for current_user",
+      "    ${0:audit(\"workflow_started\")}",
+      "}"
+    ],
+    "description": "Create a num workflow"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:input}: ${3:Input}) -> ${4:Output} {",
+      "    ${0:return ${2:input}}",
+      "}"
+    ],
+    "description": "Create a function"
+  },
+  "Action": {
+    "prefix": "action",
+    "body": [
+      "action ${1:name}(${2:arg}: ${3:Type})",
+      "    requires Permission.${4:Execute}",
+      "    risk ${5:high}",
+      "    timeout ${6:10s}",
+      "    rollback ${7:rollback_name}(${2:arg})",
+      "{",
+      "    ${0:audit(\"${1:name}_started\")}",
+      "}"
+    ],
+    "description": "Create a safe external action"
+  },
+  "Permission": {
+    "prefix": "permission",
+    "body": [
+      "permission ${1:PermissionName}"
+    ],
+    "description": "Declare a permission"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:name}\" {",
+      "    assert ${2:true}",
+      "}"
+    ],
+    "description": "Create a num test"
+  },
+  "Policy Test": {
+    "prefix": "testpolicy",
+    "body": [
+      "test policy \"${1:name}\" {",
+      "    expect_deny {",
+      "        ${2:external.analytics.send(value)}",
+      "    }",
+      "}"
+    ],
+    "description": "Create a policy expectation test"
+  },
+  "Workflow Test": {
+    "prefix": "testworkflow",
+    "body": [
+      "test workflow \"${1:name}\" {",
+      "    mock_connector ${2:connector}.${3:method}(${4}) => ${5:\"value\"}",
+      "    expect_workflow_success ${6:workflow_name}(${7})",
+      "    expect_audit ${8:\"event_name\"}",
+      "}"
+    ],
+    "description": "Create a workflow scenario test"
+  },
+  "AI Test": {
+    "prefix": "testai",
+    "body": [
+      "test ai \"${1:name}\" {",
+      "    mock_ai ai.${2:classify}(${3:input}) => ${4:Result} confidence ${5:0.9}",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Create a deterministic AI mock test"
+  },
+  "Role": {
+    "prefix": "role",
+    "body": [
+      "role ${1:RoleName} {",
+      "    allow ${2:PermissionName}",
+      "}"
+    ],
+    "description": "Declare a role"
+  },
+  "Policy": {
+    "prefix": "policy",
+    "body": [
+      "policy ${1:DataSharing} {",
+      "    allow public PublicData -> ExternalApi",
+      "    deny private UserInput -> ExternalApi",
+      "}"
+    ],
+    "description": "Create a data sharing policy"
+  },
+  "Type": {
+    "prefix": "type",
+    "body": [
+      "type ${1:TypeName} {",
+      "    ${2:field}: ${3:Text}",
+      "}"
+    ],
+    "description": "Declare a structured type"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:EnumName} {",
+      "    ${2:Variant}",
+      "}"
+    ],
+    "description": "Declare an enum"
+  },
+  "Require": {
+    "prefix": "require",
+    "body": [
+      "require Permission.${1:PermissionName} for ${2:current_user}"
+    ],
+    "description": "Require a permission"
+  },
+  "Transaction": {
+    "prefix": "transaction",
+    "body": [
+      "transaction {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Create a transaction block"
+  },
+  "Saga Transaction": {
+    "prefix": "saga",
+    "body": [
+      "transaction saga {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Create a saga transaction block"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:Variant} => {",
+      "        ${0}",
+      "    }",
+      "    _ => {",
+      "    }",
+      "}"
+    ],
+    "description": "Create an enum match block"
+  }
+}

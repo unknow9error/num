@@ -1,0 +1,16 @@
+[package]
+name = "num"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Command line tools for the num language"
+
+[dependencies]
+num-compiler = { path = "../num-compiler" }
+num-runtime = { path = "../num-runtime" }
+num-lsp = { path = "../num-lsp" }
+serde_json = "=1.0.132"
+
+[[bin]]
+name = "num"
+path = "src/main.rs"

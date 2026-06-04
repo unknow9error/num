@@ -1,0 +1,23 @@
+module examples.refund_workflow.access
+
+permission ViewBilling
+permission IssueRefund
+permission NotifyCustomer
+
+role SupportAgent {
+    allow ViewBilling
+}
+
+role FinanceManager {
+    allow ViewBilling
+    allow IssueRefund
+    allow NotifyCustomer
+}
+
+policy DataSharing {
+    allow public PublicData -> ExternalApi
+    deny private UserInput -> ExternalApi
+    allow private UserInput -> InternalService
+    allow private UserInput -> ai.assess_refund_risk
+    allow private Database -> mailer.send
+}

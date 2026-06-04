@@ -1,0 +1,111 @@
+module examples.contract_driven_refund
+
+permission ViewBilling
+permission IssueRefund
+permission NotifyCustomer
+
+role SupportAgent {
+    allow ViewBilling
+}
+
+role FinanceManager {
+    allow ViewBilling
+    allow IssueRefund
+    allow NotifyCustomer
+}
+
+policy DataSharing {
+    allow public PublicData -> ExternalApi
+    deny private UserInput -> ExternalApi
+    allow private UserInput -> InternalService
+    allow private UserInput -> ai.assess_refund_risk
+    allow private Database -> mailer.send
+}
+
+connector payments {
+    find(payment_id: PaymentId) -> Payment
+}
+
+connector payment_gateway {
+    refund(payment_id: PaymentId, amount: Money<KZT>) -> Unit
+}
+
+connector mailer {
+    send(email: Email) -> Unit
+}
+
+connector ai {
+    assess_refund_risk(request: RefundRequest) -> Uncertain<RiskLevel>
+}
+
+type PaymentId {
+    value: Text
+}
+
+type RefundRequest {
+    payment_id: PaymentId
+    reason: Text from UserInput private
+    amount: Money<KZT>
+}
+
+type Payment {
+    id: PaymentId
+    amount: Money<KZT>
+    customer_email: Email from Database private
+}
+
+enum RiskLevel {
+    Low
+    Medium
+    High
+}
+
+action issue_refund(payment: Payment, amount: Money<KZT>)
+    requires Permission.IssueRefund
+    risk high
+    timeout 10s
+    cost 15 KZT
+    retry 3
+    idempotency key payment.id
+    rollback reverse_refund(payment, amount)
+{
+    payment_gateway.refund(payment.id, amount)
+    audit("refund_issued")
+}
+
+action notify_customer(email: Email from Database private)
+    requires Permission.NotifyCustomer
+    risk medium
+{
+    mailer.send(email)
+    audit("refund_customer_notified")
+}
+
+fn complete_refund(payment: Payment, request: RefundRequest)
+    requires Permission.IssueRefund
+    requires Permission.NotifyCustomer
+    budget 20 KZT
+{
+    transaction saga {
+        issue_refund(payment, request.amount)
+        notify_customer(payment.customer_email)
+        audit("refund_completed")
+    }
+}
+
+workflow process_refund(request: RefundRequest) budget 100 KZT rate limit 60 per 1m {
+    require Permission.ViewBilling for current_user
+
+    let payment: Payment = payments.find(request.payment_id)
+    let risk: Uncertain<RiskLevel> = ai.assess_refund_risk(request)
+
+    if risk.confidence < 0.85 {
+        require_human_approval("issue_refund")
+        return
+    }
+
+    require Permission.IssueRefund for current_user
+    require Permission.NotifyCustomer for current_user
+
+    complete_refund(payment, request)
+}

@@ -1,0 +1,21 @@
+module examples.refund_workflow.domain
+
+type PaymentId = Brand<Text, "PaymentId">
+
+type RefundRequest {
+    payment_id: PaymentId
+    reason: Text from UserInput private
+    amount: Money<KZT>
+}
+
+type Payment {
+    id: PaymentId
+    amount: Money<KZT>
+    customer_email: Email from Database private
+}
+
+enum RiskLevel {
+    Low
+    Medium
+    High
+}

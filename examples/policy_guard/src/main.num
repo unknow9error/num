@@ -1,0 +1,39 @@
+module examples.policy_guard
+
+permission ExportData
+
+policy DataSharing {
+    allow public PublicData -> ExternalApi
+    deny private UserInput -> ExternalApi
+}
+
+connector reports {
+    render_public(report_id: ReportId) -> Text
+}
+
+type ReportId = Brand<Text, "ReportId">
+
+type ExportRequest {
+    customer_email: Email from UserInput private
+    report_id: ReportId from Database internal
+}
+
+workflow export_public_report(request: ExportRequest) {
+    require Permission.ExportData for current_user
+
+    let public_report: Text from PublicData public = reports.render_public(request.report_id)
+    let customer_marker: Text from DerivedData public = anonymize(request.customer_email)
+    external.analytics.send(public_report)
+    external.analytics.send(customer_marker)
+    audit("public_report_exported")
+}
+
+workflow render_public_report_fixture() {
+    let report: Text = reports.render_public(ReportId("report_1"))
+    assert report == "mock report"
+}
+
+test workflow "public report connector can be mocked" {
+    mock_connector reports.render_public(ReportId("report_1")) => "mock report"
+    expect_workflow_success render_public_report_fixture()
+}

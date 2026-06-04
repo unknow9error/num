@@ -1,0 +1,210 @@
+use crate::interpreter::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+pub type ConnectorHandler = Box<dyn Fn(&[Value]) -> Result<Value, String>>;
+
+pub trait ConnectorExecutor {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>>;
+}
+
+pub struct ChainedConnectorExecutor {
+    executors: Vec<Box<dyn ConnectorExecutor>>,
+}
+
+impl ChainedConnectorExecutor {
+    pub fn new(executors: Vec<Box<dyn ConnectorExecutor>>) -> Self {
+        Self { executors }
+    }
+}
+
+impl ConnectorExecutor for ChainedConnectorExecutor {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        self.executors
+            .iter()
+            .find_map(|executor| executor.call(name, args))
+    }
+}
+
+impl<T: ConnectorExecutor + ?Sized> ConnectorExecutor for Arc<T> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        self.as_ref().call(name, args)
+    }
+}
+
+#[derive(Default)]
+pub struct StaticConnectorRegistry {
+    handlers: HashMap<String, ConnectorHandler>,
+}
+
+impl StaticConnectorRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register<F>(&mut self, name: impl Into<String>, handler: F)
+    where
+        F: Fn(&[Value]) -> Result<Value, String> + 'static,
+    {
+        self.handlers.insert(name.into(), Box::new(handler));
+    }
+}
+
+impl ConnectorExecutor for StaticConnectorRegistry {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        self.handlers.get(name).map(|handler| handler(args))
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct DemoConnectorExecutor;
+
+impl ConnectorExecutor for DemoConnectorExecutor {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        match name {
+            "payments.find" => Some(Ok(find_payment(args))),
+            "ai.assess_refund_risk" => Some(Ok(assess_refund_risk())),
+            "ai.classify" => Some(Ok(classify_intent())),
+            "mailer.send" => Some(Ok(send_mail(args))),
+            "external.analytics.send" => Some(Ok(send_analytics(args))),
+            "reports.render_public" => Some(Ok(render_public_report())),
+            "payment_gateway.refund" => Some(Ok(refund_payment(args))),
+            "support_queue.assign" => Some(Ok(assign_support_ticket(args))),
+            _ => None,
+        }
+    }
+}
+
+fn find_payment(args: &[Value]) -> Value {
+    let id_str = args.first().cloned().unwrap_or(Value::Null).to_string();
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), Value::String(id_str));
+    fields.insert("amount".to_string(), Value::Money(15000, "KZT".to_string()));
+    fields.insert(
+        "customer_email".to_string(),
+        Value::String("customer@example.com".to_string()),
+    );
+    println!("    [MOCK DB] payments.find -> Payment customer_email: customer@example.com");
+    Value::Struct("Payment".to_string(), fields)
+}
+
+fn assess_refund_risk() -> Value {
+    println!("    [MOCK AI] ai.assess_refund_risk -> RiskLevel::Low with 92% confidence");
+    Value::Uncertain(
+        Box::new(Value::Enum(
+            "RiskLevel".to_string(),
+            "Low".to_string(),
+            None,
+        )),
+        0.92,
+    )
+}
+
+fn classify_intent() -> Value {
+    println!("    [MOCK AI] ai.classify -> Intent::RefundRequest with 88% confidence");
+    Value::Uncertain(
+        Box::new(Value::Enum(
+            "Intent".to_string(),
+            "RefundRequest".to_string(),
+            None,
+        )),
+        0.88,
+    )
+}
+
+fn send_mail(args: &[Value]) -> Value {
+    let email = args.first().cloned().unwrap_or(Value::Null);
+    println!("    [MAILER] Sent notification to: {}", email);
+    Value::Null
+}
+
+fn send_analytics(args: &[Value]) -> Value {
+    let payload = args.first().cloned().unwrap_or(Value::Null);
+    println!("    [EXTERNAL API] analytics sent: {}", payload);
+    Value::Null
+}
+
+fn render_public_report() -> Value {
+    println!("    [MOCK DB] reports.render_public -> rendered successfully");
+    Value::String("Public Report #42".to_string())
+}
+
+fn refund_payment(args: &[Value]) -> Value {
+    let id = args.first().cloned().unwrap_or(Value::Null);
+    let amount = args.get(1).cloned().unwrap_or(Value::Null);
+    println!(
+        "    [PAYMENT GATEWAY] Processing refund of {} on payment {}",
+        amount, id
+    );
+    Value::Null
+}
+
+fn assign_support_ticket(args: &[Value]) -> Value {
+    let ticket_id = args.first().cloned().unwrap_or(Value::Null);
+    println!("    [SUPPORT QUEUE] Assigned ticket: {}", ticket_id);
+    Value::Null
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ChainedConnectorExecutor, ConnectorExecutor, DemoConnectorExecutor, StaticConnectorRegistry,
+    };
+    use crate::interpreter::Value;
+
+    #[test]
+    fn demo_registry_returns_payment() {
+        let registry = DemoConnectorExecutor;
+        let result = registry
+            .call("payments.find", &[Value::String("pay_1".to_string())])
+            .unwrap()
+            .unwrap();
+
+        let Value::Struct(name, fields) = result else {
+            panic!("expected payment struct");
+        };
+        assert_eq!(name, "Payment");
+        assert_eq!(
+            fields.get("customer_email"),
+            Some(&Value::String("customer@example.com".to_string()))
+        );
+    }
+
+    #[test]
+    fn demo_registry_ignores_unknown_calls() {
+        let registry = DemoConnectorExecutor;
+        assert!(registry.call("unknown.call", &[]).is_none());
+    }
+
+    #[test]
+    fn static_registry_dispatches_registered_handler() {
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register("echo.text", |args| {
+            Ok(args.first().cloned().unwrap_or(Value::Null))
+        });
+
+        let result = registry
+            .call("echo.text", &[Value::String("hello".to_string())])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result, Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn chained_registry_uses_first_executor_that_handles_call() {
+        let first = StaticConnectorRegistry::new();
+        let mut second = StaticConnectorRegistry::new();
+        second.register("echo.text", |args| {
+            Ok(args.first().cloned().unwrap_or(Value::Null))
+        });
+        let registry = ChainedConnectorExecutor::new(vec![Box::new(first), Box::new(second)]);
+
+        let result = registry
+            .call("echo.text", &[Value::String("hello".to_string())])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result, Value::String("hello".to_string()));
+    }
+}

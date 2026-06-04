@@ -1,0 +1,77 @@
+module examples.ai_agent
+
+permission AssignTicket
+permission SendReply
+
+policy AIUsage {
+    allow public PublicData -> ExternalApi
+    allow private UserInput -> mailer.send
+    allow private trusted UserInput -> ai.classify
+    deny regulated UserInput -> ExternalApi
+}
+
+connector ai {
+    classify(message: Text) -> Uncertain<Intent>
+}
+
+connector mailer {
+    send(email: Email, intent: Intent) -> Unit
+}
+
+connector support_queue {
+    assign(ticket_id: TicketId) -> Unit
+}
+
+type TicketId {
+    value: Text
+}
+
+type Ticket {
+    id: TicketId
+    message: Text from UserInput private untrusted
+    email: Email from UserInput private
+}
+
+enum Intent {
+    BillingQuestion
+    RefundRequest
+}
+
+action assign_to_human(ticket: Ticket)
+    requires Permission.AssignTicket
+    risk medium
+{
+    support_queue.assign(ticket.id)
+    audit("ticket_assigned_to_human")
+}
+
+action send_reply(email: Email from UserInput private, intent: Intent)
+    requires Permission.SendReply
+    risk medium
+{
+    mailer.send(email, intent)
+    audit("ticket_reply_sent")
+}
+
+workflow handle_ticket(ticket: Ticket) {
+    let message: Text trusted = sanitize(ticket.message)
+    let intent: Uncertain<Intent> = ai.classify(message)
+
+    if intent.confidence < 0.85 {
+        require Permission.AssignTicket for current_user
+        assign_to_human(ticket)
+        return
+    }
+
+    require Permission.SendReply for current_user
+    send_reply(ticket.email, intent.value)
+    audit("ticket_answered")
+}
+
+test ai "refund intent can be mocked" {
+    mock_ai ai.classify("refund please") => RefundRequest confidence 0.93
+    let intent: Uncertain<Intent> = ai.classify("refund please")
+
+    assert intent.confidence == 0.93
+    assert intent.value == RefundRequest
+}

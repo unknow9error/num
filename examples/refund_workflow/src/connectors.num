@@ -1,0 +1,19 @@
+module examples.refund_workflow.connectors
+
+use examples.refund_workflow.domain
+
+connector payments {
+    find(payment_id: PaymentId) -> Payment
+}
+
+connector payment_gateway {
+    refund(payment_id: PaymentId, amount: Money<KZT>) -> Unit
+}
+
+connector mailer {
+    send(email: Email) -> Unit
+}
+
+connector ai {
+    assess_refund_risk(request: RefundRequest) -> Uncertain<RiskLevel>
+}

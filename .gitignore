@@ -1,0 +1,7 @@
+/target/
+/language/target/
+/vscode-extension/node_modules/
+/vscode-extension/dist/
+/vscode-extension/*.vsix
+/dist/releases/
+.DS_Store

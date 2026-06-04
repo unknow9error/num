@@ -1,0 +1,10 @@
+[package]
+name = "num-compiler"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Compiler frontend and semantic analyzer for the num language"
+
+[lib]
+path = "src/lib.rs"
+

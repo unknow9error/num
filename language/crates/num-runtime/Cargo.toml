@@ -1,0 +1,13 @@
+[package]
+name = "num-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Runtime primitives for num workflows, actions, audit, policy and cost tracking"
+
+[dependencies]
+num-compiler = { path = "../num-compiler" }
+serde_json = "=1.0.132"
+
+[lib]
+path = "src/lib.rs"

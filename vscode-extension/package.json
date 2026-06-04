@@ -1,0 +1,131 @@
+{
+  "name": "num-lang",
+  "displayName": "num",
+  "description": "Professional language support for num files: syntax highlighting, LSP diagnostics, hover, navigation, formatting, snippets and project commands.",
+  "version": "0.1.0",
+  "publisher": "num-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:num",
+    "onCommand:num.checkFile",
+    "onCommand:num.formatFile",
+    "onCommand:num.restartLanguageServer",
+    "onCommand:num.newProject",
+    "workspaceContains:**/*.num"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "num",
+        "aliases": [
+          "num",
+          "Num"
+        ],
+        "extensions": [
+          ".num"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "num",
+        "scopeName": "source.num",
+        "path": "./syntaxes/num.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "num",
+        "path": "./snippets/num.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "num.checkFile",
+        "title": "Num: Check Current File",
+        "category": "Num"
+      },
+      {
+        "command": "num.formatFile",
+        "title": "Num: Format Current File",
+        "category": "Num"
+      },
+      {
+        "command": "num.restartLanguageServer",
+        "title": "Num: Restart Language Server",
+        "category": "Num"
+      },
+      {
+        "command": "num.newProject",
+        "title": "Num: Create New Project",
+        "category": "Num"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "num.checkFile",
+          "when": "editorLangId == num",
+          "group": "navigation@20"
+        },
+        {
+          "command": "num.formatFile",
+          "when": "editorLangId == num",
+          "group": "1_modification@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "num.checkFile",
+          "when": "editorLangId == num"
+        },
+        {
+          "command": "num.formatFile",
+          "when": "editorLangId == num"
+        },
+        {
+          "command": "num.restartLanguageServer"
+        },
+        {
+          "command": "num.newProject"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Num",
+      "properties": {
+        "num.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `num` CLI executable. Leave empty to auto-detect `target/debug/num` in the workspace before falling back to `num` from PATH."
+        },
+        "num.lsp.trace.server": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Write language server protocol traces to the `num` output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

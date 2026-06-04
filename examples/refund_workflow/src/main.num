@@ -1,0 +1,108 @@
+module examples.refund_workflow
+
+use examples.refund_workflow.access
+use examples.refund_workflow.domain
+use examples.refund_workflow.connectors
+
+action issue_refund(payment: Payment, amount: Money<KZT>)
+    requires Permission.IssueRefund
+    risk high
+    timeout 10s
+    cost 15 KZT
+    retry 3
+    idempotency key payment.id
+    rollback reverse_refund(payment, amount)
+{
+    payment_gateway.refund(payment.id, amount)
+    audit("refund_issued", {
+        payment_id: payment.id,
+        amount: amount,
+        actor: current_user.id
+    })
+}
+
+action notify_customer(email: Email from Database private)
+    requires Permission.NotifyCustomer
+    risk medium
+{
+    mailer.send(email)
+}
+
+fn complete_refund(payment: Payment, request: RefundRequest)
+    requires Permission.IssueRefund
+    requires Permission.NotifyCustomer
+    budget 20 KZT
+{
+    transaction saga {
+        issue_refund(payment, request.amount)
+        notify_customer(payment.customer_email)
+        audit("refund_completed", {
+            payment_id: payment.id,
+            amount: request.amount,
+            actor: current_user.id
+        })
+    }
+}
+
+workflow process_refund(request: RefundRequest) budget 100 KZT rate limit 60 per 1m {
+    require Permission.ViewBilling for current_user
+
+    let payment = payments.find(request.payment_id)
+
+    if request.amount > payment.amount {
+        reject("Refund amount is greater than payment amount")
+        return
+    }
+
+    let risk: Uncertain<RiskLevel> = ai.assess_refund_risk(request)
+
+    if risk.confidence < 0.85 {
+        require_human_approval(
+            action: "issue_refund",
+            reason: "Low AI confidence"
+        )
+        return
+    }
+
+    require Permission.IssueRefund for current_user
+    require Permission.NotifyCustomer for current_user
+
+    complete_refund(payment, request)
+}
+
+workflow refund_workflow_smoke() {
+    audit("refund_workflow_tested")
+}
+
+workflow refund_rejection_smoke() {
+    assert false
+}
+
+service BillingApi budget 100 KZT rate limit 60 per 1m {
+    route POST "/refunds" requires Permission.ViewBilling requires Permission.IssueRefund requires Permission.NotifyCustomer {
+        input request: RefundRequest from HttpBody private
+
+        let payment = payments.find(request.payment_id)
+
+        complete_refund(payment, request)
+    }
+}
+
+test "refund workflow test harness is wired" {
+    let runnable: Bool = true
+    assert runnable == true
+}
+
+test policy "private refund reason cannot go external" {
+    let reason: Text from UserInput private = "duplicate charge"
+
+    expect_deny {
+        external.analytics.send(reason)
+    }
+}
+
+test workflow "refund workflow expectations" {
+    expect_workflow_success refund_workflow_smoke()
+    expect_audit "refund_workflow_tested"
+    expect_workflow_failure refund_rejection_smoke()
+}
