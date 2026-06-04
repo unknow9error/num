@@ -164,6 +164,7 @@ Implemented:
 - `num debug`
 - `num deploy`
 - `num compat`
+- `num migrate`
 - `num cost-report`
 - `num audit-report`
 - `num workflow-report`
@@ -178,6 +179,8 @@ Implemented:
   and manifest schema version;
 - `num compat` language/schema compatibility reports for packages and loaded
   path/local-registry dependencies;
+- `num migrate` dry-run/write migration reports for legacy or partial
+  `[language]` manifest metadata;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -495,7 +498,7 @@ Major full-spec areas not implemented in v0.1.0:
 - external-language interop;
 - remote registry and git package imports;
 - performance optimization strategy;
-- automatic manifest/source migrations between language versions.
+- automatic source migrations between language versions.
 
 ## Coverage by Full Specification Area
 
@@ -517,6 +520,7 @@ Major full-spec areas not implemented in v0.1.0:
 - release packaging.
 - deployment plan artifact generation.
 - language/schema compatibility checks.
+- manifest migration tooling.
 
 ### Foundation Only
 
@@ -531,6 +535,7 @@ Major full-spec areas not implemented in v0.1.0:
   breakpoints over runtime trace events;
 - deployment planning;
 - language versioning and compatibility policy;
+- manifest migration tooling;
 - standard library.
 
 ### Planned Platform Work

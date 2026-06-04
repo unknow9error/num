@@ -380,6 +380,23 @@ same validation before compiling source, so a package authored for a future
 language/schema version fails early instead of being interpreted as an older
 project.
 
+### `migrate`
+
+Plan or apply safe `num.toml` manifest migrations.
+
+```bash
+cargo run -p num -- migrate examples/refund_workflow
+cargo run -p num -- migrate examples/refund_workflow --json
+cargo run -p num -- migrate legacy_project --write
+```
+
+The command is a dry-run by default. It discovers `num.toml` from a project
+directory or file path, reports the changes needed for the current CLI, and only
+writes when `--write` is passed. The current migration path inserts missing
+`[language]` metadata, fills partial `[language]` sections, and upgrades
+`manifest_schema = 0` to the current manifest schema. Manifests that require a
+future schema are rejected instead of rewritten.
+
 ### `import openapi`
 
 Generate `.num` type and connector declarations from an OpenAPI JSON document.

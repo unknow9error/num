@@ -103,7 +103,7 @@ This repository contains a working production-grade foundation for:
 - exhaustive return-path analysis for typed callables;
 - IR lowering;
 - CLI commands: `check`, `fmt`, `ir`, `run`, `route`, `serve`, `serve-once`,
-  `deploy`, `compat`, `new`, `completions`, and `lsp`;
+  `deploy`, `compat`, `migrate`, `new`, `completions`, and `lsp`;
 - runtime contracts for workflow/action/audit/cost state;
 - file-backed workflow state store and audit JSONL sink;
 - workflow lifecycle engine with persisted start/wait/resume/complete/fail/
@@ -122,7 +122,8 @@ This repository contains a working production-grade foundation for:
   rate limiter;
 - scripted CLI debugger over runtime trace events;
 - deployment plan artifact generation from checked projects;
-- manifest language/schema version compatibility checks;
+- manifest language/schema version compatibility checks and manifest migration
+  planning/application;
 - LSP diagnostics, completions, hover, formatting, and document symbols;
 - VS Code syntax, snippets, commands, and language configuration;
 - separate example projects.
@@ -131,5 +132,5 @@ Major features from the full Num specification that are not implemented yet
 include a complete expression type checker, event-driven workflow runner, real
 network-native connector SDKs, remote package registry APIs, dashboard,
 interactive debugger, distributed workflow engine, full standard library,
-broader OpenAPI/database imports, async runtime, automatic migrations, and
-deployment execution.
+broader OpenAPI/database imports, async runtime, automatic source migrations,
+and deployment execution.

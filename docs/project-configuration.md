@@ -56,6 +56,9 @@ check applies to direct and transitive path/local-registry dependencies too, so
 an incompatible dependency cannot be silently compiled. `num compat
 [project-dir|file] [--json]` prints the compatibility report, and `num deploy`
 embeds the same language/schema metadata into the deployment plan artifact.
+`num migrate [project-dir|file] [--write]` can add missing `[language]`
+metadata, fill partial language sections, and upgrade schema `0` manifests to
+the current schema.
 
 ### `[project]`
 
@@ -250,6 +253,7 @@ Implemented:
   `num debug`, `num route`, `num serve`, and `num serve-once`;
 - language/schema compatibility validation through `[language]` and
   `num compat`;
+- manifest migration planning/application through `num migrate`;
 - source directory and entry source selection through `[project]`.
 - direct dependency declarations through `[dependencies]`;
 - direct path dependency source discovery for module imports;
@@ -261,7 +265,7 @@ Not implemented yet:
 
 - remote registry package download/publish APIs;
 - lockfile transitive dependency pinning;
-- automatic manifest/source migrations between language versions;
+- automatic source migrations between language versions;
 - git dependency checkout;
 - runtime backend selection from manifest values;
 - deployment execution against cloud/container platforms.

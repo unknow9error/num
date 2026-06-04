@@ -1,6 +1,7 @@
 mod compatibility;
 mod demo;
 mod deploy;
+mod migration;
 mod openapi;
 mod package;
 mod project;
@@ -305,6 +306,18 @@ fn run() -> Result<(), String> {
                 for report in &reports {
                     print!("{}", report.render_text());
                 }
+            }
+            Ok(())
+        }
+        "migrate" => {
+            let (path, options) = parse_migrate_args(args)?;
+            let report = migration::migrate_manifest(&path, options.write)?;
+            if options.format_json {
+                let json = serde_json::to_string_pretty(&report.to_json())
+                    .map_err(|err| format!("failed to render migration JSON: {err}"))?;
+                println!("{json}");
+            } else {
+                print!("{}", report.render_text());
             }
             Ok(())
         }
@@ -638,6 +651,33 @@ struct DeployOptions {
     format_json: bool,
 }
 
+struct MigrateOptions {
+    write: bool,
+    format_json: bool,
+}
+
+fn parse_migrate_args(
+    args: impl Iterator<Item = String>,
+) -> Result<(PathBuf, MigrateOptions), String> {
+    let mut path = None;
+    let mut write = false;
+    let mut format_json = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--write" => write = true,
+            "--json" => format_json = true,
+            _ if path.is_none() => path = Some(PathBuf::from(arg)),
+            _ => return Err(format!("unexpected migrate argument '{arg}'")),
+        }
+    }
+
+    Ok((
+        path.unwrap_or_else(|| PathBuf::from(".")),
+        MigrateOptions { write, format_json },
+    ))
+}
+
 fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOptions, String> {
     let mut out_path = None;
     let mut format_json = false;
@@ -742,7 +782,7 @@ fn print_help() {
 }
 
 fn help_text() -> &'static str {
-    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file]                Build a deployment plan artifact\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
+    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file]                Build a deployment plan artifact\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
 }
 
 fn print_completions(shell: &str) -> Result<(), String> {
@@ -792,6 +832,7 @@ _num() {
     'debug:run workflow with scripted breakpoints'
     'deploy:build a deployment plan artifact'
     'compat:check language/schema compatibility'
+    'migrate:plan or apply manifest migrations'
     'cost-report:run workflow and summarize action costs'
     'audit-report:summarize audit JSONL events'
     'workflow-report:summarize workflow state files'
@@ -812,7 +853,7 @@ _num() {
   fi
 
   case "$words[2]" in
-    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|cost-report|route|serve|serve-once|lock)
+    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|cost-report|route|serve|serve-once|lock)
       _num_num_files
       ;;
     audit-report)
@@ -960,6 +1001,31 @@ service Api {
         .unwrap();
 
         assert_eq!(options.out_path, Some(PathBuf::from("dist/deploy.json")));
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn migrate_args_parse_path_write_and_json_flags() {
+        let (path, options) = parse_migrate_args(
+            [
+                "--write".to_string(),
+                "examples/refund_workflow".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("examples/refund_workflow"));
+        assert!(options.write);
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn migrate_args_default_to_current_dir_when_only_flags_are_passed() {
+        let (path, options) = parse_migrate_args(["--json".to_string()].into_iter()).unwrap();
+
+        assert_eq!(path, PathBuf::from("."));
         assert!(options.format_json);
     }
 
