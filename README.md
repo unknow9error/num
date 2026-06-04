@@ -47,6 +47,13 @@ cargo run -p num -- route examples/refund_workflow/src POST /refunds
 - [VS Code extension](docs/vscode-extension.md)
 - [Specification coverage](docs/spec-coverage.md)
 
+## Contributing and Roadmap
+
+- [Roadmap](ROADMAP.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+
 ## Packaging
 
 Build an installer archive for the current platform:
