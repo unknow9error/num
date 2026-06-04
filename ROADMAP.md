@@ -9,6 +9,8 @@ technical specification.
 - Keep the compiler, runtime, CLI, examples, VS Code extension, and docs green.
 - Preserve compatibility metadata through `num.toml`, `num compat`,
   `num upgrade-version`, `num lock`, and `num deploy`.
+- Keep manifest compatibility, migration, and version-upgrade behavior covered
+  by fixture-backed CLI matrix tests.
 - Grow the local filesystem package registry into a stable package ecosystem
   foundation through publish/list/install workflows.
 - Use GitHub issues and pull requests for each meaningful platform slice.
@@ -43,7 +45,8 @@ technical specification.
 - Full standard library.
 - Hardened production HTTP runtime.
 - Broader OpenAPI and SQL import coverage.
-- Backward compatibility test matrix.
+- Released-version backward compatibility matrix as new language versions are
+  introduced.
 
 ## Definition of Done for Major Features
 

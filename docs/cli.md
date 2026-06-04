@@ -477,7 +477,10 @@ The command checks `[language].version`, `[language].compatibility`, and
 `[language].manifest_schema` against the current CLI. Project commands use the
 same validation before compiling source, so a package authored for a future
 language/schema version fails early instead of being interpreted as an older
-project.
+project. The CLI compatibility matrix tests cover current manifests, exact
+compatibility, legacy missing-language manifests, schema `0` migration, future
+schema rejection, future language rejection, and project-version upgrade
+compatibility.
 
 ### `migrate`
 
