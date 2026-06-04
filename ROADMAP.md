@@ -21,9 +21,9 @@ technical specification.
   - worker ownership and retry semantics;
   - tenant-aware state transitions.
 - Connector platform:
-  - connector SDK contract;
+  - broader connector SDK language targets;
   - auth/secrets binding;
-  - generated clients;
+  - generated runtime clients;
   - process connector hardening.
 - Deployment story:
   - checked deploy plans;

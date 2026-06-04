@@ -110,7 +110,8 @@ This repository contains a working production-grade foundation for:
 - exhaustive return-path analysis for typed callables;
 - IR lowering;
 - CLI commands: `check`, `fmt`, `ir`, `run`, `route`, `serve`, `serve-once`,
-  `deploy`, `compat`, `migrate`, `registry`, `new`, `completions`, and `lsp`;
+  `deploy`, `compat`, `migrate`, `registry`, `workflow`, `connector-sdk`,
+  `new`, `completions`, and `lsp`;
 - runtime contracts for workflow/action/audit/cost state;
 - file-backed workflow state store and audit JSONL sink;
 - workflow lifecycle engine with persisted start/wait/resume/complete/fail/
@@ -119,6 +120,8 @@ This repository contains a working production-grade foundation for:
   persistent HTTP service route listener with typed JSON body decoding;
 - connector execution interface, static registry, manifest-configured process
   connector execution, and a demo connector executor for bundled examples;
+- TypeScript connector implementation SDK generation from checked `.num`
+  connector schemas;
 - action execution wrapper and demo interpreter support for timeout/retry
   metadata, idempotency replay, and cost-limit checks;
 - runtime cost ledger with demo interpreter pre-authorization and charging of
@@ -142,7 +145,7 @@ This repository contains a working production-grade foundation for:
 
 Major features from the full Num specification that are not implemented yet
 include a complete expression type checker, clustered/distributed workflow
-scheduling, real network-native connector SDKs, remote package registry APIs,
-dashboard, interactive debugger, full standard library, broader
+scheduling, managed/network-native connector hosting, remote package registry
+APIs, dashboard, interactive debugger, full standard library, broader
 OpenAPI/database imports, async runtime, automatic source migrations, and
 cloud/container deployment execution.

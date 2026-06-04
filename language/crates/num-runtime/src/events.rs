@@ -159,17 +159,21 @@ impl FileWorkflowEventQueue {
         &self.dir
     }
 
-    fn event_path(&self, event: &WorkflowEvent) -> PathBuf {
-        let prefix = system_time_ms(event.queued_at);
-        self.dir
-            .join(format!("{prefix:020}-{}.json", safe_file_id(&event.id)))
+    fn event_path(&self, event: &WorkflowEvent) -> Result<PathBuf, RuntimeError> {
+        let mut prefix = system_time_ns(SystemTime::now());
+        while event_prefix_exists(&self.dir, prefix)? {
+            prefix += 1;
+        }
+        Ok(self
+            .dir
+            .join(format!("{prefix:030}-{}.json", safe_file_id(&event.id))))
     }
 }
 
 impl WorkflowEventQueue for FileWorkflowEventQueue {
     fn enqueue(&mut self, event: WorkflowEvent) -> Result<(), RuntimeError> {
         fs::create_dir_all(&self.dir).map_storage()?;
-        let path = self.event_path(&event);
+        let path = self.event_path(&event)?;
         let temp_path = path.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(&event_to_json(&event)).map_storage()?;
         fs::write(&temp_path, bytes).map_storage()?;
@@ -199,6 +203,24 @@ fn next_event_path(dir: &Path) -> Result<Option<PathBuf>, RuntimeError> {
         .collect::<Vec<_>>();
     entries.sort();
     Ok(entries.into_iter().next())
+}
+
+fn event_prefix_exists(dir: &Path, prefix: u128) -> Result<bool, RuntimeError> {
+    if !dir.exists() {
+        return Ok(false);
+    }
+    let prefix = format!("{prefix:030}-");
+    for entry in fs::read_dir(dir).map_storage()? {
+        let path = entry.map_storage()?.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(&prefix))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn event_to_json(event: &WorkflowEvent) -> Value {
@@ -319,6 +341,12 @@ fn system_time_ms(time: SystemTime) -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+fn system_time_ns(time: SystemTime) -> u128 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
 }
 
 fn system_time_from_ms(ms: u64) -> SystemTime {
