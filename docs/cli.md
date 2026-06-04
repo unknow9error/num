@@ -347,6 +347,29 @@ Direct `path` dependencies and local filesystem registry dependencies are
 loaded during `check`, `run`, `route`, `serve`, and `serve-once`, which lets
 `use <module.path>` resolve modules declared in a dependency package.
 
+### `registry`
+
+Manage a local filesystem package registry.
+
+```bash
+cargo run -p num -- registry publish examples/refund_workflow --registry /tmp/num-registry
+cargo run -p num -- registry publish examples/refund_workflow --registry /tmp/num-registry --dry-run --json
+cargo run -p num -- registry list --registry /tmp/num-registry
+cargo run -p num -- registry install refund-workflow 0.1.0 --registry /tmp/num-registry --to vendor/num
+```
+
+`publish` validates the package manifest, collects package source files, and
+copies them into `<registry-root>/<package-name>/<version>/`. It skips common
+build/runtime output directories such as `.git`, `target`, `node_modules`,
+`.num-state`, and `dist`. Existing package versions are protected by default;
+pass `--replace` to overwrite a published local version.
+
+`list` reads package/version directories that contain `num.toml`. `install`
+copies a published package from the registry into `<install-root>/<name>/<version>/`.
+The default install root is `.num/packages`. These commands are local registry
+tooling for development and private package workflows; they do not implement a
+remote package service yet.
+
 ### `deploy`
 
 Validate a project and build a deployment plan artifact from `num.toml` and the

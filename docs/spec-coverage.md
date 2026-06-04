@@ -165,6 +165,9 @@ Implemented:
 - `num deploy`
 - `num compat`
 - `num migrate`
+- `num registry publish`
+- `num registry list`
+- `num registry install`
 - `num cost-report`
 - `num audit-report`
 - `num workflow-report`
@@ -181,6 +184,8 @@ Implemented:
   path/local-registry dependencies;
 - `num migrate` dry-run/write migration reports for legacy or partial
   `[language]` manifest metadata;
+- local filesystem registry publish/list/install workflow for package
+  development and private package sharing;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -473,7 +478,7 @@ Not yet implemented:
 
 Major full-spec areas not implemented in v0.1.0:
 
-- remote package registry download/publish APIs;
+- remote package registry HTTP/service APIs;
 - git package fetching;
 - lockfile transitive dependency pinning;
 - complete standard library;
