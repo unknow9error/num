@@ -131,6 +131,7 @@ Owns user-facing commands:
 - `deploy`;
 - `compat`;
 - `migrate`;
+- `registry`;
 - `cost-report`;
 - `audit-report`;
 - `workflow-report`;
@@ -152,6 +153,8 @@ owns deployment plan construction from checked projects. `compatibility.rs`
 owns language-version, manifest-schema, and compatibility-policy validation for
 projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata.
+`registry.rs` owns local filesystem registry resolution, publish/list/install
+operations, and package artifact file selection.
 `openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON.
 `sql_schema.rs` owns generation of `.num` table types and database connector
 contracts from SQL schema files.

@@ -127,6 +127,13 @@ Registry dependencies participate in program checks and runtime compilation,
 including transitive registry dependencies. Git dependencies are currently
 lockfile metadata only.
 
+`num registry publish [project-dir|file] --registry <registry-root>` publishes a
+validated package into that layout. `num registry list --registry
+<registry-root>` prints available packages, and `num registry install <name>
+<version> --registry <registry-root> --to <install-root>` copies a package into
+a local vendor-style directory. Existing publish/install targets require
+`--replace` before they are overwritten.
+
 ### `[registry]`
 
 Example:
@@ -258,6 +265,7 @@ Implemented:
 - direct dependency declarations through `[dependencies]`;
 - direct path dependency source discovery for module imports;
 - local filesystem registry dependency source discovery for module imports;
+- local filesystem registry publish/list/install through `num registry`;
 - deterministic `num.lock` generation through `num lock`.
 - deployment plan generation through `num deploy`.
 
