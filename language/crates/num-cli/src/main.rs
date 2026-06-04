@@ -1,4 +1,6 @@
 mod compatibility;
+mod connector_sdk;
+mod connector_sdk_cli;
 mod demo;
 mod deploy;
 mod migration;
@@ -527,6 +529,7 @@ fn run() -> Result<(), String> {
         }
         "registry" => registry_cli::run(args),
         "workflow" => workflow_cli::run(args),
+        "connector-sdk" => connector_sdk_cli::run(args),
         "import" => match args.next().as_deref() {
             Some("openapi") => {
                 let path = args.next().map(PathBuf::from).ok_or_else(|| {
@@ -833,7 +836,7 @@ fn print_help() {
 }
 
 fn help_text() -> &'static str {
-    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
+    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
 }
 
 fn print_completions(shell: &str) -> Result<(), String> {
@@ -886,6 +889,7 @@ _num() {
     'migrate:plan or apply manifest migrations'
     'registry:manage local package registries'
     'workflow:queue and drain durable workflow events'
+    'connector-sdk:generate connector implementation SDKs'
     'cost-report:run workflow and summarize action costs'
     'audit-report:summarize audit JSONL events'
     'workflow-report:summarize workflow state files'
@@ -906,7 +910,7 @@ _num() {
   fi
 
   case "$words[2]" in
-    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|cost-report|route|serve|serve-once|lock)
+    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|connector-sdk|cost-report|route|serve|serve-once|lock)
       _num_num_files
       ;;
     audit-report)

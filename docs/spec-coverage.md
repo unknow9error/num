@@ -170,6 +170,7 @@ Implemented:
 - `num registry install`
 - `num workflow enqueue`
 - `num workflow drain`
+- `num connector-sdk`
 - `num cost-report`
 - `num audit-report`
 - `num workflow-report`
@@ -248,6 +249,8 @@ Implemented:
 - manifest-configured process connector execution for `num run`, `num test`,
   `num trace`, `num cost-report`, `num route`, `num serve`, and
   `num serve-once`;
+- TypeScript connector implementation SDK generation from checked connector
+  schemas;
 - runtime errors for declared connector methods without an implementation;
 - demo connector executor for bundled examples;
 - action execution wrapper with retry policy, cost-limit check, and
@@ -384,12 +387,15 @@ Implemented:
 - runtime in-memory database connector executor for generated `database`
   connector methods: `list_<table>`, `find_<table>_by_<primary_key>`, and
   `insert_<table>`.
+- TypeScript connector implementation SDK generation for visible `.num`
+  structs, aliases, enums, and connector method signatures.
 
 Not yet implemented:
 
-- network-native production connector SDKs and managed connector hosting;
+- managed connector hosting;
+- generated network-native runtime clients;
+- connector SDK targets beyond TypeScript declarations;
 - connector authentication/secrets;
-- generated clients;
 - generated database clients;
 - preemptive async cancellation for timed-out connector calls;
 - full OpenAPI coverage such as YAML input, security schemes, `allOf`/`oneOf`,

@@ -404,6 +404,31 @@ The default install root is `.num/packages`. These commands are local registry
 tooling for development and private package workflows; they do not implement a
 remote package service yet.
 
+### `connector-sdk`
+
+Generate connector implementation SDKs from the checked `.num` module graph.
+
+```bash
+cargo run -p num -- connector-sdk examples/contract_driven_refund
+cargo run -p num -- connector-sdk examples/contract_driven_refund \
+  --language typescript \
+  --out examples/contract_driven_refund/generated/connectors.d.ts
+cargo run -p num -- connector-sdk examples/contract_driven_refund --json
+```
+
+The TypeScript generator emits:
+
+- runtime wrapper types used by connector signatures, such as `Money`,
+  `Option`, `Result`, `Uncertain`, `Secret`, and `JsonValue` when needed;
+- checked `.num` struct, alias, and enum declarations visible to the entry
+  module;
+- a `NumConnectors` interface grouped by connector namespace, with each method
+  returning a `Promise`.
+
+This gives backend authors a generated implementation contract for process or
+host-language connector code. It is not managed connector hosting, auth/secrets
+binding, or a generated network client runtime yet.
+
 ### `deploy`
 
 Validate a project and build a deployment plan artifact from `num.toml` and the
