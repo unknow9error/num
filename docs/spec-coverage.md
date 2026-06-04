@@ -498,8 +498,9 @@ Major full-spec areas not implemented in v0.1.0:
 - interactive workflow dashboard;
 - interactive audit dashboard;
 - interactive cost dashboard;
-- deployment execution model;
-- CI/CD integrations beyond release packaging;
+- cloud/container deployment execution model;
+- CI/CD integrations beyond local deployment bundle generation and release
+  packaging;
 - external-language interop;
 - remote registry and git package imports;
 - performance optimization strategy;
@@ -524,6 +525,7 @@ Major full-spec areas not implemented in v0.1.0:
 - CLI and VS Code foundation;
 - release packaging.
 - deployment plan artifact generation.
+- local/CI deployment bundle materialization.
 - language/schema compatibility checks.
 - manifest migration tooling.
 
@@ -538,7 +540,7 @@ Major full-spec areas not implemented in v0.1.0:
 - runtime observability;
 - scripted CLI debugger with workflow/action/function/connector/audit
   breakpoints over runtime trace events;
-- deployment planning;
+- deployment planning and local artifact materialization;
 - language versioning and compatibility policy;
 - manifest migration tooling;
 - standard library.

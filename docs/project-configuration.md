@@ -248,7 +248,10 @@ Supported fields:
 
 `num deploy` validates the project and renders these values together with the
 compiled workflows, actions, service routes, connectors, dependencies, runtime
-metadata, and security metadata.
+metadata, and security metadata. `num deploy --apply` also materializes a
+local/CI deployment bundle. By default, the bundle directory is derived from
+`artifact` by removing the file extension; `--dir <artifact-dir>` overrides that
+path, and `--replace` allows an existing bundle directory to be overwritten.
 
 ## Current Boundary
 
@@ -267,7 +270,8 @@ Implemented:
 - local filesystem registry dependency source discovery for module imports;
 - local filesystem registry publish/list/install through `num registry`;
 - deterministic `num.lock` generation through `num lock`.
-- deployment plan generation through `num deploy`.
+- deployment plan generation and local/CI deployment bundle materialization
+  through `num deploy --apply`.
 
 Not implemented yet:
 

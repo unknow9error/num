@@ -27,7 +27,7 @@ technical specification.
   - process connector hardening.
 - Deployment story:
   - checked deploy plans;
-  - CI artifact generation;
+  - local/CI artifact generation;
   - container/runtime target mapping;
   - environment validation.
 - Observability:

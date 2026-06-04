@@ -243,6 +243,7 @@ fn run() -> Result<(), String> {
             let manifest = package::PackageManifest::discover(&path)?
                 .ok_or_else(|| format!("no num.toml found for {}", path.display()))?;
             let input = project::load_program_input(&path)?;
+            let source_files = input.files.clone();
             let module_count = input.files.len();
             let policy_mode = input.policy_mode.clone();
             let program = compile_program(input.files, input.entry_source_name.as_deref());
@@ -257,6 +258,21 @@ fn run() -> Result<(), String> {
             let plan = deploy::build_deployment_plan(&manifest, &program.module, module_count);
             let json = serde_json::to_string_pretty(&plan.to_json())
                 .map_err(|err| format!("failed to render deployment plan JSON: {err}"))?;
+            let artifact_report = if options.apply {
+                let artifact_root = options
+                    .artifact_dir
+                    .clone()
+                    .unwrap_or_else(|| deploy::default_artifact_root(&manifest));
+                Some(deploy::materialize_deployment_artifact(
+                    &plan,
+                    &manifest,
+                    &source_files,
+                    &artifact_root,
+                    options.replace,
+                )?)
+            } else {
+                None
+            };
             if let Some(out_path) = &options.out_path {
                 if let Some(parent) = out_path.parent() {
                     if !parent.as_os_str().is_empty() {
@@ -267,10 +283,24 @@ fn run() -> Result<(), String> {
                 }
                 fs::write(&out_path, format!("{json}\n"))
                     .map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
-                println!("wrote deployment plan {}", out_path.display());
+                if !options.format_json {
+                    println!("wrote deployment plan {}", out_path.display());
+                }
             }
             if options.format_json {
-                println!("{json}");
+                if let Some(report) = &artifact_report {
+                    let payload = serde_json::json!({
+                        "plan": plan.to_json(),
+                        "artifact": report.to_json(),
+                    });
+                    let payload = serde_json::to_string_pretty(&payload)
+                        .map_err(|err| format!("failed to render deployment JSON: {err}"))?;
+                    println!("{payload}");
+                } else {
+                    println!("{json}");
+                }
+            } else if let Some(report) = &artifact_report {
+                print!("{}", report.render_text());
             } else if options.out_path.is_none() {
                 print!("{}", plan.render_text());
             }
@@ -650,6 +680,9 @@ struct DebugOptions {
 
 struct DeployOptions {
     out_path: Option<PathBuf>,
+    artifact_dir: Option<PathBuf>,
+    apply: bool,
+    replace: bool,
     format_json: bool,
 }
 
@@ -682,6 +715,9 @@ fn parse_migrate_args(
 
 fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOptions, String> {
     let mut out_path = None;
+    let mut artifact_dir = None;
+    let mut apply = false;
+    let mut replace = false;
     let mut format_json = false;
     let mut args = args.peekable();
 
@@ -693,6 +729,14 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
                     .ok_or_else(|| "usage: --out <deploy-plan.json>".to_string())?;
                 out_path = Some(PathBuf::from(raw));
             }
+            "--dir" => {
+                let raw = args
+                    .next()
+                    .ok_or_else(|| "usage: --dir <artifact-dir>".to_string())?;
+                artifact_dir = Some(PathBuf::from(raw));
+            }
+            "--apply" => apply = true,
+            "--replace" => replace = true,
             "--json" => format_json = true,
             _ => return Err(format!("unexpected deploy argument '{arg}'")),
         }
@@ -700,6 +744,9 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
 
     Ok(DeployOptions {
         out_path,
+        artifact_dir,
+        apply,
+        replace,
         format_json,
     })
 }
@@ -784,7 +831,7 @@ fn print_help() {
 }
 
 fn help_text() -> &'static str {
-    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file]                Build a deployment plan artifact\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num registry <publish|list|install>          Manage local package registries\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
+    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num registry <publish|list|install>          Manage local package registries\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
 }
 
 fn print_completions(shell: &str) -> Result<(), String> {
@@ -1000,6 +1047,10 @@ service Api {
             [
                 "--out".to_string(),
                 "dist/deploy.json".to_string(),
+                "--apply".to_string(),
+                "--dir".to_string(),
+                "dist/bundle".to_string(),
+                "--replace".to_string(),
                 "--json".to_string(),
             ]
             .into_iter(),
@@ -1007,6 +1058,9 @@ service Api {
         .unwrap();
 
         assert_eq!(options.out_path, Some(PathBuf::from("dist/deploy.json")));
+        assert_eq!(options.artifact_dir, Some(PathBuf::from("dist/bundle")));
+        assert!(options.apply);
+        assert!(options.replace);
         assert!(options.format_json);
     }
 
