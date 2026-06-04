@@ -1,0 +1,354 @@
+use crate::engine::WorkflowEngine;
+use crate::events::{WorkflowEvent, WorkflowEventKind, WorkflowEventQueue};
+use crate::{AuditSink, RuntimeError, StateStore, WorkflowState, WorkflowStatus};
+use serde_json::{json, Value};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowDrainOptions {
+    pub max_events: Option<usize>,
+    pub stop_on_error: bool,
+}
+
+impl Default for WorkflowDrainOptions {
+    fn default() -> Self {
+        Self {
+            max_events: None,
+            stop_on_error: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowWorkerReport {
+    pub processed: usize,
+    pub failed: usize,
+    pub idle: bool,
+    pub states: Vec<WorkflowWorkerState>,
+    pub failures: Vec<WorkflowWorkerFailure>,
+}
+
+impl WorkflowWorkerReport {
+    fn empty() -> Self {
+        Self {
+            processed: 0,
+            failed: 0,
+            idle: true,
+            states: Vec::new(),
+            failures: Vec::new(),
+        }
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "processed": self.processed,
+            "failed": self.failed,
+            "idle": self.idle,
+            "states": self.states.iter().map(WorkflowWorkerState::to_json).collect::<Vec<_>>(),
+            "failures": self.failures.iter().map(WorkflowWorkerFailure::to_json).collect::<Vec<_>>(),
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("processed: {}\n", self.processed));
+        out.push_str(&format!("failed: {}\n", self.failed));
+        out.push_str(&format!("idle: {}\n", self.idle));
+        if !self.states.is_empty() {
+            out.push_str("states:\n");
+            for state in &self.states {
+                out.push_str(&format!(
+                    "  - event={} workflow={} name={} status={}\n",
+                    state.event_id, state.workflow_id, state.workflow_name, state.status
+                ));
+            }
+        }
+        if !self.failures.is_empty() {
+            out.push_str("failures:\n");
+            for failure in &self.failures {
+                out.push_str(&format!(
+                    "  - event={} kind={} error={}\n",
+                    failure.event_id, failure.event_kind, failure.error
+                ));
+            }
+        }
+        out
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowWorkerState {
+    pub event_id: String,
+    pub event_kind: String,
+    pub workflow_id: String,
+    pub workflow_name: String,
+    pub status: String,
+}
+
+impl WorkflowWorkerState {
+    fn from_workflow(event: &WorkflowEvent, state: WorkflowState) -> Self {
+        Self {
+            event_id: event.id.clone(),
+            event_kind: event_kind_label(&event.kind).to_string(),
+            workflow_id: state.id,
+            workflow_name: state.name,
+            status: workflow_status_label(&state.status).to_string(),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "event_id": self.event_id,
+            "event_kind": self.event_kind,
+            "workflow_id": self.workflow_id,
+            "workflow_name": self.workflow_name,
+            "status": self.status,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowWorkerFailure {
+    pub event_id: String,
+    pub event_kind: String,
+    pub error: String,
+}
+
+impl WorkflowWorkerFailure {
+    fn from_error(event: &WorkflowEvent, error: RuntimeError) -> Self {
+        Self {
+            event_id: event.id.clone(),
+            event_kind: event_kind_label(&event.kind).to_string(),
+            error: format!("{error:?}"),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "event_id": self.event_id,
+            "event_kind": self.event_kind,
+            "error": self.error,
+        })
+    }
+}
+
+pub struct WorkflowWorker<S, A, Q> {
+    engine: WorkflowEngine<S, A>,
+    queue: Q,
+}
+
+impl<S, A, Q> WorkflowWorker<S, A, Q>
+where
+    S: StateStore,
+    A: AuditSink,
+    Q: WorkflowEventQueue,
+{
+    pub fn new(engine: WorkflowEngine<S, A>, queue: Q) -> Self {
+        Self { engine, queue }
+    }
+
+    pub fn drain(
+        &mut self,
+        options: WorkflowDrainOptions,
+    ) -> Result<WorkflowWorkerReport, RuntimeError> {
+        let mut report = WorkflowWorkerReport::empty();
+
+        loop {
+            if options
+                .max_events
+                .is_some_and(|max_events| report.processed + report.failed >= max_events)
+            {
+                break;
+            }
+            let Some(event) = self.queue.dequeue()? else {
+                break;
+            };
+            report.idle = false;
+            match self.engine.apply_event(event.clone()) {
+                Ok(state) => {
+                    report.processed += 1;
+                    report
+                        .states
+                        .push(WorkflowWorkerState::from_workflow(&event, state));
+                }
+                Err(error) => {
+                    report.failed += 1;
+                    report
+                        .failures
+                        .push(WorkflowWorkerFailure::from_error(&event, error));
+                    if options.stop_on_error {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(report)
+    }
+
+    pub fn into_parts(self) -> (WorkflowEngine<S, A>, Q) {
+        (self.engine, self.queue)
+    }
+}
+
+fn event_kind_label(kind: &WorkflowEventKind) -> &'static str {
+    match kind {
+        WorkflowEventKind::Start(_) => "Start",
+        WorkflowEventKind::Wait { .. } => "Wait",
+        WorkflowEventKind::Resume { .. } => "Resume",
+        WorkflowEventKind::Complete { .. } => "Complete",
+        WorkflowEventKind::Fail { .. } => "Fail",
+        WorkflowEventKind::Compensate { .. } => "Compensate",
+        WorkflowEventKind::Cancel { .. } => "Cancel",
+    }
+}
+
+fn workflow_status_label(status: &WorkflowStatus) -> &'static str {
+    match status {
+        WorkflowStatus::Created => "Created",
+        WorkflowStatus::Running => "Running",
+        WorkflowStatus::Waiting => "Waiting",
+        WorkflowStatus::Failed => "Failed",
+        WorkflowStatus::Compensated => "Compensated",
+        WorkflowStatus::Completed => "Completed",
+        WorkflowStatus::Cancelled => "Cancelled",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WorkflowDrainOptions, WorkflowWorker};
+    use crate::engine::{WorkflowEngine, WorkflowStart};
+    use crate::events::{MemoryWorkflowEventQueue, WorkflowEvent, WorkflowEventQueue};
+    use crate::storage::{FileAuditSink, FileStateStore};
+    use crate::{SecurityContext, WorkflowStatus};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn worker_drains_queued_events() {
+        let root = unique_test_dir("drain");
+        let state_store = FileStateStore::new(&root);
+        let audit_sink = FileAuditSink::new(root.join("audit/events.jsonl"));
+        let engine = WorkflowEngine::new(state_store, audit_sink);
+        let mut queue = MemoryWorkflowEventQueue::new();
+
+        queue
+            .enqueue(WorkflowEvent::start("evt_1", workflow_start("wf_1")))
+            .unwrap();
+        queue.enqueue(WorkflowEvent::wait("evt_2", "wf_1")).unwrap();
+        queue
+            .enqueue(WorkflowEvent::resume("evt_3", "wf_1"))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::complete("evt_4", "wf_1"))
+            .unwrap();
+
+        let mut worker = WorkflowWorker::new(engine, queue);
+        let report = worker.drain(WorkflowDrainOptions::default()).unwrap();
+
+        assert_eq!(report.processed, 4);
+        assert_eq!(report.failed, 0);
+        assert!(!report.idle);
+        assert_eq!(report.states[3].status, "Completed");
+        assert_eq!(report.to_json()["processed"], 4);
+        assert!(report.render_text().contains("workflow=wf_1"));
+
+        let (engine, _queue) = worker.into_parts();
+        assert_eq!(
+            engine.load_workflow("wf_1").unwrap().unwrap().status,
+            WorkflowStatus::Completed
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worker_reports_failed_events_without_losing_batch_context() {
+        let root = unique_test_dir("fail");
+        let state_store = FileStateStore::new(&root);
+        let audit_sink = FileAuditSink::new(root.join("audit/events.jsonl"));
+        let engine = WorkflowEngine::new(state_store, audit_sink);
+        let mut queue = MemoryWorkflowEventQueue::new();
+
+        queue
+            .enqueue(WorkflowEvent::start("evt_1", workflow_start("wf_1")))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::complete("evt_2", "wf_1"))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::fail("evt_3", "wf_1", "too late"))
+            .unwrap();
+
+        let mut worker = WorkflowWorker::new(engine, queue);
+        let report = worker
+            .drain(WorkflowDrainOptions {
+                max_events: None,
+                stop_on_error: false,
+            })
+            .unwrap();
+
+        assert_eq!(report.processed, 2);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.failures[0].event_id, "evt_3");
+        assert!(report.failures[0].error.contains("invalid workflow status"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worker_respects_max_events() {
+        let root = unique_test_dir("max");
+        let state_store = FileStateStore::new(&root);
+        let audit_sink = FileAuditSink::new(root.join("audit/events.jsonl"));
+        let engine = WorkflowEngine::new(state_store, audit_sink);
+        let mut queue = MemoryWorkflowEventQueue::new();
+
+        queue
+            .enqueue(WorkflowEvent::start("evt_1", workflow_start("wf_1")))
+            .unwrap();
+        queue.enqueue(WorkflowEvent::wait("evt_2", "wf_1")).unwrap();
+
+        let mut worker = WorkflowWorker::new(engine, queue);
+        let report = worker
+            .drain(WorkflowDrainOptions {
+                max_events: Some(1),
+                stop_on_error: true,
+            })
+            .unwrap();
+
+        assert_eq!(report.processed, 1);
+        assert_eq!(report.failed, 0);
+        let (_engine, queue) = worker.into_parts();
+        assert_eq!(queue.len(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn workflow_start(id: &str) -> WorkflowStart {
+        let mut permissions = BTreeSet::new();
+        permissions.insert("IssueRefund".to_string());
+        let mut metadata = BTreeMap::new();
+        metadata.insert("source".to_string(), "worker-test".to_string());
+        WorkflowStart {
+            id: id.to_string(),
+            name: "process_refund".to_string(),
+            security: SecurityContext {
+                actor: "agent@example.com".to_string(),
+                tenant: "tenant_1".to_string(),
+                permissions,
+                correlation_id: "corr_1".to_string(),
+                request_id: "req_1".to_string(),
+            },
+            metadata,
+        }
+    }
+
+    fn unique_test_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "num-worker-{name}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+}

@@ -127,6 +127,8 @@ This repository contains a working production-grade foundation for:
   demo interpreter budget scopes;
 - workflow and service `rate limit` metadata enforced by the demo interpreter
   rate limiter;
+- file-backed workflow event enqueue/drain tooling and a batch worker report
+  for durable workflow lifecycle processing;
 - scripted CLI debugger over runtime trace events;
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;
@@ -139,8 +141,8 @@ This repository contains a working production-grade foundation for:
 - separate example projects.
 
 Major features from the full Num specification that are not implemented yet
-include a complete expression type checker, event-driven workflow runner, real
-network-native connector SDKs, remote package registry APIs, dashboard,
-interactive debugger, distributed workflow engine, full standard library,
-broader OpenAPI/database imports, async runtime, automatic source migrations,
-and cloud/container deployment execution.
+include a complete expression type checker, clustered/distributed workflow
+scheduling, real network-native connector SDKs, remote package registry APIs,
+dashboard, interactive debugger, full standard library, broader
+OpenAPI/database imports, async runtime, automatic source migrations, and
+cloud/container deployment execution.
