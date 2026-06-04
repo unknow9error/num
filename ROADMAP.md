@@ -16,7 +16,7 @@ technical specification.
 ## Near Term
 
 - Distributed workflow execution:
-  - durable queue runner;
+  - multi-worker coordination on top of the file-backed queue runner;
   - idempotent event processing;
   - worker ownership and retry semantics;
   - tenant-aware state transitions.

@@ -21,6 +21,7 @@ pub mod secrets;
 pub mod service;
 pub mod storage;
 pub mod tenant;
+pub mod worker;
 pub mod workflow_report;
 
 pub type WorkflowId = String;

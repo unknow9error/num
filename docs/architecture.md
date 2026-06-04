@@ -89,6 +89,8 @@ Owns runtime contracts and the demo interpreter:
 - append-only file-backed `AuditSink`;
 - memory and file-backed secret stores;
 - memory and file-backed workflow event queues;
+- batch workflow event worker for draining queued lifecycle events into
+  file-backed workflow state and audit logs;
 - in-memory database connector executor for SQL-imported connector contracts;
 - runtime trace collection through the demo interpreter;
 - `WorkflowEngine` lifecycle wrapper for start/wait/resume/complete/fail/
@@ -98,8 +100,9 @@ Owns runtime contracts and the demo interpreter:
 
 The interpreter is intentionally small and mocked. It is useful for validating
 the end-to-end language slice. The runtime has durable file-backed state, audit
-primitives, lifecycle transitions, and a foundation for event-queued workflow
-transitions, but it is not yet a distributed workflow platform.
+primitives, lifecycle transitions, file-backed event queues, and a batch worker
+for draining queued lifecycle events, but it is not yet a clustered distributed
+workflow platform.
 
 ### `num-lsp`
 
@@ -132,6 +135,7 @@ Owns user-facing commands:
 - `compat`;
 - `migrate`;
 - `registry`;
+- `workflow`;
 - `cost-report`;
 - `audit-report`;
 - `workflow-report`;
@@ -156,6 +160,8 @@ projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata.
 `registry.rs` owns local filesystem registry resolution, publish/list/install
 operations, and package artifact file selection.
+`workflow_cli.rs` owns file-backed workflow event enqueue/drain operations for
+durable lifecycle processing.
 `openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON.
 `sql_schema.rs` owns generation of `.num` table types and database connector
 contracts from SQL schema files.

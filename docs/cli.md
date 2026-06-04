@@ -218,6 +218,40 @@ emits the same read model as structured JSON for dashboards or external
 operations tooling. This is a workflow dashboard foundation, not an interactive
 web dashboard.
 
+### `workflow`
+
+Queue and drain durable workflow lifecycle events through the file-backed
+runtime state root.
+
+```bash
+cargo run -p num -- workflow enqueue .num-state start wf_1 process_refund \
+  --actor agent@example.com \
+  --tenant tenant_1 \
+  --permission IssueRefund \
+  --metadata source=cli
+cargo run -p num -- workflow enqueue .num-state wait wf_1
+cargo run -p num -- workflow enqueue .num-state resume wf_1
+cargo run -p num -- workflow enqueue .num-state complete wf_1
+cargo run -p num -- workflow drain .num-state --max-events 10
+cargo run -p num -- workflow drain .num-state --json
+```
+
+Supported event kinds are `start`, `wait`, `resume`, `complete`, `fail`,
+`compensate`, and `cancel`. `start` events require `<workflow-id>` and
+`<workflow-name>`. `fail` events require `<workflow-id>` and `<reason>`.
+Transition events require only `<workflow-id>`.
+
+The state root uses:
+
+- `<state-root>/events` for queued event files;
+- `<state-root>/workflows` for persisted workflow state;
+- `<state-root>/audit/events.jsonl` for lifecycle audit events.
+
+`workflow drain` stops on the first failed event by default and reports
+processed states plus failures. Pass `--no-stop-on-error` to continue through a
+batch after failures. This is a durable local/CI worker foundation, not a
+cluster scheduler with worker leases, retries, or distributed queue ownership.
+
 ### `route`
 
 Validate and execute a demo service route through the lightweight interpreter.

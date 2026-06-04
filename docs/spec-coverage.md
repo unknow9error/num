@@ -168,6 +168,8 @@ Implemented:
 - `num registry publish`
 - `num registry list`
 - `num registry install`
+- `num workflow enqueue`
+- `num workflow drain`
 - `num cost-report`
 - `num audit-report`
 - `num workflow-report`
@@ -490,7 +492,7 @@ Major full-spec areas not implemented in v0.1.0:
 - async/await;
 - structured concurrency;
 - actor model;
-- distributed queues and events;
+- clustered distributed queue ownership, retries, and worker leasing;
 - external secrets manager integration such as Vault/KMS/cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
@@ -534,7 +536,7 @@ Major full-spec areas not implemented in v0.1.0:
 - hardened production HTTP server runtime for backend services;
 - financial safety;
 - documents;
-- durable workflows;
+- durable workflows with file-backed lifecycle event enqueue/drain tooling;
 - audit schema;
 - cost-aware execution;
 - runtime observability;
