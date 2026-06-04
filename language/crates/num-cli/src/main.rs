@@ -10,6 +10,8 @@ mod project;
 mod registry;
 mod registry_cli;
 mod sql_schema;
+mod version_upgrade;
+mod version_upgrade_cli;
 mod workflow_cli;
 
 use num_compiler::{
@@ -355,6 +357,8 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
+        "upgrade-version" => version_upgrade_cli::run(args),
+        "version" => print_version(args),
         "cost-report" => {
             let path = required_path(args.next(), "cost-report")?;
             let format_json = match args.next().as_deref() {
@@ -565,6 +569,7 @@ fn run() -> Result<(), String> {
             print_completions(&shell)
         }
         "lsp" => num_lsp::run_server(),
+        "--version" | "-V" => print_version(args),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -835,8 +840,37 @@ fn print_help() {
     println!("{}", help_text());
 }
 
-fn help_text() -> &'static str {
-    "num 0.1.0\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n"
+fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
+    let format_json = match args.next().as_deref() {
+        Some("--json") => true,
+        Some(other) => return Err(format!("unexpected version argument '{other}'")),
+        None => false,
+    };
+    if let Some(other) = args.next() {
+        return Err(format!("unexpected version argument '{other}'"));
+    }
+    if format_json {
+        let payload = serde_json::json!({
+            "cli": env!("CARGO_PKG_VERSION"),
+            "language": compatibility::CURRENT_LANGUAGE_VERSION,
+            "manifest_schema": compatibility::CURRENT_MANIFEST_SCHEMA,
+        });
+        let json = serde_json::to_string_pretty(&payload)
+            .map_err(|err| format!("failed to render version JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        println!("num {}", env!("CARGO_PKG_VERSION"));
+        println!("language {}", compatibility::CURRENT_LANGUAGE_VERSION);
+        println!("manifest_schema {}", compatibility::CURRENT_MANIFEST_SCHEMA);
+    }
+    Ok(())
+}
+
+fn help_text() -> String {
+    format!(
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 fn print_completions(shell: &str) -> Result<(), String> {
@@ -887,6 +921,8 @@ _num() {
     'deploy:build a deployment plan artifact'
     'compat:check language/schema compatibility'
     'migrate:plan or apply manifest migrations'
+    'upgrade-version:plan or apply manifest version upgrades'
+    'version:print CLI/language/schema versions'
     'registry:manage local package registries'
     'workflow:queue and drain durable workflow events'
     'connector-sdk:generate connector implementation SDKs'
@@ -910,7 +946,7 @@ _num() {
   fi
 
   case "$words[2]" in
-    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|connector-sdk|cost-report|route|serve|serve-once|lock)
+    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|upgrade-version|connector-sdk|cost-report|route|serve|serve-once|lock)
       _num_num_files
       ;;
     audit-report)

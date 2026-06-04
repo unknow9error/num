@@ -7,8 +7,8 @@ technical specification.
 ## Now
 
 - Keep the compiler, runtime, CLI, examples, VS Code extension, and docs green.
-- Preserve compatibility metadata through `num.toml`, `num compat`, `num lock`,
-  and `num deploy`.
+- Preserve compatibility metadata through `num.toml`, `num compat`,
+  `num upgrade-version`, `num lock`, and `num deploy`.
 - Grow the local filesystem package registry into a stable package ecosystem
   foundation through publish/list/install workflows.
 - Use GitHub issues and pull requests for each meaningful platform slice.
@@ -39,7 +39,7 @@ technical specification.
 
 - Remote package registry publish/download service.
 - Git dependency checkout and lockfile transitive pinning.
-- Schema versioning and automatic migrations.
+- Automatic source migrations between language versions.
 - Full standard library.
 - Hardened production HTTP runtime.
 - Broader OpenAPI and SQL import coverage.

@@ -496,6 +496,33 @@ writes when `--write` is passed. The current migration path inserts missing
 `manifest_schema = 0` to the current manifest schema. Manifests that require a
 future schema are rejected instead of rewritten.
 
+### `upgrade-version`
+
+Plan or apply safe `num.toml` version upgrades.
+
+```bash
+cargo run -p num -- upgrade-version examples/refund_workflow
+cargo run -p num -- upgrade-version examples/refund_workflow --json
+cargo run -p num -- upgrade-version examples/refund_workflow --project 0.2.0 --write
+cargo run -p num -- upgrade-version legacy_project --language 0.1.0 --write
+```
+
+The command updates `[language].version` to the current CLI language version by
+default, fills missing `[language]` metadata when needed, and can also bump
+`[project].version` when `--project <x.y.z>` is passed. It refuses downgrades
+for both language and project versions. Like `migrate`, this is a dry-run unless
+`--write` is passed.
+
+### `version`
+
+Print the CLI, language, and manifest schema versions.
+
+```bash
+cargo run -p num -- version
+cargo run -p num -- version --json
+cargo run -p num -- --version
+```
+
 ### `import openapi`
 
 Generate `.num` type and connector declarations from an OpenAPI JSON document.

@@ -58,7 +58,9 @@ an incompatible dependency cannot be silently compiled. `num compat
 embeds the same language/schema metadata into the deployment plan artifact.
 `num migrate [project-dir|file] [--write]` can add missing `[language]`
 metadata, fill partial language sections, and upgrade schema `0` manifests to
-the current schema.
+the current schema. `num upgrade-version [project-dir|file] [--write]` can
+plan/apply a `[language].version` upgrade to the current CLI language version
+and optionally bump `[project].version` with `--project <x.y.z>`.
 
 ### `[project]`
 
@@ -264,6 +266,7 @@ Implemented:
 - language/schema compatibility validation through `[language]` and
   `num compat`;
 - manifest migration planning/application through `num migrate`;
+- manifest version upgrade planning/application through `num upgrade-version`;
 - source directory and entry source selection through `[project]`.
 - direct dependency declarations through `[dependencies]`;
 - direct path dependency source discovery for module imports;
