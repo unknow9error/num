@@ -110,8 +110,8 @@ This repository contains a working production-grade foundation for:
 - exhaustive return-path analysis for typed callables;
 - IR lowering;
 - CLI commands: `check`, `fmt`, `ir`, `run`, `route`, `serve`, `serve-once`,
-  `deploy`, `compat`, `migrate`, `registry`, `workflow`, `connector-sdk`,
-  `new`, `completions`, and `lsp`;
+  `deploy`, `compat`, `migrate`, `upgrade-version`, `version`, `registry`,
+  `workflow`, `connector-sdk`, `new`, `completions`, and `lsp`;
 - runtime contracts for workflow/action/audit/cost state;
 - file-backed workflow state store and audit JSONL sink;
 - workflow lifecycle engine with persisted start/wait/resume/complete/fail/
@@ -136,7 +136,8 @@ This repository contains a working production-grade foundation for:
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;
 - manifest language/schema version compatibility checks, manifest migration
-  planning/application, and manifest version upgrade planning/application;
+  planning/application, manifest version upgrade planning/application, and
+  fixture-backed compatibility matrix coverage;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - LSP diagnostics, completions, hover, formatting, and document symbols;

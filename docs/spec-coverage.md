@@ -192,6 +192,9 @@ Implemented:
 - `num upgrade-version` dry-run/write reports for safe `[language].version`
   and optional `[project].version` upgrades;
 - `num version` CLI/language/schema version reporting;
+- fixture-backed CLI compatibility matrix coverage for current manifests,
+  legacy missing-language manifests, schema `0` migration, future schema
+  rejection, future language rejection, and project-version upgrades;
 - local filesystem registry publish/list/install workflow for package
   development and private package sharing;
 - early project-command rejection for packages that require a future
@@ -542,6 +545,7 @@ Major full-spec areas not implemented in v0.1.0:
 - language/schema compatibility checks.
 - manifest migration tooling.
 - manifest version upgrade tooling.
+- fixture-backed manifest compatibility matrix coverage.
 
 ### Foundation Only
 
@@ -558,6 +562,8 @@ Major full-spec areas not implemented in v0.1.0:
 - language versioning and compatibility policy;
 - manifest migration tooling;
 - manifest version upgrade tooling;
+- compatibility matrix coverage for the current v0.1.0 manifest/schema
+  surface;
 - standard library.
 
 ### Planned Platform Work
