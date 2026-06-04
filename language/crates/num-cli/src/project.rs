@@ -136,10 +136,12 @@ fn dependency_manifests(manifest: &PackageManifest) -> Result<Vec<PackageManifes
 pub fn create_project(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path.join("src"))
         .map_err(|err| format!("failed to create {}: {err}", path.display()))?;
-    write_file(
-        &path.join("num.toml"),
-        "[language]\nversion = \"0.1.0\"\ncompatibility = \"minor\"\nmanifest_schema = 1\n\n[project]\nname = \"new-num-service\"\nversion = \"0.1.0\"\nsource = \"src\"\nentry = \"src/main.num\"\n\n[dependencies]\n\n[runtime]\nworkflow_store = \"memory\"\naudit_store = \"stdout\"\n\n[security]\npolicy_mode = \"strict\"\n",
-    )?;
+    let manifest = format!(
+        "[language]\nversion = \"{}\"\ncompatibility = \"minor\"\nmanifest_schema = {}\n\n[project]\nname = \"new-num-service\"\nversion = \"0.1.0\"\nsource = \"src\"\nentry = \"src/main.num\"\n\n[dependencies]\n\n[runtime]\nworkflow_store = \"memory\"\naudit_store = \"stdout\"\n\n[security]\npolicy_mode = \"strict\"\n",
+        compatibility::CURRENT_LANGUAGE_VERSION,
+        compatibility::CURRENT_MANIFEST_SCHEMA
+    );
+    write_file(&path.join("num.toml"), &manifest)?;
     write_file(
         &path.join("src/access.num"),
         "module app.access\n\npermission Execute\n\nrole Operator {\n    allow Execute\n}\n",

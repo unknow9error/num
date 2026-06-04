@@ -135,8 +135,8 @@ This repository contains a working production-grade foundation for:
 - scripted CLI debugger over runtime trace events;
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;
-- manifest language/schema version compatibility checks and manifest migration
-  planning/application;
+- manifest language/schema version compatibility checks, manifest migration
+  planning/application, and manifest version upgrade planning/application;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - LSP diagnostics, completions, hover, formatting, and document symbols;

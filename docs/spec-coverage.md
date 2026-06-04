@@ -165,6 +165,8 @@ Implemented:
 - `num deploy`
 - `num compat`
 - `num migrate`
+- `num upgrade-version`
+- `num version`
 - `num registry publish`
 - `num registry list`
 - `num registry install`
@@ -187,6 +189,9 @@ Implemented:
   path/local-registry dependencies;
 - `num migrate` dry-run/write migration reports for legacy or partial
   `[language]` manifest metadata;
+- `num upgrade-version` dry-run/write reports for safe `[language].version`
+  and optional `[project].version` upgrades;
+- `num version` CLI/language/schema version reporting;
 - local filesystem registry publish/list/install workflow for package
   development and private package sharing;
 - early project-command rejection for packages that require a future
@@ -536,6 +541,7 @@ Major full-spec areas not implemented in v0.1.0:
 - local/CI deployment bundle materialization.
 - language/schema compatibility checks.
 - manifest migration tooling.
+- manifest version upgrade tooling.
 
 ### Foundation Only
 
@@ -551,6 +557,7 @@ Major full-spec areas not implemented in v0.1.0:
 - deployment planning and local artifact materialization;
 - language versioning and compatibility policy;
 - manifest migration tooling;
+- manifest version upgrade tooling;
 - standard library.
 
 ### Planned Platform Work

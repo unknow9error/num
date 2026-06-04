@@ -1,7 +1,7 @@
 use crate::package::PackageManifest;
 use serde_json::{json, Value};
 
-pub const CURRENT_LANGUAGE_VERSION: &str = "0.1.0";
+pub const CURRENT_LANGUAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const CURRENT_MANIFEST_SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
