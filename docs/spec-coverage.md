@@ -191,6 +191,9 @@ Implemented:
   `[language]` manifest metadata;
 - `num upgrade-version` dry-run/write reports for safe `[language].version`
   and optional `[project].version` upgrades;
+- `num upgrade-version --include-dependencies` graph reports for resolved
+  path/local-registry dependency manifests, with explicit
+  `--write-dependencies` application;
 - `num version` CLI/language/schema version reporting;
 - fixture-backed CLI compatibility matrix coverage for current manifests,
   legacy missing-language manifests, schema `0` migration, future schema
@@ -552,6 +555,7 @@ Major full-spec areas not implemented in v0.1.0:
 - language/schema compatibility checks.
 - manifest migration tooling.
 - manifest version upgrade tooling.
+- graph-aware dependency version upgrade reports.
 - fixture-backed manifest compatibility matrix coverage.
 
 ### Foundation Only

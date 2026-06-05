@@ -60,10 +60,14 @@ embeds the same language/schema metadata into the deployment plan artifact.
 metadata, fill partial language sections, and upgrade schema `0` manifests to
 the current schema. `num upgrade-version [project-dir|file] [--write]` can
 plan/apply a `[language].version` upgrade to the current CLI language version
-and optionally bump `[project].version` with `--project <x.y.z>`. The CLI test
+and optionally bump `[project].version` with `--project <x.y.z>`. With
+`--include-dependencies`, it reports upgrade readiness across resolved
+path/local-registry dependency manifests; `--write-dependencies` applies
+dependency language upgrades only when paired with `--write`. The CLI test
 suite includes fixture projects for current manifests, legacy missing-language
 manifests, schema `0` migration, future schema rejection, future language
-rejection, and project-version upgrade compatibility.
+rejection, project-version upgrade compatibility, and graph-aware dependency
+upgrade planning.
 
 ### `[project]`
 
@@ -274,6 +278,8 @@ Implemented:
   `num compat`;
 - manifest migration planning/application through `num migrate`;
 - manifest version upgrade planning/application through `num upgrade-version`;
+- graph-aware dependency version upgrade planning/application through
+  `num upgrade-version --include-dependencies`;
 - fixture-backed manifest compatibility matrix tests for current, legacy, and
   future manifest/version cases;
 - source directory and entry source selection through `[project]`.

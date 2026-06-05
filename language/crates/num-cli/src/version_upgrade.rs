@@ -1,6 +1,8 @@
 use crate::compatibility::{CURRENT_LANGUAGE_VERSION, CURRENT_MANIFEST_SCHEMA};
-use crate::package::PackageManifest;
+use crate::package::{DependencySource, PackageManifest};
+use crate::registry::LocalRegistry;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +11,8 @@ pub struct VersionUpgradeOptions {
     pub target_language_version: String,
     pub target_project_version: Option<String>,
     pub write: bool,
+    pub include_dependencies: bool,
+    pub write_dependencies: bool,
 }
 
 impl Default for VersionUpgradeOptions {
@@ -17,6 +21,8 @@ impl Default for VersionUpgradeOptions {
             target_language_version: CURRENT_LANGUAGE_VERSION.to_string(),
             target_project_version: None,
             write: false,
+            include_dependencies: false,
+            write_dependencies: false,
         }
     }
 }
@@ -24,6 +30,8 @@ impl Default for VersionUpgradeOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionUpgradeReport {
     pub manifest_path: PathBuf,
+    pub package_name: String,
+    pub package_version: String,
     pub changed: bool,
     pub applied: bool,
     pub actions: Vec<String>,
@@ -35,6 +43,10 @@ impl VersionUpgradeReport {
     pub fn to_json(&self) -> Value {
         json!({
             "manifest": self.manifest_path.display().to_string(),
+            "package": {
+                "name": self.package_name,
+                "version": self.package_version,
+            },
             "changed": self.changed,
             "applied": self.applied,
             "actions": self.actions,
@@ -48,6 +60,10 @@ impl VersionUpgradeReport {
         out.push_str(&format!(
             "Version upgrade plan for {}\n",
             self.manifest_path.display()
+        ));
+        out.push_str(&format!(
+            "  package: {} {}\n",
+            self.package_name, self.package_version
         ));
         out.push_str(if self.changed {
             if self.applied {
@@ -69,6 +85,76 @@ impl VersionUpgradeReport {
             out.push_str(&format!("  - {action}\n"));
         }
         out
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionUpgradeGraphReport {
+    pub root: VersionUpgradeReport,
+    pub dependencies: Vec<VersionUpgradeDependencyReport>,
+    pub changed: bool,
+    pub applied: bool,
+}
+
+impl VersionUpgradeGraphReport {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "changed": self.changed,
+            "applied": self.applied,
+            "root": self.root.to_json(),
+            "dependencies": self
+                .dependencies
+                .iter()
+                .map(VersionUpgradeDependencyReport::to_json)
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str("Version upgrade graph plan\n");
+        out.push_str(if self.changed {
+            if self.applied {
+                "Status: applied\n\n"
+            } else {
+                "Status: pending\n\n"
+            }
+        } else {
+            "Status: up to date\n\n"
+        });
+        out.push_str("Workspace:\n");
+        out.push_str(&indent_text(&self.root.render_text()));
+        if self.dependencies.is_empty() {
+            out.push_str("\nDependencies: none\n");
+            return out;
+        }
+        out.push_str("\nDependencies:\n");
+        for dependency in &self.dependencies {
+            out.push_str(&format!(
+                "  [{}] {} {} ({})\n",
+                dependency.source,
+                dependency.report.package_name,
+                dependency.report.package_version,
+                dependency.report.manifest_path.display()
+            ));
+            out.push_str(&indent_text(&dependency.report.render_text()));
+        }
+        out
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionUpgradeDependencyReport {
+    pub source: String,
+    pub report: VersionUpgradeReport,
+}
+
+impl VersionUpgradeDependencyReport {
+    fn to_json(&self) -> Value {
+        json!({
+            "source": self.source,
+            "report": self.report.to_json(),
+        })
     }
 }
 
@@ -103,24 +189,95 @@ pub fn upgrade_manifest_versions(
     path: &Path,
     options: &VersionUpgradeOptions,
 ) -> Result<VersionUpgradeReport, String> {
-    validate_semver(&options.target_language_version, "target language version")?;
-    if let Some(project_version) = &options.target_project_version {
-        validate_semver(project_version, "target project version")?;
-    }
+    validate_version_options(options)?;
 
     let (root, manifest_path, source) = discover_manifest_source(path)?;
     let manifest = PackageManifest::parse(&root, &manifest_path, &source);
+    upgrade_manifest(&manifest, options, options.write)
+}
+
+pub fn upgrade_manifest_graph_versions(
+    path: &Path,
+    options: &VersionUpgradeOptions,
+) -> Result<VersionUpgradeGraphReport, String> {
+    validate_version_options(options)?;
+    if options.write_dependencies && !options.write {
+        return Err("--write-dependencies requires --write".to_string());
+    }
+
+    let (root, manifest_path, source) = discover_manifest_source(path)?;
+    let root_manifest = PackageManifest::parse(&root, &manifest_path, &source);
+    let manifests = collect_upgrade_manifest_graph(&root_manifest)?;
+    let mut root_report = None;
+    let mut dependencies = Vec::new();
+
+    for graph_manifest in manifests {
+        let mut package_options = options.clone();
+        if graph_manifest.source != "workspace" {
+            package_options.target_project_version = None;
+        }
+        let should_write = if graph_manifest.source == "workspace" {
+            options.write
+        } else {
+            options.write_dependencies
+        };
+        let report = upgrade_manifest(&graph_manifest.manifest, &package_options, should_write)?;
+        if graph_manifest.source == "workspace" {
+            root_report = Some(report);
+        } else {
+            dependencies.push(VersionUpgradeDependencyReport {
+                source: graph_manifest.source,
+                report,
+            });
+        }
+    }
+
+    dependencies.sort_by(|left, right| {
+        left.report
+            .manifest_path
+            .cmp(&right.report.manifest_path)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+
+    let root = root_report.ok_or_else(|| "upgrade graph did not include workspace".to_string())?;
+    let changed = root.changed
+        || dependencies
+            .iter()
+            .any(|dependency| dependency.report.changed);
+    let pending = (root.changed && !root.applied)
+        || dependencies
+            .iter()
+            .any(|dependency| dependency.report.changed && !dependency.report.applied);
+    let applied = changed && !pending;
+    Ok(VersionUpgradeGraphReport {
+        root,
+        dependencies,
+        changed,
+        applied,
+    })
+}
+
+fn upgrade_manifest(
+    manifest: &PackageManifest,
+    options: &VersionUpgradeOptions,
+    write: bool,
+) -> Result<VersionUpgradeReport, String> {
+    let source = fs::read_to_string(&manifest.path)
+        .map_err(|err| format!("failed to read {}: {err}", manifest.path.display()))?;
+    let manifest = PackageManifest::parse(&manifest.root, &manifest.path, &source);
     let planned = plan_version_upgrade(&source, &manifest, options)?;
 
-    if options.write && planned.changed {
-        fs::write(&manifest_path, &planned.source)
-            .map_err(|err| format!("failed to write {}: {err}", manifest_path.display()))?;
+    if write && planned.changed {
+        fs::write(&manifest.path, &planned.source)
+            .map_err(|err| format!("failed to write {}: {err}", manifest.path.display()))?;
     }
 
     Ok(VersionUpgradeReport {
-        manifest_path,
+        manifest_path: manifest.path,
+        package_name: manifest.project.name,
+        package_version: manifest.project.version,
         changed: planned.changed,
-        applied: options.write && planned.changed,
+        applied: write && planned.changed,
         actions: planned.actions,
         language: planned.language,
         project: planned.project,
@@ -211,6 +368,110 @@ fn plan_version_upgrade(
         language,
         project,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpgradeGraphManifest {
+    source: String,
+    manifest: PackageManifest,
+}
+
+fn collect_upgrade_manifest_graph(
+    manifest: &PackageManifest,
+) -> Result<Vec<UpgradeGraphManifest>, String> {
+    let mut manifests = Vec::new();
+    let mut visited = BTreeSet::new();
+    collect_upgrade_manifest_graph_inner(
+        manifest,
+        "workspace".to_string(),
+        &mut visited,
+        &mut manifests,
+    )?;
+    Ok(manifests)
+}
+
+fn collect_upgrade_manifest_graph_inner(
+    manifest: &PackageManifest,
+    source: String,
+    visited: &mut BTreeSet<PathBuf>,
+    manifests: &mut Vec<UpgradeGraphManifest>,
+) -> Result<(), String> {
+    let key = fs::canonicalize(&manifest.path).unwrap_or_else(|_| manifest.path.clone());
+    if !visited.insert(key) {
+        return Ok(());
+    }
+
+    manifests.push(UpgradeGraphManifest {
+        source,
+        manifest: manifest.clone(),
+    });
+
+    let mut dependencies = manifest.path_dependency_manifests()?;
+    let registry = LocalRegistry::discover_for(manifest);
+    for dependency in &manifest.dependencies {
+        let DependencySource::Registry = dependency.source else {
+            continue;
+        };
+        let registry = registry.as_ref().ok_or_else(|| {
+            format!(
+                "registry dependency `{}` requires [registry].path or NUM_REGISTRY_PATH",
+                dependency.name
+            )
+        })?;
+        if let Some(resolved) = registry.resolve(dependency)? {
+            dependencies.push(resolved);
+        }
+    }
+    dependencies.sort_by(|left, right| {
+        left.project
+            .name
+            .cmp(&right.project.name)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+
+    for dependency_manifest in dependencies {
+        let source = dependency_source_label(manifest, &dependency_manifest);
+        collect_upgrade_manifest_graph_inner(&dependency_manifest, source, visited, manifests)?;
+    }
+
+    Ok(())
+}
+
+fn dependency_source_label(parent: &PackageManifest, dependency: &PackageManifest) -> String {
+    for direct in &parent.dependencies {
+        match &direct.source {
+            DependencySource::Path(path)
+                if direct.name == dependency.project.name
+                    && direct.version == dependency.project.version =>
+            {
+                return format!("path:{path}");
+            }
+            DependencySource::Registry
+                if direct.name == dependency.project.name
+                    && direct.version == dependency.project.version =>
+            {
+                return "registry".to_string();
+            }
+            DependencySource::Git(_) => {}
+            DependencySource::Registry => {}
+            DependencySource::Path(_) => {}
+        }
+    }
+    "dependency".to_string()
+}
+
+fn validate_version_options(options: &VersionUpgradeOptions) -> Result<(), String> {
+    validate_semver(&options.target_language_version, "target language version")?;
+    if let Some(project_version) = &options.target_project_version {
+        validate_semver(project_version, "target project version")?;
+    }
+    Ok(())
+}
+
+fn indent_text(text: &str) -> String {
+    text.lines()
+        .map(|line| format!("  {line}\n"))
+        .collect::<String>()
 }
 
 fn ensure_language_metadata(
@@ -521,13 +782,7 @@ version = "0.1.0"
 
     #[test]
     fn writes_upgrade_when_requested() {
-        let root = std::env::temp_dir().join(format!(
-            "num_version_upgrade_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let root = temp_dir("write");
         fs::create_dir_all(&root).unwrap();
         let manifest_path = root.join("num.toml");
         fs::write(
@@ -557,5 +812,260 @@ version = "0.1.0"
         assert!(report.applied);
         assert!(contents.contains(&format!("version = \"{CURRENT_LANGUAGE_VERSION}\"")));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn graph_upgrade_reports_transitive_path_dependencies() {
+        let root = temp_dir("graph_root");
+        let shared = sibling_dir(&root, "shared");
+        let core = sibling_dir(&root, "core");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+        fs::create_dir_all(&core).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.2.0" }}
+"#,
+                toml_path(&shared)
+            ),
+        );
+        write_manifest(
+            &shared,
+            &format!(
+                r#"[language]
+version = "0.0.1"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "shared"
+version = "0.2.0"
+
+[dependencies]
+core = {{ path = "{}", version = "1.0.0" }}
+"#,
+                toml_path(&core)
+            ),
+        );
+        write_manifest(
+            &core,
+            r#"[project]
+name = "core"
+version = "1.0.0"
+"#,
+        );
+
+        let report = upgrade_manifest_graph_versions(
+            &root,
+            &VersionUpgradeOptions {
+                include_dependencies: true,
+                ..VersionUpgradeOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(report.changed);
+        assert!(!report.applied);
+        assert_eq!(report.dependencies.len(), 2);
+        assert!(report
+            .dependencies
+            .iter()
+            .any(
+                |dependency| dependency.report.manifest_path == shared.join("num.toml")
+                    && dependency.report.language.from == "0.0.1"
+            ));
+        assert!(report
+            .dependencies
+            .iter()
+            .any(
+                |dependency| dependency.report.manifest_path == core.join("num.toml")
+                    && dependency.report.changed
+            ));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+        fs::remove_dir_all(core).unwrap();
+    }
+
+    #[test]
+    fn graph_write_keeps_dependencies_pending_without_write_dependencies() {
+        let root = temp_dir("graph_write_root");
+        let shared = sibling_dir(&root, "shared");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"[language]
+version = "0.0.1"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.2.0" }}
+"#,
+                toml_path(&shared)
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"[language]
+version = "0.0.1"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "shared"
+version = "0.2.0"
+"#,
+        );
+
+        let report = upgrade_manifest_graph_versions(
+            &root,
+            &VersionUpgradeOptions {
+                write: true,
+                include_dependencies: true,
+                ..VersionUpgradeOptions::default()
+            },
+        )
+        .unwrap();
+        let root_source = fs::read_to_string(root.join("num.toml")).unwrap();
+        let shared_source = fs::read_to_string(shared.join("num.toml")).unwrap();
+
+        assert!(report.root.applied);
+        assert!(!report.applied);
+        assert!(report.dependencies[0].report.changed);
+        assert!(!report.dependencies[0].report.applied);
+        assert!(root_source.contains(&format!("version = \"{CURRENT_LANGUAGE_VERSION}\"")));
+        assert!(shared_source.contains("version = \"0.0.1\""));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
+    fn graph_write_applies_dependency_manifests_when_requested() {
+        let root = temp_dir("graph_write_deps_root");
+        let shared = sibling_dir(&root, "shared");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.2.0" }}
+"#,
+                toml_path(&shared)
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"[language]
+version = "0.0.1"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "shared"
+version = "0.2.0"
+"#,
+        );
+
+        let report = upgrade_manifest_graph_versions(
+            &root,
+            &VersionUpgradeOptions {
+                write: true,
+                include_dependencies: true,
+                write_dependencies: true,
+                target_project_version: Some("0.3.0".to_string()),
+                ..VersionUpgradeOptions::default()
+            },
+        )
+        .unwrap();
+        let root_source = fs::read_to_string(root.join("num.toml")).unwrap();
+        let shared_source = fs::read_to_string(shared.join("num.toml")).unwrap();
+
+        assert!(report.root.applied);
+        assert!(report.applied);
+        assert!(report.dependencies[0].report.applied);
+        assert_eq!(report.root.project.unwrap().to, "0.3.0");
+        assert!(report.dependencies[0].report.project.is_none());
+        assert!(root_source.contains("version = \"0.3.0\""));
+        assert!(shared_source.contains(&format!("version = \"{CURRENT_LANGUAGE_VERSION}\"")));
+        assert!(!shared_source.contains("version = \"0.3.0\""));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
+    fn graph_write_dependencies_requires_write() {
+        let root = temp_dir("graph_write_flag_root");
+        fs::create_dir_all(&root).unwrap();
+        write_manifest(
+            &root,
+            r#"[project]
+name = "app"
+version = "0.1.0"
+"#,
+        );
+
+        let err = upgrade_manifest_graph_versions(
+            &root,
+            &VersionUpgradeOptions {
+                include_dependencies: true,
+                write_dependencies: true,
+                ..VersionUpgradeOptions::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "--write-dependencies requires --write");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "num_version_upgrade_{name}_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn sibling_dir(root: &Path, suffix: &str) -> PathBuf {
+        root.with_file_name(format!(
+            "{}_{suffix}",
+            root.file_name().unwrap().to_string_lossy()
+        ))
+    }
+
+    fn write_manifest(root: &Path, source: &str) {
+        fs::write(root.join("num.toml"), source).unwrap();
+    }
+
+    fn toml_path(path: &Path) -> String {
+        path.display()
+            .to_string()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
     }
 }
