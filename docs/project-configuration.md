@@ -106,7 +106,11 @@ Supported dependency forms:
   reference.
 
 `num lock [project-dir|file]` writes a deterministic `num.lock` beside the
-manifest. The lockfile currently records direct dependencies only.
+manifest. The lockfile records the workspace package plus direct and transitive
+path/local-registry dependencies when those packages can be resolved locally.
+Resolved package entries include language/schema compatibility metadata and
+sorted dependency edges. Git dependencies, and registry dependencies without a
+configured local registry root, remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`
@@ -277,14 +281,16 @@ Implemented:
 - direct path dependency source discovery for module imports;
 - local filesystem registry dependency source discovery for module imports;
 - local filesystem registry publish/list/install through `num registry`;
-- deterministic `num.lock` generation through `num lock`.
+- deterministic `num.lock` generation through `num lock`;
+- transitive `num.lock` pinning for resolved path/local-registry dependency
+  graphs.
 - deployment plan generation and local/CI deployment bundle materialization
   through `num deploy --apply`.
 
 Not implemented yet:
 
 - remote registry package download/publish APIs;
-- lockfile transitive dependency pinning;
+- remote/git package checkout and lockfile pinning;
 - automatic source migrations between language versions;
 - git dependency checkout;
 - runtime backend selection from manifest values;

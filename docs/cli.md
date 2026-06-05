@@ -369,9 +369,8 @@ Generate `num.lock` next to the discovered `num.toml`.
 cargo run -p num -- lock examples/refund_workflow
 ```
 
-The command records the workspace package plus sorted direct `[dependencies]`
-entries from `num.toml`. Dependency values can be version strings or inline
-tables:
+The command records the workspace package plus sorted `[dependencies]` entries
+from `num.toml`. Dependency values can be version strings or inline tables:
 
 ```toml
 [dependencies]
@@ -381,8 +380,11 @@ banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
 ```
 
 The current lockfile is deterministic local metadata. It records the workspace
-package language/schema compatibility metadata plus direct dependencies. It
-does not fetch remote packages or pin transitive dependencies yet.
+package language/schema compatibility metadata plus direct and transitive
+path/local-registry dependencies that can be resolved locally. Resolved package
+entries include sorted dependency edges. Git dependencies, and registry
+dependencies without a configured local registry root, remain metadata-only
+entries. Remote package fetching and git checkout are not implemented yet.
 
 Direct `path` dependencies and local filesystem registry dependencies are
 loaded during `check`, `run`, `route`, `serve`, and `serve-once`, which lets
