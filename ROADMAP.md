@@ -40,7 +40,7 @@ technical specification.
 ## Later
 
 - Remote package registry publish/download service.
-- Git dependency checkout and lockfile transitive pinning.
+- Git dependency checkout and remote registry/git lockfile pinning.
 - Automatic source migrations between language versions.
 - Full standard library.
 - Hardened production HTTP runtime.

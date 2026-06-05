@@ -1,5 +1,6 @@
 use crate::compatibility;
-use std::collections::BTreeMap;
+use crate::registry::LocalRegistry;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -283,33 +284,258 @@ pub fn write_lockfile(path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("no num.toml found for {}", path.display()))?;
     compatibility::validate_manifest(&manifest)?;
     let lock_path = manifest.lock_path();
-    fs::write(&lock_path, render_lockfile(&manifest))
+    fs::write(&lock_path, render_lockfile_graph(&manifest)?)
         .map_err(|err| format!("failed to write {}: {err}", lock_path.display()))?;
     Ok(lock_path)
 }
 
+#[cfg(test)]
 pub fn render_lockfile(manifest: &PackageManifest) -> String {
+    render_lock_entries(&direct_lock_entries(manifest))
+}
+
+fn render_lockfile_graph(manifest: &PackageManifest) -> Result<String, String> {
+    let entries = resolve_lock_entries(manifest)?;
+    Ok(render_lock_entries(&entries))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockPackage {
+    name: String,
+    version: String,
+    source: String,
+    language: Option<String>,
+    compatibility: Option<String>,
+    manifest_schema: Option<u32>,
+    dependencies: Vec<String>,
+}
+
+#[cfg(test)]
+fn direct_lock_entries(manifest: &PackageManifest) -> Vec<LockPackage> {
+    let mut entries = vec![workspace_lock_package(manifest)];
+    entries.extend(manifest.dependencies.iter().map(|dependency| LockPackage {
+        name: dependency.name.clone(),
+        version: dependency.version.clone(),
+        source: dependency.source.lock_source(),
+        language: None,
+        compatibility: None,
+        manifest_schema: None,
+        dependencies: Vec::new(),
+    }));
+    entries.sort_by(lock_package_order);
+    if let Some(workspace_index) = entries.iter().position(|entry| entry.source == "workspace") {
+        let workspace = entries.remove(workspace_index);
+        entries.insert(0, workspace);
+    }
+    entries
+}
+
+fn resolve_lock_entries(manifest: &PackageManifest) -> Result<Vec<LockPackage>, String> {
+    let mut packages = Vec::new();
+    let mut visited = BTreeSet::new();
+    resolve_lock_manifest(
+        manifest,
+        "workspace".to_string(),
+        &mut visited,
+        &mut packages,
+    )?;
+
+    if packages.len() > 1 {
+        packages[1..].sort_by(lock_package_order);
+    }
+    Ok(packages)
+}
+
+fn resolve_lock_manifest(
+    manifest: &PackageManifest,
+    source: String,
+    visited: &mut BTreeSet<String>,
+    packages: &mut Vec<LockPackage>,
+) -> Result<(), String> {
+    compatibility::validate_manifest(manifest)?;
+    let key = format!(
+        "{}@{} {source}",
+        manifest.project.name, manifest.project.version
+    );
+    if !visited.insert(key) {
+        return Ok(());
+    }
+
+    let mut dependencies = manifest
+        .dependencies
+        .iter()
+        .map(lock_dependency_label)
+        .collect::<Vec<_>>();
+    dependencies.sort();
+    packages.push(LockPackage {
+        name: manifest.project.name.clone(),
+        version: manifest.project.version.clone(),
+        source,
+        language: Some(manifest.language.version.clone()),
+        compatibility: Some(manifest.language.compatibility.clone()),
+        manifest_schema: Some(manifest.language.manifest_schema),
+        dependencies,
+    });
+
+    for dependency in &manifest.dependencies {
+        match dependency.source {
+            DependencySource::Path(_) => {
+                let dependency_manifest = load_path_dependency_manifest(manifest, dependency)?;
+                validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
+                resolve_lock_manifest(
+                    &dependency_manifest,
+                    dependency.source.lock_source(),
+                    visited,
+                    packages,
+                )?;
+            }
+            DependencySource::Registry => {
+                let Some(registry) = LocalRegistry::discover_for(manifest) else {
+                    add_unresolved_lock_dependency(dependency, visited, packages);
+                    continue;
+                };
+                let Some(dependency_manifest) = registry.resolve(dependency)? else {
+                    add_unresolved_lock_dependency(dependency, visited, packages);
+                    continue;
+                };
+                validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
+                resolve_lock_manifest(
+                    &dependency_manifest,
+                    dependency.source.lock_source(),
+                    visited,
+                    packages,
+                )?;
+            }
+            DependencySource::Git(_) => {
+                add_unresolved_lock_dependency(dependency, visited, packages)
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn add_unresolved_lock_dependency(
+    dependency: &PackageDependency,
+    visited: &mut BTreeSet<String>,
+    packages: &mut Vec<LockPackage>,
+) {
+    let source = dependency.source.lock_source();
+    let key = format!("{}@{} {source}", dependency.name, dependency.version);
+    if !visited.insert(key) {
+        return;
+    }
+    packages.push(LockPackage {
+        name: dependency.name.clone(),
+        version: dependency.version.clone(),
+        source,
+        language: None,
+        compatibility: None,
+        manifest_schema: None,
+        dependencies: Vec::new(),
+    });
+}
+
+fn load_path_dependency_manifest(
+    manifest: &PackageManifest,
+    dependency: &PackageDependency,
+) -> Result<PackageManifest, String> {
+    let DependencySource::Path(path) = &dependency.source else {
+        return Err(format!(
+            "dependency `{}` is not a path dependency",
+            dependency.name
+        ));
+    };
+    let dependency_root = manifest.root.join(path);
+    let manifest_path = dependency_root.join("num.toml");
+    if !manifest_path.is_file() {
+        return Err(format!(
+            "path dependency `{}` has no num.toml at {}",
+            dependency.name,
+            manifest_path.display()
+        ));
+    }
+    let source = fs::read_to_string(&manifest_path)
+        .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+    Ok(PackageManifest::parse(
+        &dependency_root,
+        &manifest_path,
+        &source,
+    ))
+}
+
+fn validate_dependency_manifest_identity(
+    dependency: &PackageDependency,
+    dependency_manifest: &PackageManifest,
+) -> Result<(), String> {
+    if dependency_manifest.project.name != dependency.name
+        || dependency_manifest.project.version != dependency.version
+    {
+        return Err(format!(
+            "dependency `{}` version `{}` resolved to package `{}` version `{}`",
+            dependency.name,
+            dependency.version,
+            dependency_manifest.project.name,
+            dependency_manifest.project.version
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn workspace_lock_package(manifest: &PackageManifest) -> LockPackage {
+    let mut dependencies = manifest
+        .dependencies
+        .iter()
+        .map(lock_dependency_label)
+        .collect::<Vec<_>>();
+    dependencies.sort();
+    LockPackage {
+        name: manifest.project.name.clone(),
+        version: manifest.project.version.clone(),
+        source: "workspace".to_string(),
+        language: Some(manifest.language.version.clone()),
+        compatibility: Some(manifest.language.compatibility.clone()),
+        manifest_schema: Some(manifest.language.manifest_schema),
+        dependencies,
+    }
+}
+
+fn lock_package_order(left: &LockPackage, right: &LockPackage) -> std::cmp::Ordering {
+    left.name
+        .cmp(&right.name)
+        .then_with(|| left.version.cmp(&right.version))
+        .then_with(|| left.source.cmp(&right.source))
+}
+
+fn lock_dependency_label(dependency: &PackageDependency) -> String {
+    format!(
+        "{}@{} {}",
+        dependency.name,
+        dependency.version,
+        dependency.source.lock_source()
+    )
+}
+
+fn render_lock_entries(entries: &[LockPackage]) -> String {
     let mut out = String::new();
     out.push_str("# This file is generated by `num lock`. Do not edit by hand.\n\n");
     out.push_str("version = 1\n\n");
-    out.push_str("[[package]]\n");
-    push_lock_field(&mut out, "name", &manifest.project.name);
-    push_lock_field(&mut out, "version", &manifest.project.version);
-    push_lock_field(&mut out, "source", "workspace");
-    push_lock_field(&mut out, "language", &manifest.language.version);
-    push_lock_field(&mut out, "compatibility", &manifest.language.compatibility);
-    push_lock_u32_field(
-        &mut out,
-        "manifest_schema",
-        manifest.language.manifest_schema,
-    );
-    out.push('\n');
-
-    for dependency in &manifest.dependencies {
+    for package in entries {
         out.push_str("[[package]]\n");
-        push_lock_field(&mut out, "name", &dependency.name);
-        push_lock_field(&mut out, "version", &dependency.version);
-        push_lock_field(&mut out, "source", &dependency.source.lock_source());
+        push_lock_field(&mut out, "name", &package.name);
+        push_lock_field(&mut out, "version", &package.version);
+        push_lock_field(&mut out, "source", &package.source);
+        if let Some(language) = &package.language {
+            push_lock_field(&mut out, "language", language);
+        }
+        if let Some(compatibility) = &package.compatibility {
+            push_lock_field(&mut out, "compatibility", compatibility);
+        }
+        if let Some(manifest_schema) = package.manifest_schema {
+            push_lock_u32_field(&mut out, "manifest_schema", manifest_schema);
+        }
+        push_lock_array_field(&mut out, "dependencies", &package.dependencies);
         out.push('\n');
     }
 
@@ -525,6 +751,20 @@ fn push_lock_u32_field(out: &mut String, key: &str, value: u32) {
     out.push_str(" = ");
     out.push_str(&value.to_string());
     out.push('\n');
+}
+
+fn push_lock_array_field(out: &mut String, key: &str, values: &[String]) {
+    out.push_str(key);
+    out.push_str(" = [");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('"');
+        out.push_str(&escape_lock_string(value));
+        out.push('"');
+    }
+    out.push_str("]\n");
 }
 
 fn escape_lock_string(value: &str) -> String {
@@ -785,6 +1025,175 @@ std = "0.1.0"
     }
 
     #[test]
+    fn lockfile_pins_transitive_path_dependencies() {
+        let root = temp_package_dir("path_lock_root");
+        let shared = root.with_file_name(format!(
+            "{}_shared",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let core = root.with_file_name(format!(
+            "{}_core",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&shared).unwrap();
+        fs::create_dir_all(&core).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.2.0" }}
+"#,
+                path_to_toml_string(shared.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            &format!(
+                r#"
+[project]
+name = "shared"
+version = "0.2.0"
+
+[dependencies]
+core = {{ path = "{}", version = "1.0.0" }}
+"#,
+                path_to_toml_string(core.display().to_string())
+            ),
+        );
+        write_manifest(
+            &core,
+            r#"
+[project]
+name = "core"
+version = "1.0.0"
+"#,
+        );
+
+        let path = write_lockfile(&root).unwrap();
+        let lockfile = fs::read_to_string(path).unwrap();
+
+        assert!(lockfile.contains("name = \"app\""));
+        assert!(lockfile.contains("name = \"shared\""));
+        assert!(lockfile.contains("name = \"core\""));
+        assert!(lockfile.contains("dependencies = [\"shared@0.2.0 path:"));
+        assert!(lockfile.contains("dependencies = [\"core@1.0.0 path:"));
+        assert!(lockfile.find("name = \"core\"") < lockfile.find("name = \"shared\""));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+        fs::remove_dir_all(core).unwrap();
+    }
+
+    #[test]
+    fn lockfile_rejects_resolved_dependency_identity_mismatch() {
+        let root = temp_package_dir("path_lock_mismatch_root");
+        let shared = root.with_file_name(format!(
+            "{}_shared",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.2.0" }}
+"#,
+                path_to_toml_string(shared.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+
+        let err = write_lockfile(&root).unwrap_err();
+
+        assert!(err.contains(
+            "dependency `shared` version `0.2.0` resolved to package `shared` version `0.3.0`"
+        ));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
+    fn lockfile_pins_transitive_local_registry_dependencies() {
+        let root = temp_package_dir("registry_lock_root");
+        let registry = root.with_file_name(format!(
+            "{}_registry",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let shared = registry.join("shared").join("0.2.0");
+        let core = registry.join("core").join("1.0.0");
+        fs::create_dir_all(&shared).unwrap();
+        fs::create_dir_all(&core).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[registry]
+path = "{}"
+
+[dependencies]
+shared = "0.2.0"
+"#,
+                path_to_toml_string(registry.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.2.0"
+
+[dependencies]
+core = "1.0.0"
+"#,
+        );
+        write_manifest(
+            &core,
+            r#"
+[project]
+name = "core"
+version = "1.0.0"
+"#,
+        );
+
+        let path = write_lockfile(&root).unwrap();
+        let lockfile = fs::read_to_string(path).unwrap();
+
+        assert!(lockfile.contains("name = \"shared\""));
+        assert!(lockfile.contains("name = \"core\""));
+        assert!(lockfile.contains("source = \"registry\""));
+        assert!(lockfile.contains("dependencies = [\"core@1.0.0 registry\"]"));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(registry).unwrap();
+    }
+
+    #[test]
     fn discovers_path_dependency_manifests() {
         let root = temp_package_dir("path_dependency");
         let shared = root.with_file_name(format!(
@@ -831,5 +1240,9 @@ entry = "src/lib.num"
 
     fn path_to_toml_string(path: String) -> String {
         path.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    fn write_manifest(root: &Path, source: &str) {
+        fs::write(root.join("num.toml"), source).unwrap();
     }
 }

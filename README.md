@@ -141,6 +141,8 @@ This repository contains a working production-grade foundation for:
   fixture-backed compatibility matrix coverage;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
+- deterministic transitive `num.lock` pinning for resolved path/local-registry
+  dependency graphs;
 - LSP diagnostics, completions, hover, formatting, and document symbols;
 - VS Code syntax, snippets, commands, and language configuration;
 - separate example projects.
@@ -148,6 +150,6 @@ This repository contains a working production-grade foundation for:
 Major features from the full Num specification that are not implemented yet
 include a complete expression type checker, clustered/distributed workflow
 scheduling, managed/network-native connector hosting, remote package registry
-APIs, dashboard, interactive debugger, full standard library, broader
-OpenAPI/database imports, async runtime, automatic source migrations, and
-cloud/container deployment execution.
+APIs, remote/git package pinning, dashboard, interactive debugger, full
+standard library, broader OpenAPI/database imports, async runtime, automatic
+source migrations, and cloud/container deployment execution.
