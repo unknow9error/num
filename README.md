@@ -27,12 +27,12 @@ For the precise implementation boundary, see
 ## Quick Start
 
 ```bash
-cargo run -p num -- check examples/refund_workflow/src/main.num
-cargo run -p num -- check examples/refund_workflow/src
-cargo run -p num -- fmt examples/refund_workflow/src/main.num
-cargo run -p num -- ir examples/refund_workflow/src/main.num
-cargo run -p num -- run examples/refund_workflow/src/main.num
-cargo run -p num -- route examples/refund_workflow/src POST /refunds
+num check examples/refund_workflow/src/main.num
+num check examples/refund_workflow/src
+num fmt examples/refund_workflow/src/main.num
+num ir examples/refund_workflow/src/main.num
+num run examples/refund_workflow/src/main.num
+num route examples/refund_workflow/src POST /refunds
 ```
 
 ## Documentation

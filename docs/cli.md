@@ -2,13 +2,15 @@
 
 The `num` binary is implemented in `language/crates/num-cli`.
 
-During development, run commands through Cargo from the repository root:
+During development, build the CLI once and put the local binary directory on
+`PATH`:
 
 ```bash
-cargo run -p num -- <command>
+cargo build -p num
+export PATH="$PWD/target/debug:$PATH"
 ```
 
-After installing a release package, use:
+After that, and after installing a release package, use:
 
 ```bash
 num <command>
@@ -22,13 +24,13 @@ Parse, lower, and semantically validate a `.num` source file together with
 other `.num` files in its directory, or all `.num` files under a directory.
 
 ```bash
-cargo run -p num -- check examples/refund_workflow/src/main.num
+num check examples/refund_workflow/src/main.num
 ```
 
 For multi-file projects, pass a directory:
 
 ```bash
-cargo run -p num -- check examples/refund_workflow/src
+num check examples/refund_workflow/src
 ```
 
 Both file and directory checks resolve `use <module.path>` declarations against
@@ -48,7 +50,7 @@ manifest keep advisory warning behavior.
 Run project quality and security lints over a `.num` file or project.
 
 ```bash
-cargo run -p num -- lint examples/refund_workflow
+num lint examples/refund_workflow
 ```
 
 `num lint` loads the same multi-file project and path dependency graph as
@@ -63,7 +65,7 @@ and explicit `secret` labels for `Secret<T>`.
 Parse a `.num` file and print the formatter output to stdout.
 
 ```bash
-cargo run -p num -- fmt examples/refund_workflow/src/main.num
+num fmt examples/refund_workflow/src/main.num
 ```
 
 The formatter is stdout-only in v0.1.0. Redirect output manually if needed.
@@ -73,7 +75,7 @@ The formatter is stdout-only in v0.1.0. Redirect output manually if needed.
 Print the lowered IR for a `.num` file.
 
 ```bash
-cargo run -p num -- ir examples/refund_workflow/src/main.num
+num ir examples/refund_workflow/src/main.num
 ```
 
 The IR is a compact effect-oriented representation of top-level declarations.
@@ -87,8 +89,8 @@ Validate and execute a demo workflow through the lightweight interpreter.
 The command accepts either an entry `.num` file or a source directory.
 
 ```bash
-cargo run -p num -- run examples/refund_workflow/src/main.num
-cargo run -p num -- run examples/refund_workflow/src
+num run examples/refund_workflow/src/main.num
+num run examples/refund_workflow/src
 ```
 
 Current limitations:
@@ -107,7 +109,7 @@ Validate and execute top-level `.num` test declarations through the lightweight
 interpreter.
 
 ```bash
-cargo run -p num -- test examples/refund_workflow
+num test examples/refund_workflow
 ```
 
 Supported test syntax:
@@ -139,7 +141,7 @@ Validate and execute a demo workflow, then print runtime trace events as JSON
 after the normal demo output.
 
 ```bash
-cargo run -p num -- trace examples/refund_workflow
+num trace examples/refund_workflow
 ```
 
 Trace events include workflow start/completion/failure, service route
@@ -153,10 +155,10 @@ Validate and execute a workflow, then summarize trace events against scripted
 breakpoints.
 
 ```bash
-cargo run -p num -- debug examples/refund_workflow process_refund \
+num debug examples/refund_workflow process_refund \
   --break action:issue_refund \
   --break connector:payments.find
-cargo run -p num -- debug examples/refund_workflow --break audit:refund_issued --json
+num debug examples/refund_workflow --break audit:refund_issued --json
 ```
 
 Supported breakpoint kinds:
@@ -178,8 +180,8 @@ Validate and execute a demo workflow, then summarize action costs recorded by
 the runtime cost ledger.
 
 ```bash
-cargo run -p num -- cost-report examples/refund_workflow
-cargo run -p num -- cost-report examples/refund_workflow --json
+num cost-report examples/refund_workflow
+num cost-report examples/refund_workflow --json
 ```
 
 The report is printed after the normal demo workflow output. It groups
@@ -193,8 +195,8 @@ persisted cost dashboard.
 Summarize append-only audit JSONL events written by the runtime `FileAuditSink`.
 
 ```bash
-cargo run -p num -- audit-report audit/events.jsonl
-cargo run -p num -- audit-report audit/events.jsonl --json
+num audit-report audit/events.jsonl
+num audit-report audit/events.jsonl --json
 ```
 
 The text report groups events by result, action, actor, and tenant, and lists
@@ -207,8 +209,8 @@ dashboard foundation, not an interactive web dashboard.
 Summarize workflow state files from a runtime `FileStateStore` root.
 
 ```bash
-cargo run -p num -- workflow-report .num-state
-cargo run -p num -- workflow-report .num-state --json
+num workflow-report .num-state
+num workflow-report .num-state --json
 ```
 
 The command reads `.json` workflow state files under `<state-root>/workflows`,
@@ -224,17 +226,17 @@ Queue and drain durable workflow lifecycle events through the file-backed
 runtime state root.
 
 ```bash
-cargo run -p num -- workflow enqueue .num-state start wf_1 process_refund \
+num workflow enqueue .num-state start wf_1 process_refund \
   --actor agent@example.com \
   --tenant tenant_1 \
   --permission IssueRefund \
   --metadata source=cli
-cargo run -p num -- workflow enqueue .num-state wait wf_1
-cargo run -p num -- workflow enqueue .num-state resume wf_1
-cargo run -p num -- workflow enqueue .num-state complete wf_1
-cargo run -p num -- workflow drain .num-state --max-events 10
-cargo run -p num -- workflow drain .num-state --worker-id worker_a --max-attempts 5
-cargo run -p num -- workflow drain .num-state --json
+num workflow enqueue .num-state wait wf_1
+num workflow enqueue .num-state resume wf_1
+num workflow enqueue .num-state complete wf_1
+num workflow drain .num-state --max-events 10
+num workflow drain .num-state --worker-id worker_a --max-attempts 5
+num workflow drain .num-state --json
 ```
 
 Supported event kinds are `start`, `wait`, `resume`, `complete`, `fail`,
@@ -265,15 +267,15 @@ Validate and execute a demo service route through the lightweight interpreter.
 The command accepts either an entry `.num` file or a source directory.
 
 ```bash
-cargo run -p num -- route examples/refund_workflow/src/main.num POST /refunds
-cargo run -p num -- route examples/refund_workflow/src POST /refunds
+num route examples/refund_workflow/src/main.num POST /refunds
+num route examples/refund_workflow/src POST /refunds
 ```
 
 The command selects the first service by default. Pass a service name as the
 optional final argument when a module declares multiple services:
 
 ```bash
-cargo run -p num -- route app.num POST /refunds BillingApi
+num route app.num POST /refunds BillingApi
 ```
 
 Current limitations:
@@ -291,7 +293,7 @@ default, listen for HTTP requests, and execute matching service routes through
 the lightweight interpreter.
 
 ```bash
-cargo run -p num -- serve examples/refund_workflow/src/main.num 127.0.0.1:4000
+num serve examples/refund_workflow/src/main.num 127.0.0.1:4000
 ```
 
 Then send a request from another shell:
@@ -306,13 +308,13 @@ Pass a service name as the optional final argument when a module declares
 multiple services:
 
 ```bash
-cargo run -p num -- serve app.num 127.0.0.1:4000 BillingApi
+num serve app.num 127.0.0.1:4000 BillingApi
 ```
 
 For deterministic smoke tests, stop after a fixed number of accepted requests:
 
 ```bash
-cargo run -p num -- serve app.num 127.0.0.1:4000 BillingApi --max-requests 2
+num serve app.num 127.0.0.1:4000 BillingApi --max-requests 2
 ```
 
 Current limitations:
@@ -338,7 +340,7 @@ service route. This command is kept for quick manual checks and uses generated
 demo input when the request body is empty.
 
 ```bash
-cargo run -p num -- serve-once examples/refund_workflow/src/main.num 127.0.0.1:4000
+num serve-once examples/refund_workflow/src/main.num 127.0.0.1:4000
 ```
 
 ### `new`
@@ -347,7 +349,7 @@ Create a multi-file project skeleton with `num.toml`, a source directory, and a
 manifest entry file.
 
 ```bash
-cargo run -p num -- new my-service
+num new my-service
 ```
 
 The command writes:
@@ -366,10 +368,10 @@ so `num check my-service` and `num run my-service` work from the project root.
 Generate `num.lock` next to the discovered `num.toml`.
 
 ```bash
-cargo run -p num -- lock examples/refund_workflow
-cargo run -p num -- lock examples/refund_workflow --check
-cargo run -p num -- lock legacy_project --migrate --json
-cargo run -p num -- lock legacy_project --migrate --write
+num lock examples/refund_workflow
+num lock examples/refund_workflow --check
+num lock legacy_project --migrate --json
+num lock legacy_project --migrate --write
 ```
 
 The command records the workspace package plus sorted `[dependencies]` entries
@@ -411,10 +413,10 @@ during `check`, `run`, `route`, `serve`, and `serve-once`, which lets
 Manage a local filesystem package registry.
 
 ```bash
-cargo run -p num -- registry publish examples/refund_workflow --registry /tmp/num-registry
-cargo run -p num -- registry publish examples/refund_workflow --registry /tmp/num-registry --dry-run --json
-cargo run -p num -- registry list --registry /tmp/num-registry
-cargo run -p num -- registry install refund-workflow 0.1.0 --registry /tmp/num-registry --to vendor/num
+num registry publish examples/refund_workflow --registry /tmp/num-registry
+num registry publish examples/refund_workflow --registry /tmp/num-registry --dry-run --json
+num registry list --registry /tmp/num-registry
+num registry install refund-workflow 0.1.0 --registry /tmp/num-registry --to vendor/num
 ```
 
 `publish` validates the package manifest, collects package source files, and
@@ -434,11 +436,11 @@ remote package service yet.
 Generate connector implementation SDKs from the checked `.num` module graph.
 
 ```bash
-cargo run -p num -- connector-sdk examples/contract_driven_refund
-cargo run -p num -- connector-sdk examples/contract_driven_refund \
+num connector-sdk examples/contract_driven_refund
+num connector-sdk examples/contract_driven_refund \
   --language typescript \
   --out examples/contract_driven_refund/generated/connectors.d.ts
-cargo run -p num -- connector-sdk examples/contract_driven_refund --json
+num connector-sdk examples/contract_driven_refund --json
 ```
 
 The TypeScript generator emits:
@@ -460,11 +462,11 @@ Validate a project and build a deployment plan artifact from `num.toml` and the
 compiled `.num` module graph.
 
 ```bash
-cargo run -p num -- deploy examples/refund_workflow
-cargo run -p num -- deploy examples/refund_workflow --json
-cargo run -p num -- deploy examples/refund_workflow --out dist/num-deploy.json
-cargo run -p num -- deploy examples/refund_workflow --apply --dir dist/refund-deploy
-cargo run -p num -- deploy examples/refund_workflow --apply --replace --json
+num deploy examples/refund_workflow
+num deploy examples/refund_workflow --json
+num deploy examples/refund_workflow --out dist/num-deploy.json
+num deploy examples/refund_workflow --apply --dir dist/refund-deploy
+num deploy examples/refund_workflow --apply --replace --json
 ```
 
 The plan includes package name/version, deployment target metadata, runtime
@@ -495,8 +497,8 @@ Validate manifest language/schema compatibility for a project and any loaded
 path or local-registry dependencies.
 
 ```bash
-cargo run -p num -- compat examples/refund_workflow
-cargo run -p num -- compat examples/refund_workflow --json
+num compat examples/refund_workflow
+num compat examples/refund_workflow --json
 ```
 
 The command checks `[language].version`, `[language].compatibility`, and
@@ -513,11 +515,11 @@ compatibility.
 Plan or apply safe `num.toml` manifest migrations.
 
 ```bash
-cargo run -p num -- migrate examples/refund_workflow
-cargo run -p num -- migrate examples/refund_workflow --json
-cargo run -p num -- migrate legacy_project --write
-cargo run -p num -- migrate examples/refund_workflow --source --json
-cargo run -p num -- migrate legacy_project --source --write
+num migrate examples/refund_workflow
+num migrate examples/refund_workflow --json
+num migrate legacy_project --write
+num migrate examples/refund_workflow --source --json
+num migrate legacy_project --source --write
 ```
 
 The command is a dry-run by default. It discovers `num.toml` from a project
@@ -541,12 +543,12 @@ source graph has no blocking compiler diagnostics. See
 Plan or apply safe `num.toml` version upgrades.
 
 ```bash
-cargo run -p num -- upgrade-version examples/refund_workflow
-cargo run -p num -- upgrade-version examples/refund_workflow --json
-cargo run -p num -- upgrade-version examples/refund_workflow --project 0.2.0 --write
-cargo run -p num -- upgrade-version legacy_project --language 0.1.0 --write
-cargo run -p num -- upgrade-version examples/refund_workflow --include-dependencies --json
-cargo run -p num -- upgrade-version examples/refund_workflow --include-dependencies --write --write-dependencies
+num upgrade-version examples/refund_workflow
+num upgrade-version examples/refund_workflow --json
+num upgrade-version examples/refund_workflow --project 0.2.0 --write
+num upgrade-version legacy_project --language 0.1.0 --write
+num upgrade-version examples/refund_workflow --include-dependencies --json
+num upgrade-version examples/refund_workflow --include-dependencies --write --write-dependencies
 ```
 
 The command updates `[language].version` to the current CLI language version by
@@ -568,9 +570,9 @@ workspace package, even in dependency graph mode.
 Print the CLI, language, and manifest schema versions.
 
 ```bash
-cargo run -p num -- version
-cargo run -p num -- version --json
-cargo run -p num -- --version
+num version
+num version --json
+num --version
 ```
 
 ### `import openapi`
@@ -578,7 +580,7 @@ cargo run -p num -- --version
 Generate `.num` type and connector declarations from an OpenAPI JSON document.
 
 ```bash
-cargo run -p num -- import openapi openapi.json generated.billing > src/billing_api.num
+num import openapi openapi.json generated.billing > src/billing_api.num
 ```
 
 The importer currently handles a focused OpenAPI 3 JSON subset:
@@ -599,7 +601,7 @@ Generate `.num` table types and database connector declarations from a SQL
 schema file.
 
 ```bash
-cargo run -p num -- import sql schema.sql generated.db > src/database.num
+num import sql schema.sql generated.db > src/database.num
 ```
 
 The importer currently handles a focused SQL subset:
@@ -626,7 +628,7 @@ implemented yet.
 Print shell completion scripts.
 
 ```bash
-cargo run -p num -- completions zsh
+num completions zsh
 ```
 
 Only zsh completion is supported in v0.1.0.
@@ -636,7 +638,7 @@ Only zsh completion is supported in v0.1.0.
 Start the language server process used by the VS Code extension.
 
 ```bash
-cargo run -p num -- lsp
+num lsp
 ```
 
 The LSP server reads JSON-RPC messages from stdin/stdout and is normally
