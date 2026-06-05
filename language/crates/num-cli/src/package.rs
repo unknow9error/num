@@ -69,6 +69,15 @@ pub struct PackageDependency {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageGitDependency {
+    pub url: String,
+    pub rev: Option<String>,
+    pub tag: Option<String>,
+    pub branch: Option<String>,
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageConnectorProcess {
     pub method: String,
     pub command: String,
@@ -90,16 +99,32 @@ pub struct LockfileMigrationReport {
 pub enum DependencySource {
     Registry,
     Path(String),
-    Git(String),
+    Git(PackageGitDependency),
 }
 
 impl DependencySource {
-    fn lock_source(&self) -> String {
+    pub(crate) fn lock_source(&self) -> String {
         match self {
             DependencySource::Registry => "registry".to_string(),
             DependencySource::Path(path) => format!("path:{path}"),
-            DependencySource::Git(url) => format!("git:{url}"),
+            DependencySource::Git(git) => git.lock_source(),
         }
+    }
+}
+
+impl PackageGitDependency {
+    fn lock_source(&self) -> String {
+        let mut source = format!("git:{}", self.url);
+        if let Some(rev) = &self.rev {
+            source.push_str(&format!("#rev:{rev}"));
+        } else if let Some(tag) = &self.tag {
+            source.push_str(&format!("#tag:{tag}"));
+        } else if let Some(branch) = &self.branch {
+            source.push_str(&format!("#branch:{branch}"));
+        } else if let Some(reference) = &self.reference {
+            source.push_str(&format!("#ref:{reference}"));
+        }
+        source
     }
 }
 
@@ -769,7 +794,13 @@ fn parse_dependency(name: &str, value: &str) -> Option<PackageDependency> {
     let source = if let Some(path) = fields.get("path") {
         DependencySource::Path(path.clone())
     } else if let Some(git) = fields.get("git") {
-        DependencySource::Git(git.clone())
+        DependencySource::Git(PackageGitDependency {
+            url: git.clone(),
+            rev: fields.get("rev").cloned(),
+            tag: fields.get("tag").cloned(),
+            branch: fields.get("branch").cloned(),
+            reference: fields.get("ref").cloned(),
+        })
     } else {
         DependencySource::Registry
     };
@@ -1021,7 +1052,7 @@ entry = "source/app.num"
 [dependencies]
 std = "0.1.0"
 shared = { path = "../shared", version = "0.2.0" }
-banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
+banking = { git = "https://example.com/banking.num.git", version = "1.4.0", rev = "abc123" }
 "#,
         );
 
@@ -1031,7 +1062,13 @@ banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
         assert_eq!(manifest.dependencies[0].name, "banking");
         assert_eq!(
             manifest.dependencies[0].source,
-            DependencySource::Git("https://example.com/banking.num.git".to_string())
+            DependencySource::Git(PackageGitDependency {
+                url: "https://example.com/banking.num.git".to_string(),
+                rev: Some("abc123".to_string()),
+                tag: None,
+                branch: None,
+                reference: None,
+            })
         );
         assert_eq!(manifest.dependencies[1].name, "shared");
         assert_eq!(
@@ -1173,6 +1210,43 @@ alpha = { path = "../alpha", version = "1.0.0" }
         assert!(lockfile.contains("manifest_schema = 1"));
         assert!(lockfile.find("name = \"alpha\"") < lockfile.find("name = \"zeta\""));
         assert!(lockfile.contains("source = \"path:../alpha\""));
+    }
+
+    #[test]
+    fn lockfile_pins_git_dependency_selectors() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+banking = { git = "https://example.com/banking.num.git", version = "1.4.0", rev = "abc123" }
+billing = { git = "https://example.com/billing.num.git", version = "2.0.0", tag = "v2.0.0" }
+ledger = { git = "https://example.com/ledger.num.git", version = "0.8.0", branch = "release" }
+audit = { git = "https://example.com/audit.num.git", version = "0.3.0", ref = "refs/pull/1/head" }
+"#,
+        );
+
+        let lockfile = render_lockfile(&manifest);
+
+        assert!(
+            lockfile.contains("source = \"git:https://example.com/banking.num.git#rev:abc123\"")
+        );
+        assert!(
+            lockfile.contains("source = \"git:https://example.com/billing.num.git#tag:v2.0.0\"")
+        );
+        assert!(
+            lockfile.contains("source = \"git:https://example.com/ledger.num.git#branch:release\"")
+        );
+        assert!(lockfile
+            .contains("source = \"git:https://example.com/audit.num.git#ref:refs/pull/1/head\""));
+        assert!(lockfile.contains(
+            "dependencies = [\"audit@0.3.0 git:https://example.com/audit.num.git#ref:refs/pull/1/head\""
+        ));
     }
 
     #[test]

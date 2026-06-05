@@ -447,11 +447,7 @@ impl DependencyDeployment {
 }
 
 fn dependency_source_label(source: &DependencySource) -> String {
-    match source {
-        DependencySource::Registry => "registry".to_string(),
-        DependencySource::Path(path) => format!("path:{path}"),
-        DependencySource::Git(url) => format!("git:{url}"),
-    }
+    source.lock_source()
 }
 
 fn risk_label(risk: Risk) -> &'static str {
@@ -585,6 +581,9 @@ audit_store = "file:audit/events.jsonl"
 target = "container"
 service = "BillingApi"
 region = "eu-west-1"
+
+[dependencies]
+banking = { git = "https://example.com/banking.num.git", version = "1.4.0", rev = "abc123" }
 "#,
         );
         let source = r#"
@@ -620,6 +619,10 @@ service BillingApi {
         assert_eq!(plan.package_name, "billing");
         assert_eq!(plan.target, "container");
         assert_eq!(plan.runtime.workflow_store, "file:.num-state");
+        assert_eq!(
+            plan.dependencies[0].source,
+            "git:https://example.com/banking.num.git#rev:abc123"
+        );
         assert_eq!(plan.workflows, vec!["main".to_string()]);
         assert_eq!(plan.actions[0].risk, "high");
         assert_eq!(plan.services[0].routes, vec!["POST /refunds".to_string()]);

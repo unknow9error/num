@@ -158,7 +158,8 @@ Owns user-facing commands:
 loading, and project scaffolding. `package.rs` owns `num.toml`
 package/dependency parsing, deterministic `num.lock` generation, lockfile
 schema validation/migration, and transitive path/local-registry lock graph
-resolution.
+resolution. Git dependency selectors are preserved as deterministic lock/deploy
+source metadata.
 `deploy.rs`
 owns deployment plan construction and local/CI deployment bundle materialization
 from checked projects. `compatibility.rs`

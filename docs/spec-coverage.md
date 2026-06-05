@@ -212,6 +212,8 @@ Implemented:
   development and private package sharing;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs;
+- deterministic git dependency selector metadata in lockfiles and deploy plans
+  for declared `rev`, `tag`, `branch`, or `ref` selectors;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -571,6 +573,7 @@ Major full-spec areas not implemented in v0.1.0:
 - lockfile schema validation and deploy artifact lockfile inclusion.
 - lockfile schema migration tooling.
 - fixture-backed manifest/source/lockfile compatibility matrix coverage.
+- git dependency selector metadata in lockfile/deploy outputs.
 
 ### Foundation Only
 
