@@ -141,6 +141,8 @@ This repository contains a working production-grade foundation for:
   module declaration rewrites, manifest version upgrade planning/application,
   graph-aware dependency version upgrade reports, and fixture-backed
   compatibility matrix coverage;
+- released migration guide coverage for manifest metadata and source module
+  declaration rewrites;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry

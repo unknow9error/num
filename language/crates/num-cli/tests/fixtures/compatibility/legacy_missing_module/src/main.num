@@ -1,0 +1,3 @@
+// Legacy source from before explicit module declarations were required.
+workflow main() {
+}
