@@ -13,6 +13,7 @@ technical specification.
   they require unsupported lockfile formats.
 - Keep lockfile migration dry-runs and writes available for released schema
   changes.
+- Preserve declared git dependency selectors in lockfile and deploy metadata.
 - Keep manifest compatibility, migration, and version-upgrade behavior covered
   by fixture-backed CLI matrix tests.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.

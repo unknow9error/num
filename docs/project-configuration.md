@@ -114,6 +114,8 @@ Supported dependency forms:
 - `name = { path = "../package", version = "x.y.z" }` for a local package;
 - `name = { git = "https://...", version = "x.y.z" }` for a git package
   reference.
+- git package references may also include `rev`, `tag`, `branch`, or `ref`;
+  `num lock` preserves that selector in the deterministic source label.
 
 `num lock [project-dir|file]` writes a deterministic `num.lock` beside the
 manifest. `num lock --check` validates the lockfile schema, and
@@ -122,7 +124,8 @@ with `--write`. The lockfile records the workspace package plus direct and
 transitive path/local-registry dependencies when those packages can be resolved
 locally. Resolved package entries include language/schema compatibility metadata
 and sorted dependency edges. Git dependencies, and registry dependencies without
-a configured local registry root, remain metadata-only entries.
+a configured local registry root, remain metadata-only entries. Git metadata
+entries include any requested `rev`, `tag`, `branch`, or `ref` selector.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`

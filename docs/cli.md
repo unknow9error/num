@@ -380,6 +380,7 @@ from `num.toml`. Dependency values can be version strings or inline tables:
 std = "0.1.0"
 shared = { path = "../shared", version = "0.2.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
+ledger = { git = "https://example.com/ledger.num.git", version = "2.1.0", rev = "abc123" }
 ```
 
 The current lockfile is deterministic, versioned local metadata. Its top-level
@@ -390,7 +391,9 @@ language/schema compatibility metadata plus direct and transitive
 path/local-registry dependencies that can be resolved locally. Resolved package
 entries include sorted dependency edges. Git dependencies, and registry
 dependencies without a configured local registry root, remain metadata-only
-entries. Remote package fetching and git checkout are not implemented yet.
+entries. Git inline tables can include `rev`, `tag`, `branch`, or `ref`; the
+lockfile pins that selector in its deterministic source label. Remote package
+fetching and git checkout are not implemented yet.
 
 `num lock --migrate` plans safe lockfile schema migrations without rewriting by
 default. Current migrations add a missing top-level `version = 1` header for
