@@ -276,10 +276,14 @@ Supported fields:
 
 `num deploy` validates the project and renders these values together with the
 compiled workflows, actions, service routes, connectors, dependencies, runtime
-metadata, and security metadata. `num deploy --apply` also materializes a
-local/CI deployment bundle. By default, the bundle directory is derived from
-`artifact` by removing the file extension; `--dir <artifact-dir>` overrides that
-path, and `--replace` allows an existing bundle directory to be overwritten.
+metadata, target profile metadata, deployment warnings, and security metadata.
+Target profiles classify `local`, `container`/`docker`/`oci`,
+`kubernetes`/`k8s`, `cloud`/`aws`/`gcp`/`azure`, and custom targets, then record
+the expected external execution boundary and required artifacts. `num deploy
+--apply` also materializes a local/CI deployment bundle. By default, the bundle
+directory is derived from `artifact` by removing the file extension; `--dir
+<artifact-dir>` overrides that path, and `--replace` allows an existing bundle
+directory to be overwritten.
 
 ## Current Boundary
 
@@ -308,7 +312,8 @@ Implemented:
 - transitive `num.lock` pinning for resolved path/local-registry dependency
   graphs.
 - deployment plan generation and local/CI deployment bundle materialization
-  through `num deploy --apply`.
+  through `num deploy --apply`;
+- deployment target profile classification and deploy-time warnings.
 
 Not implemented yet:
 

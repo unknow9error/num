@@ -41,7 +41,7 @@ technical specification.
 - Deployment story:
   - checked deploy plans;
   - local/CI artifact generation;
-  - container/runtime target mapping;
+  - container/runtime target profile mapping;
   - environment validation.
 - Observability:
   - structured runtime events;
