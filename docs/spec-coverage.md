@@ -206,7 +206,8 @@ Implemented:
   missing-schema and schema `0` lockfiles;
 - fixture-backed CLI compatibility matrix coverage for current manifests,
   legacy missing-language manifests, schema `0` migration, future schema
-  rejection, future language rejection, and project-version upgrades;
+  rejection, future language rejection, project-version upgrades, source
+  module declaration rewrites, and lockfile schema migrations;
 - local filesystem registry publish/list/install workflow for package
   development and private package sharing;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
@@ -569,7 +570,7 @@ Major full-spec areas not implemented in v0.1.0:
 - graph-aware dependency version upgrade reports.
 - lockfile schema validation and deploy artifact lockfile inclusion.
 - lockfile schema migration tooling.
-- fixture-backed manifest compatibility matrix coverage.
+- fixture-backed manifest/source/lockfile compatibility matrix coverage.
 
 ### Foundation Only
 

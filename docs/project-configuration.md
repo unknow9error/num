@@ -71,8 +71,9 @@ dependency language upgrades only when paired with `--write`. The CLI test
 suite includes fixture projects for current manifests, legacy missing-language
 manifests, schema `0` migration, future schema rejection, future language
 rejection, project-version upgrade compatibility, and graph-aware dependency
-upgrade planning. Released migration behavior is documented in
-[migration-guides.md](migration-guides.md).
+upgrade planning. It also pins released lockfile migration behavior for legacy
+missing-schema and schema `0` lockfiles. Released migration behavior is
+documented in [migration-guides.md](migration-guides.md).
 
 ### `[project]`
 
