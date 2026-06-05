@@ -368,6 +368,8 @@ Generate `num.lock` next to the discovered `num.toml`.
 ```bash
 cargo run -p num -- lock examples/refund_workflow
 cargo run -p num -- lock examples/refund_workflow --check
+cargo run -p num -- lock legacy_project --migrate --json
+cargo run -p num -- lock legacy_project --migrate --write
 ```
 
 The command records the workspace package plus sorted `[dependencies]` entries
@@ -389,6 +391,12 @@ path/local-registry dependencies that can be resolved locally. Resolved package
 entries include sorted dependency edges. Git dependencies, and registry
 dependencies without a configured local registry root, remain metadata-only
 entries. Remote package fetching and git checkout are not implemented yet.
+
+`num lock --migrate` plans safe lockfile schema migrations without rewriting by
+default. Current migrations add a missing top-level `version = 1` header for
+legacy lockfiles and upgrade schema `0` lockfiles to schema `1`. Pass
+`--migrate --write` to apply the migration after reviewing the plan, or add
+`--json` for machine-readable CI output.
 
 Direct `path` dependencies and local filesystem registry dependencies are
 loaded during `check`, `run`, `route`, `serve`, and `serve-once`, which lets

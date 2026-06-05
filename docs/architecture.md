@@ -157,7 +157,8 @@ Owns user-facing commands:
 `project.rs` owns source discovery, including direct path dependency source
 loading, and project scaffolding. `package.rs` owns `num.toml`
 package/dependency parsing, deterministic `num.lock` generation, lockfile
-schema validation, and transitive path/local-registry lock graph resolution.
+schema validation/migration, and transitive path/local-registry lock graph
+resolution.
 `deploy.rs`
 owns deployment plan construction and local/CI deployment bundle materialization
 from checked projects. `compatibility.rs`

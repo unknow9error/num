@@ -115,11 +115,13 @@ Supported dependency forms:
   reference.
 
 `num lock [project-dir|file]` writes a deterministic `num.lock` beside the
-manifest. The lockfile records the workspace package plus direct and transitive
-path/local-registry dependencies when those packages can be resolved locally.
-Resolved package entries include language/schema compatibility metadata and
-sorted dependency edges. Git dependencies, and registry dependencies without a
-configured local registry root, remain metadata-only entries.
+manifest. `num lock --check` validates the lockfile schema, and
+`num lock --migrate` plans safe lockfile schema migrations before applying them
+with `--write`. The lockfile records the workspace package plus direct and
+transitive path/local-registry dependencies when those packages can be resolved
+locally. Resolved package entries include language/schema compatibility metadata
+and sorted dependency edges. Git dependencies, and registry dependencies without
+a configured local registry root, remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`

@@ -48,3 +48,23 @@ num migrate <project-dir|file> --write
 The manifest migration inserts the current language version, compatibility
 policy, and manifest schema metadata. Schema `0` manifests are upgraded to the
 current schema; manifests that require a future schema are rejected.
+
+### Lockfile Schema
+
+Modern `num.lock` files declare their schema at the top:
+
+```toml
+version = 1
+```
+
+Legacy lockfiles that omit this header, or schema `0` lockfiles, can be planned
+and migrated with:
+
+```bash
+num lock <project-dir|file> --migrate --json
+num lock <project-dir|file> --migrate --write
+```
+
+The migration inserts or upgrades the top-level lockfile schema while preserving
+the package entries. Lockfiles that require a future schema are rejected instead
+of being rewritten by an older CLI.

@@ -1,5 +1,6 @@
 use crate::compatibility;
 use crate::registry::LocalRegistry;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -73,6 +74,16 @@ pub struct PackageConnectorProcess {
     pub command: String,
     pub args: Vec<String>,
     pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockfileMigrationReport {
+    pub lockfile: PathBuf,
+    pub schema: Option<u32>,
+    pub target_schema: u32,
+    pub actions: Vec<String>,
+    pub changed: bool,
+    pub applied: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,10 +314,69 @@ pub fn validate_project_lockfile(path: &Path) -> Result<PathBuf, String> {
     Ok(lock_path)
 }
 
+pub fn migrate_lockfile(path: &Path, write: bool) -> Result<LockfileMigrationReport, String> {
+    let manifest = PackageManifest::discover(path)?
+        .ok_or_else(|| format!("no num.toml found for {}", path.display()))?;
+    compatibility::validate_manifest(&manifest)?;
+    let lock_path = manifest.lock_path();
+    if !lock_path.is_file() {
+        return Err(format!("no num.lock found at {}", lock_path.display()));
+    }
+    let source = fs::read_to_string(&lock_path)
+        .map_err(|err| format!("failed to read {}: {err}", lock_path.display()))?;
+    let (schema, actions, migrated_source) = plan_lockfile_source_migration(&source)?;
+    let changed = !actions.is_empty();
+    if changed && write {
+        fs::write(&lock_path, migrated_source)
+            .map_err(|err| format!("failed to write {}: {err}", lock_path.display()))?;
+    }
+    Ok(LockfileMigrationReport {
+        lockfile: lock_path,
+        schema,
+        target_schema: CURRENT_LOCKFILE_SCHEMA,
+        actions,
+        changed,
+        applied: changed && write,
+    })
+}
+
 pub fn validate_lockfile(path: &Path) -> Result<(), String> {
     let source = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     validate_lockfile_source(path, &source)
+}
+
+impl LockfileMigrationReport {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "lockfile": self.lockfile.display().to_string(),
+            "schema": self.schema,
+            "target_schema": self.target_schema,
+            "actions": self.actions,
+            "changed": self.changed,
+            "applied": self.applied,
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "Lockfile migration plan for {}\n",
+            self.lockfile.display()
+        ));
+        out.push_str(&format!("Target schema: {}\n", self.target_schema));
+        if self.actions.is_empty() {
+            out.push_str("Actions: none\n");
+        } else {
+            out.push_str("Actions:\n");
+            for action in &self.actions {
+                out.push_str(&format!("- {action}\n"));
+            }
+        }
+        out.push_str(&format!("Changed: {}\n", self.changed));
+        out.push_str(&format!("Applied: {}\n", self.applied));
+        out
+    }
 }
 
 fn validate_lockfile_source(path: &Path, source: &str) -> Result<(), String> {
@@ -327,8 +397,35 @@ fn validate_lockfile_source(path: &Path, source: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_lockfile_schema(source: &str) -> Option<u32> {
-    for raw_line in source.lines() {
+fn plan_lockfile_source_migration(
+    source: &str,
+) -> Result<(Option<u32>, Vec<String>, String), String> {
+    let schema_line = find_lockfile_schema_line(source);
+    let mut lines = source.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut actions = Vec::new();
+
+    match schema_line {
+        Some((index, 0)) => {
+            lines[index] = format!("version = {CURRENT_LOCKFILE_SCHEMA}");
+            actions.push(format!(
+                "upgrade lockfile schema from 0 to {CURRENT_LOCKFILE_SCHEMA}"
+            ));
+            Ok((Some(0), actions, render_lockfile_lines(&lines)))
+        }
+        Some((_, schema)) if schema > CURRENT_LOCKFILE_SCHEMA => Err(format!(
+            "cannot migrate lockfile schema {schema}; this num CLI supports {CURRENT_LOCKFILE_SCHEMA}"
+        )),
+        Some((_, schema)) => Ok((Some(schema), actions, render_lockfile_lines(&lines))),
+        None => {
+            insert_lockfile_schema_header(&mut lines);
+            actions.push(format!("add lockfile schema version {CURRENT_LOCKFILE_SCHEMA}"));
+            Ok((None, actions, render_lockfile_lines(&lines)))
+        }
+    }
+}
+
+fn find_lockfile_schema_line(source: &str) -> Option<(usize, u32)> {
+    for (index, raw_line) in source.lines().enumerate() {
         let line = raw_line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
@@ -340,10 +437,31 @@ fn parse_lockfile_schema(source: &str) -> Option<u32> {
             continue;
         };
         if normalize_toml_key(key.trim()) == "version" {
-            return parse_toml_u32(value);
+            return parse_toml_u32(value).map(|schema| (index, schema));
         }
     }
     None
+}
+
+fn insert_lockfile_schema_header(lines: &mut Vec<String>) {
+    let insert_at = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with("[[package]]"))
+        .unwrap_or(lines.len());
+    lines.insert(insert_at, String::new());
+    lines.insert(insert_at, format!("version = {CURRENT_LOCKFILE_SCHEMA}"));
+}
+
+fn render_lockfile_lines(lines: &[String]) -> String {
+    let mut source = lines.join("\n");
+    if !source.ends_with('\n') {
+        source.push('\n');
+    }
+    source
+}
+
+fn parse_lockfile_schema(source: &str) -> Option<u32> {
+    find_lockfile_schema_line(source).map(|(_, schema)| schema)
 }
 
 #[cfg(test)]
@@ -1099,6 +1217,102 @@ name = "app"
 
         let missing = validate_lockfile_source(&lock_path, "[[package]]\n").unwrap_err();
         assert!(missing.contains("missing lockfile `version`"));
+    }
+
+    #[test]
+    fn migrates_legacy_lockfile_without_schema_header() {
+        let root = temp_package_dir("migrate_lock_missing_schema");
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("num.lock"),
+            r#"# generated by an older num CLI
+
+[[package]]
+name = "app"
+version = "0.1.0"
+source = "workspace"
+"#,
+        )
+        .unwrap();
+
+        let plan = migrate_lockfile(&root, false).unwrap();
+        assert_eq!(plan.schema, None);
+        assert_eq!(plan.target_schema, CURRENT_LOCKFILE_SCHEMA);
+        assert!(plan.changed);
+        assert!(!plan.applied);
+        assert!(plan
+            .actions
+            .contains(&"add lockfile schema version 1".to_string()));
+        assert!(!fs::read_to_string(root.join("num.lock"))
+            .unwrap()
+            .contains("version = 1\n\n[[package]]"));
+
+        let migration = migrate_lockfile(&root, true).unwrap();
+        assert!(migration.changed);
+        assert!(migration.applied);
+        let migrated = fs::read_to_string(root.join("num.lock")).unwrap();
+        assert!(migrated.contains("# generated by an older num CLI"));
+        assert!(migrated.contains("version = 1\n\n[[package]]"));
+        validate_project_lockfile(&root).unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migrates_lockfile_schema_zero_to_current_schema() {
+        let root = temp_package_dir("migrate_lock_schema_zero");
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("num.lock"), "version = 0\n\n[[package]]\n").unwrap();
+
+        let migration = migrate_lockfile(&root, true).unwrap();
+
+        assert_eq!(migration.schema, Some(0));
+        assert!(migration
+            .actions
+            .contains(&"upgrade lockfile schema from 0 to 1".to_string()));
+        assert!(migration.applied);
+        assert!(fs::read_to_string(root.join("num.lock"))
+            .unwrap()
+            .starts_with("version = 1\n\n[[package]]"));
+        validate_project_lockfile(&root).unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lockfile_migration_rejects_future_schema() {
+        let root = temp_package_dir("migrate_lock_future_schema");
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("num.lock"), "version = 2\n\n[[package]]\n").unwrap();
+
+        let err = migrate_lockfile(&root, false).unwrap_err();
+
+        assert!(err.contains("cannot migrate lockfile schema 2"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
