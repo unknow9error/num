@@ -237,6 +237,8 @@ Implemented:
 - file-backed append-only audit JSONL sink;
 - memory and file-backed secret stores with redacted secret value debug output;
 - memory and file-backed workflow event queues;
+- file-backed worker ownership leases, retry attempts, stale lease recovery,
+  and dead-letter event handling;
 - queued workflow event processing for start/wait/resume/complete/fail/
   compensate/cancel transitions;
 - `require_permission` helper;
@@ -447,6 +449,8 @@ Implemented foundation:
 - persisted workflow start, wait, resume, completion, failure, compensation,
   and cancellation transitions with audit events;
 - memory and file-backed workflow event queues;
+- file-backed worker leases, retries, stale lease recovery, and dead-letter
+  handling for queued workflow events;
 - queued workflow event processing through the lifecycle engine;
 - state transition validation for terminal and compensation states.
 
@@ -506,7 +510,8 @@ Major full-spec areas not implemented in v0.1.0:
 - async/await;
 - structured concurrency;
 - actor model;
-- clustered distributed queue ownership, retries, and worker leasing;
+- clustered/networked queue coordination beyond the local file-backed worker
+  lease model;
 - external secrets manager integration such as Vault/KMS/cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
