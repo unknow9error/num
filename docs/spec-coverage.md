@@ -622,13 +622,13 @@ Use these commands to verify the documented v0.1.0 surface:
 
 ```bash
 cargo test
-cargo run -p num -- check examples/refund_workflow/src/main.num
-cargo run -p num -- check examples/ai_agent/src/main.num
-cargo run -p num -- check examples/policy_guard/src/main.num
-cargo run -p num -- check examples/contract_driven_refund/src/main.num
-cargo run -p num -- ir examples/refund_workflow/src/main.num
-cargo run -p num -- run examples/refund_workflow/src/main.num
-cargo run -p num -- test examples/refund_workflow
+num check examples/refund_workflow/src/main.num
+num check examples/ai_agent/src/main.num
+num check examples/policy_guard/src/main.num
+num check examples/contract_driven_refund/src/main.num
+num ir examples/refund_workflow/src/main.num
+num run examples/refund_workflow/src/main.num
+num test examples/refund_workflow
 node examples/contract_driven_refund/backend/runtime-demo.js success
 node examples/contract_driven_refund/backend/runtime-demo.js approval
 ```

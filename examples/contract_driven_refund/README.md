@@ -28,13 +28,13 @@ confidence, audit events, and saga rollback.
 ## Check the `num` source
 
 ```bash
-cargo run -p num -- check examples/contract_driven_refund/src/main.num
+num check examples/contract_driven_refund/src/main.num
 ```
 
 ## Generate connector SDK
 
 ```bash
-cargo run -p num -- connector-sdk examples/contract_driven_refund \
+num connector-sdk examples/contract_driven_refund \
   --out examples/contract_driven_refund/generated/connectors.d.ts
 ```
 

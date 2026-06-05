@@ -29,17 +29,17 @@ Run these from the repository root:
 
 ```bash
 cargo test
-cargo run -p num -- check examples/refund_workflow/src/main.num
-cargo run -p num -- check examples/refund_workflow/src
-cargo run -p num -- check examples/ai_agent/src/main.num
-cargo run -p num -- check examples/policy_guard/src/main.num
-cargo run -p num -- check examples/contract_driven_refund/src/main.num
+num check examples/refund_workflow/src/main.num
+num check examples/refund_workflow/src
+num check examples/ai_agent/src/main.num
+num check examples/policy_guard/src/main.num
+num check examples/contract_driven_refund/src/main.num
 ```
 
 The demo runtime currently supports selected mocked workflows:
 
 ```bash
-cargo run -p num -- run examples/refund_workflow/src/main.num
-cargo run -p num -- route examples/refund_workflow/src POST /refunds
+num run examples/refund_workflow/src/main.num
+num route examples/refund_workflow/src POST /refunds
 node examples/contract_driven_refund/backend/runtime-demo.js success
 ```

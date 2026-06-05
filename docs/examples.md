@@ -8,11 +8,11 @@ by `src/main.num`.
 Run checks from the repository root:
 
 ```bash
-cargo run -p num -- check examples/refund_workflow/src/main.num
-cargo run -p num -- check examples/refund_workflow/src
-cargo run -p num -- check examples/ai_agent/src/main.num
-cargo run -p num -- check examples/policy_guard/src/main.num
-cargo run -p num -- check examples/contract_driven_refund/src/main.num
+num check examples/refund_workflow/src/main.num
+num check examples/refund_workflow/src
+num check examples/ai_agent/src/main.num
+num check examples/policy_guard/src/main.num
+num check examples/contract_driven_refund/src/main.num
 ```
 
 ## `refund_workflow`
@@ -40,11 +40,11 @@ Demonstrates:
 Useful commands:
 
 ```bash
-cargo run -p num -- check examples/refund_workflow/src/main.num
-cargo run -p num -- check examples/refund_workflow/src
-cargo run -p num -- ir examples/refund_workflow/src/main.num
-cargo run -p num -- run examples/refund_workflow/src/main.num
-cargo run -p num -- route examples/refund_workflow/src POST /refunds
+num check examples/refund_workflow/src/main.num
+num check examples/refund_workflow/src
+num ir examples/refund_workflow/src/main.num
+num run examples/refund_workflow/src/main.num
+num route examples/refund_workflow/src POST /refunds
 ```
 
 The `run` command executes this example through mocked connectors.
@@ -65,7 +65,7 @@ Demonstrates:
 Useful command:
 
 ```bash
-cargo run -p num -- check examples/ai_agent/src/main.num
+num check examples/ai_agent/src/main.num
 ```
 
 ## `policy_guard`
@@ -84,7 +84,7 @@ Demonstrates:
 Useful command:
 
 ```bash
-cargo run -p num -- check examples/policy_guard/src/main.num
+num check examples/policy_guard/src/main.num
 ```
 
 ## `contract_driven_refund`
@@ -105,7 +105,7 @@ Demonstrates:
 Useful commands:
 
 ```bash
-cargo run -p num -- check examples/contract_driven_refund/src/main.num
+num check examples/contract_driven_refund/src/main.num
 node examples/contract_driven_refund/backend/runtime-demo.js success
 node examples/contract_driven_refund/backend/runtime-demo.js approval
 node examples/contract_driven_refund/backend/runtime-demo.js denied
