@@ -1,5 +1,10 @@
 use crate::compatibility::{validate_manifest, CURRENT_LANGUAGE_VERSION, CURRENT_MANIFEST_SCHEMA};
 use crate::package::PackageManifest;
+use num_compiler::{
+    check_program,
+    diagnostic::{Diagnostic, Severity},
+    SourceFile,
+};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,6 +49,92 @@ impl MigrationReport {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMigrationReport {
+    pub root: PathBuf,
+    pub changed: bool,
+    pub applied: bool,
+    pub actions: Vec<String>,
+    pub files: Vec<SourceMigrationFileReport>,
+    pub diagnostics: Vec<String>,
+}
+
+impl SourceMigrationReport {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "root": self.root.display().to_string(),
+            "changed": self.changed,
+            "applied": self.applied,
+            "actions": self.actions,
+            "files": self
+                .files
+                .iter()
+                .map(SourceMigrationFileReport::to_json)
+                .collect::<Vec<_>>(),
+            "diagnostics": self.diagnostics,
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "Source migration plan for {}\n",
+            self.root.display()
+        ));
+        if self.changed {
+            out.push_str(if self.applied {
+                "Status: applied\n"
+            } else {
+                "Status: pending\n"
+            });
+        } else {
+            out.push_str("Status: up to date\n");
+        }
+        for action in &self.actions {
+            out.push_str(&format!("  - {action}\n"));
+        }
+        if !self.diagnostics.is_empty() {
+            out.push_str("Blocking diagnostics:\n");
+            for diagnostic in &self.diagnostics {
+                out.push_str(&format!("  - {diagnostic}\n"));
+            }
+        }
+        out.push_str("Files:\n");
+        for file in &self.files {
+            out.push_str(&format!(
+                "  - {}: {}\n",
+                file.path.display(),
+                if file.changed {
+                    "pending"
+                } else {
+                    "up to date"
+                }
+            ));
+            for action in &file.actions {
+                out.push_str(&format!("      - {action}\n"));
+            }
+        }
+        out
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMigrationFileReport {
+    pub path: PathBuf,
+    pub changed: bool,
+    pub actions: Vec<String>,
+}
+
+impl SourceMigrationFileReport {
+    fn to_json(&self) -> Value {
+        json!({
+            "path": self.path.display().to_string(),
+            "changed": self.changed,
+            "actions": self.actions,
+        })
+    }
+}
+
 pub fn migrate_manifest(path: &Path, write: bool) -> Result<MigrationReport, String> {
     let (root, manifest_path, source) = discover_manifest_source(path)?;
     let planned = plan_manifest_source(&source)?;
@@ -62,6 +153,57 @@ pub fn migrate_manifest(path: &Path, write: bool) -> Result<MigrationReport, Str
         applied: write && planned.changed,
         actions: planned.actions,
     })
+}
+
+pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigrationReport, String> {
+    if write {
+        return Err(
+            "`num migrate --source` is planning-only until source rewrite rules are versioned"
+                .to_string(),
+        );
+    }
+
+    let (root, files) = discover_source_files(path)?;
+    let program = check_program(
+        files
+            .iter()
+            .map(|file| SourceFile {
+                name: file.path.display().to_string(),
+                source: file.source.clone(),
+            })
+            .collect(),
+    );
+    let diagnostics = blocking_diagnostics(&program.diagnostics);
+    let file_reports = files
+        .iter()
+        .map(|file| plan_source_file_migration(&file.path, &file.source))
+        .collect::<Vec<_>>();
+    let changed = file_reports.iter().any(|file| file.changed);
+    let mut actions = Vec::new();
+    if file_reports.is_empty() {
+        actions.push("no .num source files discovered".to_string());
+    } else if changed {
+        actions.push("source rewrite rules require manual review".to_string());
+    } else {
+        actions.push(format!(
+            "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
+        ));
+    }
+
+    Ok(SourceMigrationReport {
+        root,
+        changed,
+        applied: false,
+        actions,
+        files: file_reports,
+        diagnostics,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiscoveredSourceFile {
+    path: PathBuf,
+    source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +231,98 @@ fn discover_manifest_source(path: &Path) -> Result<(PathBuf, PathBuf, String), S
     }
 
     Err(format!("no num.toml found for {}", path.display()))
+}
+
+fn discover_source_files(path: &Path) -> Result<(PathBuf, Vec<DiscoveredSourceFile>), String> {
+    if let Some(manifest) = PackageManifest::discover(path)? {
+        let source_dir = manifest.source_dir();
+        return Ok((source_dir.clone(), collect_num_sources(&source_dir)?));
+    }
+
+    if path.is_dir() {
+        return Ok((path.to_path_buf(), collect_num_sources(path)?));
+    }
+
+    if !path.is_file() {
+        return Err(format!(
+            "{} is not a .num file or directory",
+            path.display()
+        ));
+    }
+    let source = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    Ok((
+        path.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf(),
+        vec![DiscoveredSourceFile {
+            path: path.to_path_buf(),
+            source,
+        }],
+    ))
+}
+
+fn collect_num_sources(root: &Path) -> Result<Vec<DiscoveredSourceFile>, String> {
+    let mut files = Vec::new();
+    collect_num_sources_inner(root, &mut files)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
+fn collect_num_sources_inner(
+    root: &Path,
+    files: &mut Vec<DiscoveredSourceFile>,
+) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let mut entries = fs::read_dir(root)
+        .map_err(|err| format!("failed to read source directory {}: {err}", root.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("failed to read source directory entry: {err}"))?;
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_num_sources_inner(&path, files)?;
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("num") {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        files.push(DiscoveredSourceFile { path, source });
+    }
+    Ok(())
+}
+
+fn plan_source_file_migration(path: &Path, _source: &str) -> SourceMigrationFileReport {
+    SourceMigrationFileReport {
+        path: path.to_path_buf(),
+        changed: false,
+        actions: vec![format!(
+            "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
+        )],
+    }
+}
+
+fn blocking_diagnostics(diagnostics: &[Diagnostic]) -> Vec<String> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .map(|diagnostic| {
+            format!(
+                "{}: {} at {}:{}:{}",
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.span.source,
+                diagnostic.span.line,
+                diagnostic.span.column
+            )
+        })
+        .collect()
 }
 
 fn plan_manifest_source(source: &str) -> Result<PlannedManifest, String> {
@@ -310,5 +544,77 @@ version = "0.1.0"
         assert!(plan_manifest_source(source)
             .unwrap_err()
             .contains("cannot migrate manifest schema 2"));
+    }
+
+    #[test]
+    fn source_migration_reports_clean_project_sources() {
+        let root = temp_project_dir("source_clean");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            r#"module app.main
+
+fn ok() -> Bool {
+    return true
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, false).unwrap();
+
+        assert!(!report.changed);
+        assert!(!report.applied);
+        assert_eq!(report.files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+        assert!(report.actions.iter().any(|action| {
+            action
+                == &format!("no source rewrites required for language {CURRENT_LANGUAGE_VERSION}")
+        }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_reports_blocking_diagnostics() {
+        let root = temp_project_dir("source_diagnostics");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.num"), "module app.main\nfn broken(").unwrap();
+
+        let report = plan_source_migrations(&root, false).unwrap();
+
+        assert!(!report.diagnostics.is_empty());
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("N")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_write_is_rejected_until_rewrite_rules_exist() {
+        let root = temp_project_dir("source_write");
+
+        let err = plan_source_migrations(&root, true).unwrap_err();
+
+        assert!(err.contains("planning-only"));
+        fs::remove_dir_all(root).unwrap();
     }
 }

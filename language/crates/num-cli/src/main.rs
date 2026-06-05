@@ -347,13 +347,24 @@ fn run() -> Result<(), String> {
         }
         "migrate" => {
             let (path, options) = parse_migrate_args(args)?;
-            let report = migration::migrate_manifest(&path, options.write)?;
-            if options.format_json {
-                let json = serde_json::to_string_pretty(&report.to_json())
-                    .map_err(|err| format!("failed to render migration JSON: {err}"))?;
-                println!("{json}");
+            if options.source {
+                let report = migration::plan_source_migrations(&path, options.write)?;
+                if options.format_json {
+                    let json = serde_json::to_string_pretty(&report.to_json())
+                        .map_err(|err| format!("failed to render source migration JSON: {err}"))?;
+                    println!("{json}");
+                } else {
+                    print!("{}", report.render_text());
+                }
             } else {
-                print!("{}", report.render_text());
+                let report = migration::migrate_manifest(&path, options.write)?;
+                if options.format_json {
+                    let json = serde_json::to_string_pretty(&report.to_json())
+                        .map_err(|err| format!("failed to render migration JSON: {err}"))?;
+                    println!("{json}");
+                } else {
+                    print!("{}", report.render_text());
+                }
             }
             Ok(())
         }
@@ -699,6 +710,7 @@ struct DeployOptions {
 struct MigrateOptions {
     write: bool,
     format_json: bool,
+    source: bool,
 }
 
 fn parse_migrate_args(
@@ -707,11 +719,13 @@ fn parse_migrate_args(
     let mut path = None;
     let mut write = false;
     let mut format_json = false;
+    let mut source = false;
 
     for arg in args {
         match arg.as_str() {
             "--write" => write = true,
             "--json" => format_json = true,
+            "--source" => source = true,
             _ if path.is_none() => path = Some(PathBuf::from(arg)),
             _ => return Err(format!("unexpected migrate argument '{arg}'")),
         }
@@ -719,7 +733,11 @@ fn parse_migrate_args(
 
     Ok((
         path.unwrap_or_else(|| PathBuf::from(".")),
-        MigrateOptions { write, format_json },
+        MigrateOptions {
+            write,
+            format_json,
+            source,
+        },
     ))
 }
 
@@ -868,7 +886,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -920,7 +938,7 @@ _num() {
     'debug:run workflow with scripted breakpoints'
     'deploy:build a deployment plan artifact'
     'compat:check language/schema compatibility'
-    'migrate:plan or apply manifest migrations'
+    'migrate:plan manifest or source migrations'
     'upgrade-version:plan or apply manifest version upgrades'
     'version:print CLI/language/schema versions'
     'registry:manage local package registries'
@@ -1125,6 +1143,7 @@ service Api {
         assert_eq!(path, PathBuf::from("examples/refund_workflow"));
         assert!(options.write);
         assert!(options.format_json);
+        assert!(!options.source);
     }
 
     #[test]
@@ -1132,6 +1151,23 @@ service Api {
         let (path, options) = parse_migrate_args(["--json".to_string()].into_iter()).unwrap();
 
         assert_eq!(path, PathBuf::from("."));
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn migrate_args_parse_source_flag() {
+        let (path, options) = parse_migrate_args(
+            [
+                "examples/refund_workflow".to_string(),
+                "--source".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("examples/refund_workflow"));
+        assert!(options.source);
         assert!(options.format_json);
     }
 

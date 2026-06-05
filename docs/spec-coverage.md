@@ -189,6 +189,8 @@ Implemented:
   path/local-registry dependencies;
 - `num migrate` dry-run/write migration reports for legacy or partial
   `[language]` manifest metadata;
+- `num migrate --source` source migration planning reports for workspace `.num`
+  files, including blocking compiler diagnostics and per-file source actions;
 - `num upgrade-version` dry-run/write reports for safe `[language].version`
   and optional `[project].version` upgrades;
 - `num upgrade-version --include-dependencies` graph reports for resolved
@@ -530,7 +532,7 @@ Major full-spec areas not implemented in v0.1.0:
 - external-language interop;
 - remote registry and git package imports;
 - performance optimization strategy;
-- automatic source migrations between language versions.
+- automatic source rewrite application between language versions.
 
 ## Coverage by Full Specification Area
 
@@ -554,6 +556,7 @@ Major full-spec areas not implemented in v0.1.0:
 - local/CI deployment bundle materialization.
 - language/schema compatibility checks.
 - manifest migration tooling.
+- source migration planning.
 - manifest version upgrade tooling.
 - graph-aware dependency version upgrade reports.
 - fixture-backed manifest compatibility matrix coverage.
