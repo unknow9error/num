@@ -9,6 +9,8 @@ technical specification.
 - Keep the compiler, runtime, CLI, examples, VS Code extension, and docs green.
 - Preserve compatibility metadata through `num.toml`, `num compat`,
   `num upgrade-version`, `num lock`, and `num deploy`.
+- Keep generated lockfiles schema-versioned and rejected by older CLIs when
+  they require unsupported lockfile formats.
 - Keep manifest compatibility, migration, and version-upgrade behavior covered
   by fixture-backed CLI matrix tests.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.

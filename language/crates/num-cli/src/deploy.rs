@@ -1,5 +1,5 @@
 use crate::compatibility::CompatibilityReport;
-use crate::package::{DependencySource, PackageManifest};
+use crate::package::{self, DependencySource, PackageManifest};
 use num_compiler::ast::{Declaration, Module, Risk};
 use num_compiler::SourceFile;
 use serde_json::{json, Value};
@@ -74,6 +74,7 @@ pub struct DeploymentArtifactReport {
     pub artifact_root: PathBuf,
     pub plan_path: PathBuf,
     pub manifest_path: PathBuf,
+    pub lock_path: Option<PathBuf>,
     pub modules_dir: PathBuf,
     pub runbook_path: PathBuf,
     pub metadata_path: PathBuf,
@@ -273,6 +274,7 @@ impl DeploymentArtifactReport {
             "artifact_root": self.artifact_root.display().to_string(),
             "plan_path": self.plan_path.display().to_string(),
             "manifest_path": self.manifest_path.display().to_string(),
+            "lock_path": self.lock_path.as_ref().map(|path| path.display().to_string()),
             "modules_dir": self.modules_dir.display().to_string(),
             "runbook_path": self.runbook_path.display().to_string(),
             "metadata_path": self.metadata_path.display().to_string(),
@@ -288,6 +290,9 @@ impl DeploymentArtifactReport {
         ));
         out.push_str(&format!("Plan: {}\n", self.plan_path.display()));
         out.push_str(&format!("Manifest: {}\n", self.manifest_path.display()));
+        if let Some(lock_path) = &self.lock_path {
+            out.push_str(&format!("Lockfile: {}\n", lock_path.display()));
+        }
         out.push_str(&format!("Modules: {}\n", self.modules_dir.display()));
         out.push_str(&format!("Runbook: {}\n", self.runbook_path.display()));
         out.push_str(&format!("Files: {}\n", self.files.len()));
@@ -302,6 +307,12 @@ pub fn materialize_deployment_artifact(
     artifact_root: &Path,
     replace: bool,
 ) -> Result<DeploymentArtifactReport, String> {
+    let source_lock_path = manifest.lock_path();
+    let include_lockfile = source_lock_path.is_file();
+    if include_lockfile {
+        package::validate_lockfile(&source_lock_path)?;
+    }
+
     if artifact_root.exists() {
         if !replace {
             return Err(format!(
@@ -320,6 +331,7 @@ pub fn materialize_deployment_artifact(
     let mut files = Vec::new();
     let plan_path = artifact_root.join("num-deploy.json");
     let manifest_path = artifact_root.join("num.toml");
+    let lock_path = artifact_root.join("num.lock");
     let metadata_path = artifact_root.join("manifest.json");
     let runbook_path = artifact_root.join("RUNBOOK.md");
 
@@ -334,6 +346,12 @@ pub fn materialize_deployment_artifact(
         &mut files,
     )?;
     copy_file(&manifest.path, &manifest_path, artifact_root, &mut files)?;
+    let copied_lock_path = if include_lockfile {
+        copy_file(&source_lock_path, &lock_path, artifact_root, &mut files)?;
+        Some(lock_path.clone())
+    } else {
+        None
+    };
 
     let mut module_entries = Vec::new();
     for (index, source_file) in source_files.iter().enumerate() {
@@ -359,6 +377,10 @@ pub fn materialize_deployment_artifact(
                 "modules": module_entries,
                 "plan": relative_to(&plan_path, artifact_root)?,
                 "manifest": relative_to(&manifest_path, artifact_root)?,
+                "lockfile": copied_lock_path
+                    .as_ref()
+                    .map(|path| relative_to(path, artifact_root))
+                    .transpose()?,
             }))
             .map_err(|err| format!("failed to render deployment metadata JSON: {err}"))?
         ),
@@ -377,6 +399,7 @@ pub fn materialize_deployment_artifact(
         artifact_root: artifact_root.to_path_buf(),
         plan_path,
         manifest_path,
+        lock_path: copied_lock_path,
         modules_dir,
         runbook_path,
         metadata_path,
@@ -514,6 +537,7 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
     out.push_str("## Included Artifacts\n\n");
     out.push_str("- `num-deploy.json` checked deployment plan\n");
     out.push_str("- `num.toml` source package manifest\n");
+    out.push_str("- `num.lock` validated package lockfile, when present\n");
     out.push_str("- `modules/` compiled source module snapshot\n");
     out.push_str("- `manifest.json` artifact metadata and module map\n\n");
     out.push_str("## Operations Boundary\n\n");
@@ -526,7 +550,7 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
 #[cfg(test)]
 mod tests {
     use super::{build_deployment_plan, materialize_deployment_artifact};
-    use crate::package::PackageManifest;
+    use crate::package::{write_lockfile, PackageManifest};
     use num_compiler::{compile, SourceFile};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -679,6 +703,106 @@ artifact = "dist/num-deploy.json"
             materialize_deployment_artifact(&plan, &manifest, &[source], &artifact_root, true)
                 .unwrap();
         assert_eq!(replaced.files.len(), 5);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materialized_artifact_includes_valid_lockfile_when_present() {
+        let root = temp_dir("bundle_with_lock_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.1.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+"#,
+        )
+        .unwrap();
+        write_lockfile(&root).unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: "module app.main\n\nworkflow main() {\n}\n".to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        let lock_path = report.lock_path.as_ref().unwrap();
+        assert!(lock_path.is_file());
+        assert_eq!(lock_path, &artifact_root.join("num.lock"));
+        assert_eq!(
+            report.to_json()["lock_path"],
+            artifact_root.join("num.lock").display().to_string()
+        );
+        assert_eq!(report.files.len(), 6);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &fs::read_to_string(&report.metadata_path).unwrap()
+            )
+            .unwrap()["lockfile"],
+            "num.lock"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materialization_rejects_unsupported_lockfile_schema() {
+        let root = temp_dir("bundle_bad_lock_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.1.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("num.lock"), "version = 2\n").unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: "module app.main\n\nworkflow main() {\n}\n".to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        let err = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("requires lockfile version 2"));
+        assert!(!artifact_root.exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

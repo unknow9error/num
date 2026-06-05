@@ -534,12 +534,14 @@ fn run() -> Result<(), String> {
             project::create_project(Path::new(&name))
         }
         "lock" => {
-            let path = args
-                .next()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            let lock_path = package::write_lockfile(&path)?;
-            println!("wrote {}", lock_path.display());
+            let options = parse_lock_options(args)?;
+            if options.check {
+                let lock_path = package::validate_project_lockfile(&options.path)?;
+                println!("checked {}", lock_path.display());
+            } else {
+                let lock_path = package::write_lockfile(&options.path)?;
+                println!("wrote {}", lock_path.display());
+            }
             Ok(())
         }
         "registry" => registry_cli::run(args),
@@ -707,10 +709,36 @@ struct DeployOptions {
     format_json: bool,
 }
 
+struct LockOptions {
+    path: PathBuf,
+    check: bool,
+}
+
 struct MigrateOptions {
     write: bool,
     format_json: bool,
     source: bool,
+}
+
+fn parse_lock_options(args: impl Iterator<Item = String>) -> Result<LockOptions, String> {
+    let mut path = None;
+    let mut check = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--check" => check = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected lock argument '{other}'"));
+            }
+            _ if path.is_none() => path = Some(PathBuf::from(arg)),
+            _ => return Err(format!("unexpected lock argument '{arg}'")),
+        }
+    }
+
+    Ok(LockOptions {
+        path: path.unwrap_or_else(|| PathBuf::from(".")),
+        check,
+    })
 }
 
 fn parse_migrate_args(
@@ -886,7 +914,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file]                  Generate num.lock from num.toml\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check]        Generate or validate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1126,6 +1154,29 @@ service Api {
         assert!(options.apply);
         assert!(options.replace);
         assert!(options.format_json);
+    }
+
+    #[test]
+    fn lock_options_parse_path_and_check_flag() {
+        let options = parse_lock_options(
+            [
+                "examples/refund_workflow".to_string(),
+                "--check".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
+        assert!(options.check);
+    }
+
+    #[test]
+    fn lock_options_default_to_current_dir_when_only_flags_are_passed() {
+        let options = parse_lock_options(["--check".to_string()].into_iter()).unwrap();
+
+        assert_eq!(options.path, PathBuf::from("."));
+        assert!(options.check);
     }
 
     #[test]
