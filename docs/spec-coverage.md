@@ -202,6 +202,8 @@ Implemented:
 - `num version` CLI/language/schema version reporting;
 - `num lock --check` lockfile schema validation, and deploy-time validation
   plus inclusion of `num.lock` in materialized bundles when present;
+- `num lock --migrate` dry-run/write lockfile schema migration for legacy
+  missing-schema and schema `0` lockfiles;
 - fixture-backed CLI compatibility matrix coverage for current manifests,
   legacy missing-language manifests, schema `0` migration, future schema
   rejection, future language rejection, and project-version upgrades;
@@ -566,6 +568,7 @@ Major full-spec areas not implemented in v0.1.0:
 - manifest version upgrade tooling.
 - graph-aware dependency version upgrade reports.
 - lockfile schema validation and deploy artifact lockfile inclusion.
+- lockfile schema migration tooling.
 - fixture-backed manifest compatibility matrix coverage.
 
 ### Foundation Only

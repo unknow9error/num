@@ -11,6 +11,8 @@ technical specification.
   `num upgrade-version`, `num lock`, and `num deploy`.
 - Keep generated lockfiles schema-versioned and rejected by older CLIs when
   they require unsupported lockfile formats.
+- Keep lockfile migration dry-runs and writes available for released schema
+  changes.
 - Keep manifest compatibility, migration, and version-upgrade behavior covered
   by fixture-backed CLI matrix tests.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.

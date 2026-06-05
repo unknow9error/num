@@ -535,7 +535,16 @@ fn run() -> Result<(), String> {
         }
         "lock" => {
             let options = parse_lock_options(args)?;
-            if options.check {
+            if options.migrate {
+                let report = package::migrate_lockfile(&options.path, options.write)?;
+                if options.format_json {
+                    let json = serde_json::to_string_pretty(&report.to_json())
+                        .map_err(|err| format!("failed to render lock migration JSON: {err}"))?;
+                    println!("{json}");
+                } else {
+                    print!("{}", report.render_text());
+                }
+            } else if options.check {
                 let lock_path = package::validate_project_lockfile(&options.path)?;
                 println!("checked {}", lock_path.display());
             } else {
@@ -712,6 +721,9 @@ struct DeployOptions {
 struct LockOptions {
     path: PathBuf,
     check: bool,
+    migrate: bool,
+    write: bool,
+    format_json: bool,
 }
 
 struct MigrateOptions {
@@ -723,10 +735,16 @@ struct MigrateOptions {
 fn parse_lock_options(args: impl Iterator<Item = String>) -> Result<LockOptions, String> {
     let mut path = None;
     let mut check = false;
+    let mut migrate = false;
+    let mut write = false;
+    let mut format_json = false;
 
     for arg in args {
         match arg.as_str() {
             "--check" => check = true,
+            "--migrate" => migrate = true,
+            "--write" => write = true,
+            "--json" => format_json = true,
             other if other.starts_with("--") => {
                 return Err(format!("unexpected lock argument '{other}'"));
             }
@@ -734,10 +752,21 @@ fn parse_lock_options(args: impl Iterator<Item = String>) -> Result<LockOptions,
             _ => return Err(format!("unexpected lock argument '{arg}'")),
         }
     }
+    if check && (migrate || write || format_json) {
+        return Err(
+            "`num lock --check` cannot be combined with --migrate, --write, or --json".to_string(),
+        );
+    }
+    if (write || format_json) && !migrate {
+        return Err("`num lock --write` and `--json` require --migrate".to_string());
+    }
 
     Ok(LockOptions {
         path: path.unwrap_or_else(|| PathBuf::from(".")),
         check,
+        migrate,
+        write,
+        format_json,
     })
 }
 
@@ -914,7 +943,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check]        Generate or validate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -979,7 +1008,7 @@ _num() {
     'serve:serve HTTP requests for a service'
     'serve-once:serve one HTTP request for a service'
     'new:create a new num project'
-    'lock:generate num.lock from num.toml'
+    'lock:generate, validate, or migrate num.lock'
     'import:generate num source from external schemas'
     'completions:print shell completion script'
     'lsp:start the language server'
@@ -1169,6 +1198,7 @@ service Api {
 
         assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
         assert!(options.check);
+        assert!(!options.migrate);
     }
 
     #[test]
@@ -1177,6 +1207,35 @@ service Api {
 
         assert_eq!(options.path, PathBuf::from("."));
         assert!(options.check);
+    }
+
+    #[test]
+    fn lock_options_parse_migration_flags() {
+        let options = parse_lock_options(
+            [
+                "examples/refund_workflow".to_string(),
+                "--migrate".to_string(),
+                "--write".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
+        assert!(options.migrate);
+        assert!(options.write);
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn lock_options_reject_conflicting_flags() {
+        assert!(
+            parse_lock_options(["--check".to_string(), "--migrate".to_string()].into_iter())
+                .is_err()
+        );
+        assert!(parse_lock_options(["--write".to_string()].into_iter()).is_err());
+        assert!(parse_lock_options(["--json".to_string()].into_iter()).is_err());
     }
 
     #[test]
