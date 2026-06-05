@@ -147,7 +147,8 @@ This repository contains a working production-grade foundation for:
   ecosystem development;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, with explicit lockfile schema validation, migration, and
-  compatibility matrix coverage, plus git dependency selector metadata;
+  compatibility matrix coverage, plus git dependency commit pinning in
+  lockfiles;
 - LSP diagnostics, completions, hover, formatting, and document symbols;
 - VS Code syntax, snippets, commands, and language configuration;
 - separate example projects.

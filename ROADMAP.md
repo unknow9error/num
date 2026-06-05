@@ -13,7 +13,8 @@ technical specification.
   they require unsupported lockfile formats.
 - Keep lockfile migration dry-runs and writes available for released schema
   changes.
-- Preserve declared git dependency selectors in lockfile and deploy metadata.
+- Preserve resolved git dependency commits in lockfiles and declared git
+  selectors in deploy metadata.
 - Keep manifest compatibility, migration, and version-upgrade behavior covered
   by fixture-backed CLI matrix tests.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.
@@ -49,7 +50,7 @@ technical specification.
 ## Later
 
 - Remote package registry publish/download service.
-- Git dependency checkout and remote registry/git lockfile pinning.
+- Remote registry download service and production git auth/cache hardening.
 - Broader automatic source rewrite rules between language versions.
 - Full standard library.
 - Hardened production HTTP runtime.

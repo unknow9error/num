@@ -389,11 +389,12 @@ materialization. Future lockfile schemas are rejected instead of being silently
 interpreted by an older CLI. The lockfile records the workspace package
 language/schema compatibility metadata plus direct and transitive
 path/local-registry dependencies that can be resolved locally. Resolved package
-entries include sorted dependency edges. Git dependencies, and registry
-dependencies without a configured local registry root, remain metadata-only
-entries. Git inline tables can include `rev`, `tag`, `branch`, or `ref`; the
-lockfile pins that selector in its deterministic source label. Remote package
-fetching and git checkout are not implemented yet.
+entries include sorted dependency edges. Git inline tables can include `rev`,
+`tag`, `branch`, or `ref`; `num lock` checks out git dependencies into a
+project-local `.num-git` cache and pins the resolved commit SHA in the package
+entry source label. Registry dependencies without a configured local registry
+root remain metadata-only entries. Remote registry downloads and production git
+authentication/cache policy are not implemented yet.
 
 `num lock --migrate` plans safe lockfile schema migrations without rewriting by
 default. Current migrations add a missing top-level `version = 1` header for

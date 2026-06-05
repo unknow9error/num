@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub const CURRENT_LOCKFILE_SCHEMA: u32 = 1;
 
@@ -125,6 +126,18 @@ impl PackageGitDependency {
             source.push_str(&format!("#ref:{reference}"));
         }
         source
+    }
+
+    fn lock_source_with_rev(&self, rev: &str) -> String {
+        format!("git:{}#rev:{rev}", self.url)
+    }
+
+    fn checkout_selector(&self) -> Option<&str> {
+        self.rev
+            .as_deref()
+            .or(self.tag.as_deref())
+            .or(self.branch.as_deref())
+            .or(self.reference.as_deref())
     }
 }
 
@@ -607,7 +620,10 @@ fn resolve_lock_manifest(
                 )?;
             }
             DependencySource::Git(_) => {
-                add_unresolved_lock_dependency(dependency, visited, packages)
+                let (dependency_manifest, resolved_source) =
+                    load_git_dependency_manifest(manifest, dependency)?;
+                validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
+                resolve_lock_manifest(&dependency_manifest, resolved_source, visited, packages)?;
             }
         }
     }
@@ -662,6 +678,141 @@ fn load_path_dependency_manifest(
         &manifest_path,
         &source,
     ))
+}
+
+fn load_git_dependency_manifest(
+    manifest: &PackageManifest,
+    dependency: &PackageDependency,
+) -> Result<(PackageManifest, String), String> {
+    let DependencySource::Git(git) = &dependency.source else {
+        return Err(format!(
+            "dependency `{}` is not a git dependency",
+            dependency.name
+        ));
+    };
+    let checkout_root = git_dependency_checkout_root(manifest, dependency, git);
+    checkout_git_dependency(git, &checkout_root)?;
+    let manifest_path = checkout_root.join("num.toml");
+    if !manifest_path.is_file() {
+        return Err(format!(
+            "git dependency `{}` has no num.toml at {}",
+            dependency.name,
+            manifest_path.display()
+        ));
+    }
+    let source = fs::read_to_string(&manifest_path)
+        .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+    let resolved_rev = git_head_rev(&checkout_root)?;
+    Ok((
+        PackageManifest::parse(&checkout_root, &manifest_path, &source),
+        git.lock_source_with_rev(&resolved_rev),
+    ))
+}
+
+fn git_dependency_checkout_root(
+    manifest: &PackageManifest,
+    dependency: &PackageDependency,
+    git: &PackageGitDependency,
+) -> PathBuf {
+    let key = format!(
+        "{}@{} {}",
+        dependency.name,
+        dependency.version,
+        git.lock_source()
+    );
+    manifest
+        .root
+        .join(".num-git")
+        .join(format!("{}-{}", dependency.name, stable_hex_hash(&key)))
+}
+
+fn checkout_git_dependency(git: &PackageGitDependency, checkout_root: &Path) -> Result<(), String> {
+    if checkout_root.join(".git").is_dir() {
+        run_git(
+            ["fetch", "--quiet", "--tags", "origin"],
+            Some(checkout_root),
+        )?;
+    } else {
+        if let Some(parent) = checkout_root.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+        }
+        let checkout_path = checkout_root.display().to_string();
+        run_git(["clone", "--quiet", &git.url, &checkout_path], None)?;
+    }
+
+    if let Some(selector) = git.checkout_selector() {
+        checkout_git_selector(checkout_root, &selector)?;
+    }
+
+    Ok(())
+}
+
+fn checkout_git_selector(checkout_root: &Path, selector: &str) -> Result<(), String> {
+    let checkout = Command::new("git")
+        .arg("checkout")
+        .arg("--quiet")
+        .arg(selector)
+        .current_dir(checkout_root)
+        .output()
+        .map_err(|err| format!("failed to run git checkout {selector}: {err}"))?;
+    if checkout.status.success() {
+        return Ok(());
+    }
+
+    let origin_selector = format!("origin/{selector}");
+    let origin_checkout = Command::new("git")
+        .arg("checkout")
+        .arg("--quiet")
+        .arg(&origin_selector)
+        .current_dir(checkout_root)
+        .output()
+        .map_err(|err| format!("failed to run git checkout {origin_selector}: {err}"))?;
+    if origin_checkout.status.success() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "failed to checkout git selector `{selector}`\nstderr:\n{}",
+        String::from_utf8_lossy(&checkout.stderr)
+    ))
+}
+
+fn git_head_rev(checkout_root: &Path) -> Result<String, String> {
+    let output = run_git(["rev-parse", "HEAD"], Some(checkout_root))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn run_git<const N: usize>(
+    args: [&str; N],
+    cwd: Option<&Path>,
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new("git");
+    command.args(args);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command
+        .output()
+        .map_err(|err| format!("failed to run git: {err}"))?;
+    if output.status.success() {
+        Ok(output)
+    } else {
+        Err(format!(
+            "git command failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+fn stable_hex_hash(value: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 fn validate_dependency_manifest_identity(
@@ -1544,6 +1695,54 @@ version = "0.3.0"
     }
 
     #[test]
+    fn lockfile_resolves_local_git_dependency_to_commit_sha() {
+        let root = temp_package_dir("git_lock_root");
+        let shared = root.with_file_name(format!(
+            "{}_shared_git",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&shared).unwrap();
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.2.0"
+"#,
+        );
+        init_git_repo(&shared);
+        let rev = git_head_rev(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
+"#,
+                path_to_toml_string(shared.display().to_string()),
+                rev
+            ),
+        );
+
+        let path = write_lockfile(&root).unwrap();
+        let lockfile = fs::read_to_string(path).unwrap();
+
+        assert!(lockfile.contains("name = \"app\""));
+        assert!(lockfile.contains("name = \"shared\""));
+        assert!(lockfile.contains(&format!("source = \"git:{}#rev:{rev}\"", shared.display())));
+        assert!(lockfile.contains("language = \"0.1.0\""));
+        assert!(root.join(".num-git").is_dir());
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
     fn lockfile_pins_transitive_local_registry_dependencies() {
         let root = temp_package_dir("registry_lock_root");
         let registry = root.with_file_name(format!(
@@ -1655,5 +1854,30 @@ entry = "src/lib.num"
 
     fn write_manifest(root: &Path, source: &str) {
         fs::write(root.join("num.toml"), source).unwrap();
+    }
+
+    fn init_git_repo(root: &Path) {
+        run_git(["init", "--quiet"], Some(root)).unwrap();
+        run_git(["add", "num.toml"], Some(root)).unwrap();
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.email=num@example.com",
+                "-c",
+                "user.name=num",
+                "commit",
+                "--quiet",
+                "-m",
+                "init",
+            ])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git commit failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
