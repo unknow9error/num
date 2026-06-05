@@ -517,6 +517,8 @@ cargo run -p num -- upgrade-version examples/refund_workflow
 cargo run -p num -- upgrade-version examples/refund_workflow --json
 cargo run -p num -- upgrade-version examples/refund_workflow --project 0.2.0 --write
 cargo run -p num -- upgrade-version legacy_project --language 0.1.0 --write
+cargo run -p num -- upgrade-version examples/refund_workflow --include-dependencies --json
+cargo run -p num -- upgrade-version examples/refund_workflow --include-dependencies --write --write-dependencies
 ```
 
 The command updates `[language].version` to the current CLI language version by
@@ -524,6 +526,14 @@ default, fills missing `[language]` metadata when needed, and can also bump
 `[project].version` when `--project <x.y.z>` is passed. It refuses downgrades
 for both language and project versions. Like `migrate`, this is a dry-run unless
 `--write` is passed.
+
+`--include-dependencies` expands the report across the resolved path/local
+registry dependency graph, so dependency manifests that need language metadata
+or version upgrades are visible before they break project compatibility.
+`--write` still applies only the workspace manifest. Pass
+`--write-dependencies` together with `--write` to apply the language upgrade to
+resolved dependency manifests too. Project version bumps remain scoped to the
+workspace package, even in dependency graph mode.
 
 ### `version`
 

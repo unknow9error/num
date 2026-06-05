@@ -137,8 +137,9 @@ This repository contains a working production-grade foundation for:
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;
 - manifest language/schema version compatibility checks, manifest migration
-  planning/application, manifest version upgrade planning/application, and
-  fixture-backed compatibility matrix coverage;
+  planning/application, manifest version upgrade planning/application,
+  graph-aware dependency version upgrade reports, and fixture-backed
+  compatibility matrix coverage;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry

@@ -164,7 +164,8 @@ owns language-version, manifest-schema, and compatibility-policy validation for
 projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata.
 `version_upgrade.rs` owns safe manifest language/project version upgrade
-planning/application.
+planning/application, including dependency graph reporting for resolved
+path/local-registry manifests.
 `registry.rs` owns local filesystem registry resolution, publish/list/install
 operations, and package artifact file selection.
 `workflow_cli.rs` owns file-backed workflow event enqueue/drain operations for

@@ -3,6 +3,18 @@ use std::path::PathBuf;
 
 pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     let (path, options, format_json) = parse_args(args)?;
+    if options.include_dependencies {
+        let report = version_upgrade::upgrade_manifest_graph_versions(&path, &options)?;
+        if format_json {
+            let json = serde_json::to_string_pretty(&report.to_json())
+                .map_err(|err| format!("failed to render version upgrade JSON: {err}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", report.render_text());
+        }
+        return Ok(());
+    }
+
     let report = version_upgrade::upgrade_manifest_versions(&path, &options)?;
     if format_json {
         let json = serde_json::to_string_pretty(&report.to_json())
@@ -36,6 +48,11 @@ fn parse_args(
                 );
             }
             "--write" => options.write = true,
+            "--include-dependencies" => options.include_dependencies = true,
+            "--write-dependencies" => {
+                options.include_dependencies = true;
+                options.write_dependencies = true;
+            }
             "--json" => format_json = true,
             _ if path.is_none() => path = Some(PathBuf::from(arg)),
             _ => return Err(format!("unexpected upgrade-version argument '{arg}'")),
@@ -76,6 +93,21 @@ mod tests {
         assert_eq!(options.target_project_version, Some("1.0.0".to_string()));
         assert!(options.write);
         assert!(format_json);
+    }
+
+    #[test]
+    fn parses_dependency_upgrade_flags() {
+        let (_path, options, _format_json) = parse_args(
+            [
+                "--include-dependencies".to_string(),
+                "--write-dependencies".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert!(options.include_dependencies);
+        assert!(options.write_dependencies);
     }
 
     #[test]
