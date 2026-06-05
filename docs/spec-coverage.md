@@ -568,6 +568,7 @@ Major full-spec areas not implemented in v0.1.0:
 - release packaging.
 - deployment plan artifact generation.
 - local/CI deployment bundle materialization.
+- deployment target profile classification and deploy-time warnings.
 - language/schema compatibility checks.
 - manifest migration tooling.
 - source migration planning and first source rewrite rule.

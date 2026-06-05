@@ -15,6 +15,7 @@ pub struct DeploymentPlan {
     pub service: Option<String>,
     pub region: Option<String>,
     pub artifact: String,
+    pub target_profile: DeploymentTargetProfile,
     pub source: String,
     pub entry: String,
     pub runtime: RuntimeDeployment,
@@ -41,6 +42,14 @@ pub struct CompatibilityDeployment {
 pub struct RuntimeDeployment {
     pub workflow_store: String,
     pub audit_store: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentTargetProfile {
+    pub class: String,
+    pub execution: String,
+    pub required_artifacts: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +134,7 @@ pub fn build_deployment_plan(
         service: manifest.deployment.service.clone(),
         region: manifest.deployment.region.clone(),
         artifact: manifest.deployment.artifact.clone(),
+        target_profile: DeploymentTargetProfile::for_manifest(manifest),
         source: manifest.project.source.clone(),
         entry: manifest.project.entry.clone(),
         runtime: RuntimeDeployment {
@@ -194,6 +204,7 @@ impl DeploymentPlan {
                 "service": self.service,
                 "region": self.region,
                 "artifact": self.artifact,
+                "profile": self.target_profile.to_json(),
             },
             "project": {
                 "source": self.source,
@@ -224,6 +235,10 @@ impl DeploymentPlan {
             self.package_name, self.package_version
         ));
         out.push_str(&format!("Target: {}\n", self.target));
+        out.push_str(&format!(
+            "Target profile: class={}, execution={}\n",
+            self.target_profile.class, self.target_profile.execution
+        ));
         if let Some(service) = &self.service {
             out.push_str(&format!("Service: {service}\n"));
         }
@@ -264,7 +279,106 @@ impl DeploymentPlan {
                 self.process_connectors.join(", ")
             ));
         }
+        if !self.target_profile.warnings.is_empty() {
+            out.push_str("Deployment warnings:\n");
+            for warning in &self.target_profile.warnings {
+                out.push_str(&format!("  - {warning}\n"));
+            }
+        }
         out
+    }
+}
+
+impl DeploymentTargetProfile {
+    fn for_manifest(manifest: &PackageManifest) -> Self {
+        let target = manifest.deployment.target.trim();
+        let service = manifest.deployment.service.as_deref();
+        let region = manifest.deployment.region.as_deref();
+        let mut warnings = Vec::new();
+
+        let (class, execution, required_artifacts) = match normalize_target(target).as_str() {
+            "local" => (
+                "local",
+                "local-ci-bundle",
+                vec!["num-deploy.json", "num.toml", "modules/"],
+            ),
+            "container" | "docker" | "oci" => {
+                if service.is_none() {
+                    warnings.push(
+                        "container targets should set [deployment].service for route entrypoint selection"
+                            .to_string(),
+                    );
+                }
+                (
+                    "container",
+                    "external-container-runner",
+                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                )
+            }
+            "kubernetes" | "k8s" => {
+                if service.is_none() {
+                    warnings.push(
+                        "kubernetes targets should set [deployment].service before execution"
+                            .to_string(),
+                    );
+                }
+                if region.is_none() {
+                    warnings.push(
+                        "kubernetes targets should set [deployment].region or cluster context before execution"
+                            .to_string(),
+                    );
+                }
+                (
+                    "orchestrator",
+                    "external-kubernetes-applier",
+                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                )
+            }
+            "cloud" | "aws" | "gcp" | "azure" => {
+                if service.is_none() {
+                    warnings.push(
+                        "cloud targets should set [deployment].service before execution"
+                            .to_string(),
+                    );
+                }
+                if region.is_none() {
+                    warnings.push(
+                        "cloud targets should set [deployment].region before execution".to_string(),
+                    );
+                }
+                (
+                    "cloud",
+                    "external-cloud-deployer",
+                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                )
+            }
+            _ => {
+                warnings.push(format!(
+                    "deployment target `{target}` is preserved as a custom target; execution requires a custom runner"
+                ));
+                (
+                    "custom",
+                    "external-custom-runner",
+                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                )
+            }
+        };
+
+        Self {
+            class: class.to_string(),
+            execution: execution.to_string(),
+            required_artifacts: required_artifacts.into_iter().map(str::to_string).collect(),
+            warnings,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "class": self.class,
+            "execution": self.execution,
+            "required_artifacts": self.required_artifacts,
+            "warnings": self.warnings,
+        })
     }
 }
 
@@ -374,6 +488,7 @@ pub fn materialize_deployment_artifact(
                 },
                 "target": plan.target,
                 "service": plan.service,
+                "target_profile": plan.target_profile.to_json(),
                 "modules": module_entries,
                 "plan": relative_to(&plan_path, artifact_root)?,
                 "manifest": relative_to(&manifest_path, artifact_root)?,
@@ -448,6 +563,10 @@ impl DependencyDeployment {
 
 fn dependency_source_label(source: &DependencySource) -> String {
     source.lock_source()
+}
+
+fn normalize_target(target: &str) -> String {
+    target.trim().to_ascii_lowercase()
 }
 
 fn risk_label(risk: Risk) -> &'static str {
@@ -529,6 +648,24 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
     }
     if let Some(region) = &plan.region {
         out.push_str(&format!("Region: `{region}`\n\n"));
+    }
+    out.push_str("## Target Profile\n\n");
+    out.push_str(&format!("Class: `{}`\n\n", plan.target_profile.class));
+    out.push_str(&format!(
+        "Execution: `{}`\n\n",
+        plan.target_profile.execution
+    ));
+    out.push_str("Required artifacts:\n\n");
+    for artifact in &plan.target_profile.required_artifacts {
+        out.push_str(&format!("- `{artifact}`\n"));
+    }
+    out.push('\n');
+    if !plan.target_profile.warnings.is_empty() {
+        out.push_str("Warnings:\n\n");
+        for warning in &plan.target_profile.warnings {
+            out.push_str(&format!("- {warning}\n"));
+        }
+        out.push('\n');
     }
     out.push_str("## Included Artifacts\n\n");
     out.push_str("- `num-deploy.json` checked deployment plan\n");
@@ -618,6 +755,9 @@ service BillingApi {
 
         assert_eq!(plan.package_name, "billing");
         assert_eq!(plan.target, "container");
+        assert_eq!(plan.target_profile.class, "container");
+        assert_eq!(plan.target_profile.execution, "external-container-runner");
+        assert!(plan.target_profile.warnings.is_empty());
         assert_eq!(plan.runtime.workflow_store, "file:.num-state");
         assert_eq!(
             plan.dependencies[0].source,
@@ -632,9 +772,47 @@ service BillingApi {
         );
         assert_eq!(plan.to_json()["compatibility"]["manifest"]["schema"], 1);
         assert_eq!(plan.to_json()["deployment"]["service"], "BillingApi");
+        assert_eq!(
+            plan.to_json()["deployment"]["profile"]["class"],
+            "container"
+        );
         assert!(plan
             .render_text()
             .contains("Deployment plan: billing 1.2.3"));
+    }
+
+    #[test]
+    fn deployment_plan_warns_for_incomplete_cloud_target_profile() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "cloud"
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        assert_eq!(plan.target_profile.class, "cloud");
+        assert_eq!(plan.target_profile.execution, "external-cloud-deployer");
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("[deployment].service")));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("[deployment].region")));
+        assert!(plan.render_text().contains("Deployment warnings"));
     }
 
     #[test]
@@ -692,6 +870,12 @@ artifact = "dist/num-deploy.json"
         assert!(fs::read_to_string(&report.runbook_path)
             .unwrap()
             .contains("Package: billing 1.2.3"));
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("Target Profile"));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"target_profile\""));
         assert!(materialize_deployment_artifact(
             &plan,
             &manifest,
