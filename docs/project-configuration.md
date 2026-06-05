@@ -58,10 +58,11 @@ an incompatible dependency cannot be silently compiled. `num compat
 embeds the same language/schema metadata into the deployment plan artifact.
 `num migrate [project-dir|file] [--write]` can add missing `[language]`
 metadata, fill partial language sections, and upgrade schema `0` manifests to
-the current schema. `num migrate --source` provides a deterministic source
-migration plan over workspace `.num` files, including blocking compiler
-diagnostics and per-file actions; automatic source rewrites are rejected until
-rewrite rules are versioned. `num upgrade-version [project-dir|file] [--write]` can
+the current schema. `num migrate --source` provides deterministic source
+migration over workspace `.num` files, including blocking compiler diagnostics
+and per-file actions. The current source rewrite rule inserts missing explicit
+`module` declarations based on manifest source-relative file paths.
+`num upgrade-version [project-dir|file] [--write]` can
 plan/apply a `[language].version` upgrade to the current CLI language version
 and optionally bump `[project].version` with `--project <x.y.z>`. With
 `--include-dependencies`, it reports upgrade readiness across resolved
@@ -280,7 +281,7 @@ Implemented:
 - language/schema compatibility validation through `[language]` and
   `num compat`;
 - manifest migration planning/application through `num migrate`;
-- source migration planning through `num migrate --source`;
+- source migration planning/application through `num migrate --source`;
 - manifest version upgrade planning/application through `num upgrade-version`;
 - graph-aware dependency version upgrade planning/application through
   `num upgrade-version --include-dependencies`;
@@ -301,7 +302,7 @@ Not implemented yet:
 
 - remote registry package download/publish APIs;
 - remote/git package checkout and lockfile pinning;
-- automatic source rewrite application between language versions;
+- broader automatic source rewrite rules between language versions;
 - git dependency checkout;
 - runtime backend selection from manifest values;
 - deployment execution against cloud/container platforms.

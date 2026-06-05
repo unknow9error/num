@@ -500,6 +500,7 @@ cargo run -p num -- migrate examples/refund_workflow
 cargo run -p num -- migrate examples/refund_workflow --json
 cargo run -p num -- migrate legacy_project --write
 cargo run -p num -- migrate examples/refund_workflow --source --json
+cargo run -p num -- migrate legacy_project --source --write
 ```
 
 The command is a dry-run by default. It discovers `num.toml` from a project
@@ -509,12 +510,13 @@ writes when `--write` is passed. The current migration path inserts missing
 `manifest_schema = 0` to the current manifest schema. Manifests that require a
 future schema are rejected instead of rewritten.
 
-`--source` switches from manifest migration to source migration planning. It
-discovers workspace `.num` source files, runs the compiler checks, reports
-blocking diagnostics, and lists per-file source migration actions. In v0.1.0
-there are no automatic source rewrite rules, so clean files report that no
-source rewrites are required for the current language version. `--source
---write` is rejected until source rewrite rules are versioned.
+`--source` switches from manifest migration to source migration. It discovers
+workspace `.num` source files, runs the compiler checks, reports blocking
+diagnostics, and lists per-file source migration actions. The first v0.1.0
+source rewrite inserts deterministic explicit `module` declarations into legacy
+files that omit them, deriving the module path from the manifest source-relative
+file path. `--source --write` applies source rewrites only when the current
+source graph has no blocking compiler diagnostics.
 
 ### `upgrade-version`
 

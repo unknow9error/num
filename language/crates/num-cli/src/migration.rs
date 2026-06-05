@@ -156,13 +156,6 @@ pub fn migrate_manifest(path: &Path, write: bool) -> Result<MigrationReport, Str
 }
 
 pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigrationReport, String> {
-    if write {
-        return Err(
-            "`num migrate --source` is planning-only until source rewrite rules are versioned"
-                .to_string(),
-        );
-    }
-
     let (root, files) = discover_source_files(path)?;
     let program = check_program(
         files
@@ -174,16 +167,29 @@ pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigratio
             .collect(),
     );
     let diagnostics = blocking_diagnostics(&program.diagnostics);
+    if write && !diagnostics.is_empty() {
+        return Err("refusing to apply source migrations while blocking diagnostics exist; run `num migrate --source` for the diagnostic report".to_string());
+    }
     let file_reports = files
         .iter()
-        .map(|file| plan_source_file_migration(&file.path, &file.source))
+        .map(plan_source_file_migration)
         .collect::<Vec<_>>();
     let changed = file_reports.iter().any(|file| file.changed);
+    if write {
+        for (file, report) in files.iter().zip(file_reports.iter()) {
+            if !report.changed {
+                continue;
+            }
+            let migrated = rewrite_source_file(file);
+            fs::write(&file.path, migrated)
+                .map_err(|err| format!("failed to write {}: {err}", file.path.display()))?;
+        }
+    }
     let mut actions = Vec::new();
     if file_reports.is_empty() {
         actions.push("no .num source files discovered".to_string());
     } else if changed {
-        actions.push("source rewrite rules require manual review".to_string());
+        actions.push("insert missing explicit module declarations".to_string());
     } else {
         actions.push(format!(
             "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
@@ -193,7 +199,7 @@ pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigratio
     Ok(SourceMigrationReport {
         root,
         changed,
-        applied: false,
+        applied: write && changed,
         actions,
         files: file_reports,
         diagnostics,
@@ -204,6 +210,7 @@ pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigratio
 struct DiscoveredSourceFile {
     path: PathBuf,
     source: String,
+    module_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,26 +265,28 @@ fn discover_source_files(path: &Path) -> Result<(PathBuf, Vec<DiscoveredSourceFi
         vec![DiscoveredSourceFile {
             path: path.to_path_buf(),
             source,
+            module_path: source_module_path(path, path.parent().unwrap_or_else(|| Path::new("."))),
         }],
     ))
 }
 
 fn collect_num_sources(root: &Path) -> Result<Vec<DiscoveredSourceFile>, String> {
     let mut files = Vec::new();
-    collect_num_sources_inner(root, &mut files)?;
+    collect_num_sources_inner(root, root, &mut files)?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(files)
 }
 
 fn collect_num_sources_inner(
-    root: &Path,
+    base: &Path,
+    dir: &Path,
     files: &mut Vec<DiscoveredSourceFile>,
 ) -> Result<(), String> {
-    if !root.exists() {
+    if !dir.exists() {
         return Ok(());
     }
-    let mut entries = fs::read_dir(root)
-        .map_err(|err| format!("failed to read source directory {}: {err}", root.display()))?
+    let mut entries = fs::read_dir(dir)
+        .map_err(|err| format!("failed to read source directory {}: {err}", dir.display()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|err| format!("failed to read source directory entry: {err}"))?;
     entries.sort_by_key(|entry| entry.path());
@@ -285,7 +294,7 @@ fn collect_num_sources_inner(
     for entry in entries {
         let path = entry.path();
         if path.is_dir() {
-            collect_num_sources_inner(&path, files)?;
+            collect_num_sources_inner(base, &path, files)?;
             continue;
         }
         if path.extension().and_then(|ext| ext.to_str()) != Some("num") {
@@ -293,18 +302,126 @@ fn collect_num_sources_inner(
         }
         let source = fs::read_to_string(&path)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-        files.push(DiscoveredSourceFile { path, source });
+        files.push(DiscoveredSourceFile {
+            module_path: source_module_path(&path, base),
+            path,
+            source,
+        });
     }
     Ok(())
 }
 
-fn plan_source_file_migration(path: &Path, _source: &str) -> SourceMigrationFileReport {
+fn plan_source_file_migration(file: &DiscoveredSourceFile) -> SourceMigrationFileReport {
+    if has_explicit_module_declaration(&file.source) {
+        return SourceMigrationFileReport {
+            path: file.path.clone(),
+            changed: false,
+            actions: vec![format!(
+                "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
+            )],
+        };
+    }
+
     SourceMigrationFileReport {
-        path: path.to_path_buf(),
-        changed: false,
+        path: file.path.clone(),
+        changed: true,
         actions: vec![format!(
-            "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
+            "insert explicit module declaration `module {}`",
+            file.module_path
         )],
+    }
+}
+
+fn rewrite_source_file(file: &DiscoveredSourceFile) -> String {
+    if has_explicit_module_declaration(&file.source) {
+        return ensure_trailing_newline(&file.source);
+    }
+    insert_module_declaration(&file.source, &file.module_path)
+}
+
+fn has_explicit_module_declaration(source: &str) -> bool {
+    source
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("//"))
+        .is_some_and(|line| {
+            line.strip_prefix("module")
+                .is_some_and(module_prefix_boundary)
+        })
+}
+
+fn module_prefix_boundary(rest: &str) -> bool {
+    rest.chars()
+        .next()
+        .is_some_and(|ch| ch.is_whitespace() || ch == '.')
+}
+
+fn insert_module_declaration(source: &str, module_path: &str) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    let insert_at = lines
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("//")
+        })
+        .unwrap_or(lines.len());
+    let mut out = String::new();
+    for line in lines.iter().take(insert_at) {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("module ");
+    out.push_str(module_path);
+    out.push('\n');
+    if insert_at < lines.len() {
+        out.push('\n');
+    }
+    for line in lines.iter().skip(insert_at) {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+fn source_module_path(path: &Path, root: &Path) -> String {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let mut components = relative
+        .with_extension("")
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .map(sanitize_module_component)
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+    if components.is_empty() {
+        components.push("main".to_string());
+    }
+    components.join(".")
+}
+
+fn sanitize_module_component(component: &str) -> String {
+    let mut out = String::new();
+    for ch in component.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push('_');
+        }
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    let out = out.trim_matches('_').to_string();
+    if out.is_empty() {
+        return "module".to_string();
+    }
+    if out
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+    {
+        out
+    } else {
+        format!("m_{out}")
     }
 }
 
@@ -584,6 +701,83 @@ fn ok() -> Bool {
     }
 
     #[test]
+    fn source_migration_plans_missing_module_declaration() {
+        let root = temp_project_dir("source_missing_module");
+        fs::create_dir_all(root.join("src/workflows")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/workflows/refund-flow.num"),
+            r#"// preserved header
+
+fn ok() -> Bool {
+    return true
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, false).unwrap();
+
+        assert!(report.changed);
+        assert!(!report.applied);
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(
+            report.files[0].actions,
+            vec!["insert explicit module declaration `module workflows.refund_flow`".to_string()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_writes_missing_module_declaration() {
+        let root = temp_project_dir("source_write_module");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            r#"// preserved header
+fn ok() -> Bool {
+    return true
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, true).unwrap();
+        let migrated = fs::read_to_string(root.join("src/main.num")).unwrap();
+
+        assert!(report.changed);
+        assert!(report.applied);
+        assert_eq!(
+            migrated,
+            r#"// preserved header
+module main
+
+fn ok() -> Bool {
+    return true
+}
+"#
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn source_migration_reports_blocking_diagnostics() {
         let root = temp_project_dir("source_diagnostics");
         fs::create_dir_all(root.join("src")).unwrap();
@@ -609,12 +803,23 @@ source = "src"
     }
 
     #[test]
-    fn source_migration_write_is_rejected_until_rewrite_rules_exist() {
+    fn source_migration_write_is_rejected_when_diagnostics_block_rewrites() {
         let root = temp_project_dir("source_write");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.num"), "module app.main\nfn broken(").unwrap();
 
         let err = plan_source_migrations(&root, true).unwrap_err();
 
-        assert!(err.contains("planning-only"));
+        assert!(err.contains("blocking diagnostics"));
         fs::remove_dir_all(root).unwrap();
     }
 }
