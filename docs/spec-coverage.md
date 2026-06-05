@@ -200,6 +200,8 @@ Implemented:
   path/local-registry dependency manifests, with explicit
   `--write-dependencies` application;
 - `num version` CLI/language/schema version reporting;
+- `num lock --check` lockfile schema validation, and deploy-time validation
+  plus inclusion of `num.lock` in materialized bundles when present;
 - fixture-backed CLI compatibility matrix coverage for current manifests,
   legacy missing-language manifests, schema `0` migration, future schema
   rejection, future language rejection, and project-version upgrades;
@@ -563,6 +565,7 @@ Major full-spec areas not implemented in v0.1.0:
 - migration guide fixtures for released version behavior.
 - manifest version upgrade tooling.
 - graph-aware dependency version upgrade reports.
+- lockfile schema validation and deploy artifact lockfile inclusion.
 - fixture-backed manifest compatibility matrix coverage.
 
 ### Foundation Only

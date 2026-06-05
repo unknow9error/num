@@ -367,6 +367,7 @@ Generate `num.lock` next to the discovered `num.toml`.
 
 ```bash
 cargo run -p num -- lock examples/refund_workflow
+cargo run -p num -- lock examples/refund_workflow --check
 ```
 
 The command records the workspace package plus sorted `[dependencies]` entries
@@ -379,8 +380,11 @@ shared = { path = "../shared", version = "0.2.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
 ```
 
-The current lockfile is deterministic local metadata. It records the workspace
-package language/schema compatibility metadata plus direct and transitive
+The current lockfile is deterministic, versioned local metadata. Its top-level
+`version = 1` schema is checked by `num lock --check` and by deployment
+materialization. Future lockfile schemas are rejected instead of being silently
+interpreted by an older CLI. The lockfile records the workspace package
+language/schema compatibility metadata plus direct and transitive
 path/local-registry dependencies that can be resolved locally. Resolved package
 entries include sorted dependency edges. Git dependencies, and registry
 dependencies without a configured local registry root, remain metadata-only
@@ -462,6 +466,7 @@ bundle. The bundle includes:
 
 - `num-deploy.json` - checked deployment plan;
 - `num.toml` - source package manifest;
+- `num.lock` - validated package lockfile, when present;
 - `modules/` - source module snapshot used for compilation;
 - `manifest.json` - artifact metadata and module map;
 - `RUNBOOK.md` - operations boundary and handoff notes.
