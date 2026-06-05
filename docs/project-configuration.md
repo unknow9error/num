@@ -148,9 +148,9 @@ registry-root/
       src/
 ```
 
-Registry dependencies participate in program checks and runtime compilation,
-including transitive registry dependencies. Git dependencies are currently
-lockfile metadata only.
+Registry and git dependencies participate in program checks and runtime
+compilation, including transitive dependency graphs. Git dependencies are
+resolved through the same project-local `.num-git` cache used by `num lock`.
 
 `num registry publish [project-dir|file] --registry <registry-root>` publishes a
 validated package into that layout. `num registry list --registry
@@ -309,8 +309,7 @@ Implemented:
 Not implemented yet:
 
 - remote registry package download/publish APIs;
-- remote/git package checkout and lockfile pinning;
+- production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- git dependency checkout;
 - runtime backend selection from manifest values;
 - deployment execution against cloud/container platforms.

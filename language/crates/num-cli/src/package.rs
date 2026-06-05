@@ -328,6 +328,35 @@ impl PackageManifest {
         }
         Ok(manifests)
     }
+
+    pub(crate) fn resolved_dependency_manifests(&self) -> Result<Vec<PackageManifest>, String> {
+        let mut manifests = Vec::new();
+        let registry = LocalRegistry::discover_for(self);
+
+        for dependency in &self.dependencies {
+            let resolved = match &dependency.source {
+                DependencySource::Path(_) => Some(load_path_dependency_manifest(self, dependency)?),
+                DependencySource::Registry => {
+                    let registry = registry.as_ref().ok_or_else(|| {
+                        format!(
+                            "registry dependency `{}` requires [registry].path or NUM_REGISTRY_PATH",
+                            dependency.name
+                        )
+                    })?;
+                    registry.resolve(dependency)?
+                }
+                DependencySource::Git(_) => Some(load_git_dependency_manifest(self, dependency)?.0),
+            };
+
+            if let Some(resolved) = resolved {
+                validate_dependency_manifest_identity(dependency, &resolved)?;
+                manifests.push(resolved);
+            }
+        }
+
+        manifests.sort_by(|left, right| left.project.name.cmp(&right.project.name));
+        Ok(manifests)
+    }
 }
 
 pub fn write_lockfile(path: &Path) -> Result<PathBuf, String> {
