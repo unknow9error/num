@@ -124,6 +124,44 @@ fn schema_zero_migrates_to_current_schema_and_then_passes_compat() {
 }
 
 #[test]
+fn legacy_missing_module_source_migrates_and_then_checks() {
+    let project = temp_project("legacy_missing_module");
+    let project_arg = path_arg(&project);
+    let main_path = project.join("src/main.num");
+
+    let plan = run_num(&["migrate", &project_arg, "--source", "--json"]);
+    let plan_report = stdout_json(&plan);
+    assert_eq!(plan_report["changed"], true);
+    assert_eq!(plan_report["applied"], false);
+    assert!(plan_report["files"][0]["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == "insert explicit module declaration `module main`"));
+    assert!(!fs::read_to_string(&main_path)
+        .unwrap()
+        .contains("module main"));
+
+    let migration = run_num(&["migrate", &project_arg, "--source", "--write", "--json"]);
+    let migration_report = stdout_json(&migration);
+    assert_eq!(migration_report["changed"], true);
+    assert_eq!(migration_report["applied"], true);
+    let migrated_source = fs::read_to_string(&main_path).unwrap();
+    assert!(migrated_source.contains("// Legacy source"));
+    assert!(migrated_source.contains("module main\n\nworkflow main()"));
+
+    let check = run_num(&["check", &project_arg]);
+    assert!(
+        check.status.success(),
+        "check failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
 fn future_schema_is_rejected_by_compatibility_and_migration() {
     let project = fixture("future_schema");
     let project_arg = path_arg(&project);

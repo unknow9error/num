@@ -516,7 +516,8 @@ diagnostics, and lists per-file source migration actions. The first v0.1.0
 source rewrite inserts deterministic explicit `module` declarations into legacy
 files that omit them, deriving the module path from the manifest source-relative
 file path. `--source --write` applies source rewrites only when the current
-source graph has no blocking compiler diagnostics.
+source graph has no blocking compiler diagnostics. See
+[migration-guides.md](migration-guides.md) for released migration behavior.
 
 ### `upgrade-version`
 

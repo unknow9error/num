@@ -14,6 +14,7 @@ technical specification.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.
 - Keep source migration rewrites deterministic and reviewable as more language
   versions are introduced.
+- Keep migration guides and fixtures aligned for every released migration rule.
 - Grow the local filesystem package registry into a stable package ecosystem
   foundation through publish/list/install workflows.
 - Use GitHub issues and pull requests for each meaningful platform slice.

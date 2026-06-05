@@ -192,6 +192,8 @@ Implemented:
 - `num migrate --source` source migration reports for workspace `.num` files,
   including blocking compiler diagnostics, per-file source actions, and
   automatic insertion of missing explicit `module` declarations;
+- released migration guide coverage for manifest metadata and explicit source
+  module declarations;
 - `num upgrade-version` dry-run/write reports for safe `[language].version`
   and optional `[project].version` upgrades;
 - `num upgrade-version --include-dependencies` graph reports for resolved
@@ -558,6 +560,7 @@ Major full-spec areas not implemented in v0.1.0:
 - language/schema compatibility checks.
 - manifest migration tooling.
 - source migration planning and first source rewrite rule.
+- migration guide fixtures for released version behavior.
 - manifest version upgrade tooling.
 - graph-aware dependency version upgrade reports.
 - fixture-backed manifest compatibility matrix coverage.

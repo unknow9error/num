@@ -164,6 +164,8 @@ owns language-version, manifest-schema, and compatibility-policy validation for
 projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata, plus
 `.num` source migration planning/application for versioned rewrite rules.
+Migration guide fixtures in `language/crates/num-cli/tests/fixtures` pin
+released compatibility behavior.
 `version_upgrade.rs` owns safe manifest language/project version upgrade
 planning/application, including dependency graph reporting for resolved
 path/local-registry manifests.
