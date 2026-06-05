@@ -1,8 +1,12 @@
 use crate::compatibility::validate_manifest;
+use crate::integrity::{bytes_hash, ContentHasher};
 use crate::package::{DependencySource, PackageDependency, PackageManifest};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+const REGISTRY_METADATA_FILE: &str = ".num-package.json";
+const REGISTRY_METADATA_SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct LocalRegistry {
@@ -16,6 +20,8 @@ pub struct PublishReport {
     pub registry_root: PathBuf,
     pub package_root: PathBuf,
     pub files: Vec<String>,
+    pub metadata_path: PathBuf,
+    pub content_hash: String,
     pub dry_run: bool,
     pub replaced: bool,
 }
@@ -28,6 +34,8 @@ pub struct InstallReport {
     pub source_root: PathBuf,
     pub install_root: PathBuf,
     pub files: Vec<String>,
+    pub metadata_path: PathBuf,
+    pub content_hash: String,
     pub dry_run: bool,
     pub replaced: bool,
 }
@@ -42,6 +50,24 @@ pub struct RegistryListReport {
 pub struct RegistryPackage {
     pub name: String,
     pub versions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryPackageMetadata {
+    schema: u32,
+    name: String,
+    version: String,
+    language: String,
+    manifest_schema: u32,
+    files: Vec<RegistryPackageFile>,
+    content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryPackageFile {
+    path: String,
+    size: u64,
+    hash: String,
 }
 
 impl LocalRegistry {
@@ -84,6 +110,7 @@ impl LocalRegistry {
         if manifest.registry.path.is_none() {
             manifest.registry.path = Some(self.root.display().to_string());
         }
+        validate_registry_metadata(&package_root, &manifest)?;
         Ok(Some(manifest))
     }
 
@@ -99,6 +126,8 @@ impl LocalRegistry {
             .join(&manifest.project.name)
             .join(&manifest.project.version);
         let files = collect_package_files(&manifest.root)?;
+        let metadata = RegistryPackageMetadata::from_package(manifest, &files)?;
+        let metadata_path = package_root.join(REGISTRY_METADATA_FILE);
         if package_root.exists() && !replace {
             return Err(format!(
                 "registry package {} {} already exists at {}; pass --replace to overwrite it",
@@ -129,6 +158,7 @@ impl LocalRegistry {
                     )
                 })?;
             }
+            metadata.write_to(&metadata_path)?;
         }
 
         Ok(PublishReport {
@@ -137,6 +167,8 @@ impl LocalRegistry {
             registry_root: self.root.clone(),
             package_root,
             files,
+            metadata_path,
+            content_hash: metadata.content_hash,
             dry_run,
             replaced: replace,
         })
@@ -159,8 +191,10 @@ impl LocalRegistry {
             .resolve(&dependency)?
             .ok_or_else(|| format!("registry dependency `{name}` version `{version}` not found"))?;
         validate_manifest(&manifest)?;
+        let metadata = validate_registry_metadata(&manifest.root, &manifest)?;
         let target_root = install_root.join(name).join(version);
         let files = collect_package_files(&manifest.root)?;
+        let metadata_path = target_root.join(REGISTRY_METADATA_FILE);
         if target_root.exists() && !replace {
             return Err(format!(
                 "installed package {name} {version} already exists at {}; pass --replace to overwrite it",
@@ -188,6 +222,7 @@ impl LocalRegistry {
                     )
                 })?;
             }
+            metadata.write_to(&metadata_path)?;
         }
 
         Ok(InstallReport {
@@ -197,6 +232,8 @@ impl LocalRegistry {
             source_root: manifest.root,
             install_root: target_root,
             files,
+            metadata_path,
+            content_hash: metadata.content_hash,
             dry_run,
             replaced: replace,
         })
@@ -255,6 +292,8 @@ impl PublishReport {
             },
             "registry_root": self.registry_root.display().to_string(),
             "package_root": self.package_root.display().to_string(),
+            "metadata_path": self.metadata_path.display().to_string(),
+            "content_hash": self.content_hash,
             "files": self.files,
             "dry_run": self.dry_run,
             "replaced": self.replaced,
@@ -269,6 +308,8 @@ impl PublishReport {
         ));
         out.push_str(&format!("Registry: {}\n", self.registry_root.display()));
         out.push_str(&format!("Package root: {}\n", self.package_root.display()));
+        out.push_str(&format!("Metadata: {}\n", self.metadata_path.display()));
+        out.push_str(&format!("Content hash: {}\n", self.content_hash));
         out.push_str(if self.dry_run {
             "Status: dry-run\n"
         } else {
@@ -289,6 +330,8 @@ impl InstallReport {
             "registry_root": self.registry_root.display().to_string(),
             "source_root": self.source_root.display().to_string(),
             "install_root": self.install_root.display().to_string(),
+            "metadata_path": self.metadata_path.display().to_string(),
+            "content_hash": self.content_hash,
             "files": self.files,
             "dry_run": self.dry_run,
             "replaced": self.replaced,
@@ -303,6 +346,8 @@ impl InstallReport {
         ));
         out.push_str(&format!("Registry: {}\n", self.registry_root.display()));
         out.push_str(&format!("Install root: {}\n", self.install_root.display()));
+        out.push_str(&format!("Metadata: {}\n", self.metadata_path.display()));
+        out.push_str(&format!("Content hash: {}\n", self.content_hash));
         out.push_str(if self.dry_run {
             "Status: dry-run\n"
         } else {
@@ -347,6 +392,150 @@ impl RegistryPackage {
             "versions": self.versions,
         })
     }
+}
+
+impl RegistryPackageMetadata {
+    fn from_package(manifest: &PackageManifest, files: &[String]) -> Result<Self, String> {
+        let mut entries = Vec::new();
+        let mut package_hash = ContentHasher::new();
+        for relative in files {
+            let path = manifest.root.join(relative);
+            let bytes = fs::read(&path)
+                .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+            let file_hash = bytes_hash(&bytes);
+            package_hash.update(relative.as_bytes());
+            package_hash.update(&[0]);
+            package_hash.update(file_hash.as_bytes());
+            package_hash.update(&[0]);
+            entries.push(RegistryPackageFile {
+                path: relative.clone(),
+                size: bytes.len() as u64,
+                hash: file_hash,
+            });
+        }
+
+        Ok(Self {
+            schema: REGISTRY_METADATA_SCHEMA,
+            name: manifest.project.name.clone(),
+            version: manifest.project.version.clone(),
+            language: manifest.language.version.clone(),
+            manifest_schema: manifest.language.manifest_schema,
+            files: entries,
+            content_hash: package_hash.finish(),
+        })
+    }
+
+    fn read_from(path: &Path) -> Result<Option<Self>, String> {
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let source = fs::read_to_string(path)
+            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        let value: Value = serde_json::from_str(&source)
+            .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
+        let schema = json_u32(&value, "schema")?;
+        let name = json_string(&value, "name")?;
+        let version = json_string(&value, "version")?;
+        let language = json_string(&value, "language")?;
+        let manifest_schema = json_u32(&value, "manifest_schema")?;
+        let content_hash = json_string(&value, "content_hash")?;
+        let files_value = value
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{} is missing array field `files`", path.display()))?;
+        let mut files = Vec::new();
+        for file in files_value {
+            let path = json_string(file, "path")?;
+            let size = file.get("size").and_then(Value::as_u64).ok_or_else(|| {
+                "registry metadata file entry is missing numeric `size`".to_string()
+            })?;
+            let hash = json_string(file, "hash")?;
+            files.push(RegistryPackageFile { path, size, hash });
+        }
+
+        Ok(Some(Self {
+            schema,
+            name,
+            version,
+            language,
+            manifest_schema,
+            files,
+            content_hash,
+        }))
+    }
+
+    fn write_to(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+        }
+        fs::write(path, self.to_json_string())
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))
+    }
+
+    fn to_json_string(&self) -> String {
+        let value = json!({
+            "schema": self.schema,
+            "name": self.name,
+            "version": self.version,
+            "language": self.language,
+            "manifest_schema": self.manifest_schema,
+            "content_hash": self.content_hash,
+            "files": self.files.iter().map(RegistryPackageFile::to_json).collect::<Vec<_>>(),
+        });
+        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()) + "\n"
+    }
+}
+
+impl RegistryPackageFile {
+    fn to_json(&self) -> Value {
+        json!({
+            "path": self.path,
+            "size": self.size,
+            "hash": self.hash,
+        })
+    }
+}
+
+fn validate_registry_metadata(
+    package_root: &Path,
+    manifest: &PackageManifest,
+) -> Result<RegistryPackageMetadata, String> {
+    let metadata_path = package_root.join(REGISTRY_METADATA_FILE);
+    let files = collect_package_files(package_root)?;
+    let actual = RegistryPackageMetadata::from_package(manifest, &files)?;
+    let Some(recorded) = RegistryPackageMetadata::read_from(&metadata_path)? else {
+        return Ok(actual);
+    };
+
+    if recorded.schema != REGISTRY_METADATA_SCHEMA {
+        return Err(format!(
+            "{} declares unsupported registry metadata schema {}; expected {}",
+            metadata_path.display(),
+            recorded.schema,
+            REGISTRY_METADATA_SCHEMA
+        ));
+    }
+    if recorded.name != actual.name
+        || recorded.version != actual.version
+        || recorded.language != actual.language
+        || recorded.manifest_schema != actual.manifest_schema
+    {
+        return Err(format!(
+            "{} does not match package manifest {} {}",
+            metadata_path.display(),
+            manifest.project.name,
+            manifest.project.version
+        ));
+    }
+    if recorded.files != actual.files || recorded.content_hash != actual.content_hash {
+        return Err(format!(
+            "{} content hash does not match package files",
+            metadata_path.display()
+        ));
+    }
+
+    Ok(recorded)
 }
 
 pub fn registry_for_manifest(
@@ -407,13 +596,35 @@ fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) -> Result<(),
 fn should_skip_entry(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".DS_Store" | ".num-state" | "target" | "node_modules" | "dist"
+        REGISTRY_METADATA_FILE
+            | ".git"
+            | ".DS_Store"
+            | ".num-state"
+            | "target"
+            | "node_modules"
+            | "dist"
     )
+}
+
+fn json_string(value: &Value, field: &str) -> Result<String, String> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("registry metadata is missing string field `{field}`"))
+}
+
+fn json_u32(value: &Value, field: &str) -> Result<u32, String> {
+    let raw = value
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("registry metadata is missing numeric field `{field}`"))?;
+    u32::try_from(raw).map_err(|_| format!("registry metadata field `{field}` is too large"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{registry_for_manifest, LocalRegistry};
+    use super::{registry_for_manifest, LocalRegistry, REGISTRY_METADATA_FILE};
     use crate::package::{DependencySource, PackageDependency, PackageManifest};
     use std::fs;
     use std::path::Path;
@@ -517,6 +728,19 @@ entry = "src/lib.num"
             .join("1.2.3")
             .join("src/lib.num")
             .is_file());
+        assert!(registry_root
+            .join("shared")
+            .join("1.2.3")
+            .join(REGISTRY_METADATA_FILE)
+            .is_file());
+        assert!(report.content_hash.starts_with("sha256:"));
+        assert_eq!(
+            report.metadata_path,
+            registry_root
+                .join("shared")
+                .join("1.2.3")
+                .join(REGISTRY_METADATA_FILE)
+        );
         assert!(!registry_root
             .join("shared")
             .join("1.2.3")
@@ -544,6 +768,40 @@ entry = "src/lib.num"
             .join("1.2.3")
             .join("num.toml")
             .is_file());
+        assert!(install_root
+            .join("shared")
+            .join("1.2.3")
+            .join(REGISTRY_METADATA_FILE)
+            .is_file());
+        assert!(report.content_hash.starts_with("sha256:"));
+        fs::remove_dir_all(registry_root).unwrap();
+        fs::remove_dir_all(install_root).unwrap();
+    }
+
+    #[test]
+    fn install_rejects_package_when_registry_metadata_hash_does_not_match() {
+        let package_root = temp_registry_dir("integrity_package");
+        let registry_root = temp_registry_dir("integrity_registry");
+        let install_root = temp_registry_dir("integrity_target");
+        write_package(&package_root, "shared", "1.2.3");
+        let manifest = PackageManifest::discover(&package_root).unwrap().unwrap();
+        let registry = LocalRegistry::new(&registry_root);
+        registry.publish(&manifest, false, false).unwrap();
+        fs::write(
+            registry_root
+                .join("shared")
+                .join("1.2.3")
+                .join("src/lib.num"),
+            "module shared.changed\n",
+        )
+        .unwrap();
+
+        let err = registry
+            .install("shared", "1.2.3", &install_root, false, false)
+            .unwrap_err();
+
+        assert!(err.contains("content hash does not match package files"));
+        fs::remove_dir_all(package_root).unwrap();
         fs::remove_dir_all(registry_root).unwrap();
         fs::remove_dir_all(install_root).unwrap();
     }

@@ -209,7 +209,8 @@ Implemented:
   rejection, future language rejection, project-version upgrades, source
   module declaration rewrites, and lockfile schema migrations;
 - local filesystem registry publish/list/install workflow for package
-  development and private package sharing;
+  development and private package sharing, including package metadata and
+  content-hash verification;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs;
 - deterministic git dependency checkout into `.num-git` during locking, with

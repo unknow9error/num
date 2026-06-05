@@ -144,7 +144,7 @@ This repository contains a working production-grade foundation for:
 - released migration guide coverage for manifest metadata and source module
   declaration rewrites;
 - local filesystem registry publish/list/install workflow for package
-  ecosystem development;
+  ecosystem development, with generated package metadata and integrity hashes;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, with explicit lockfile schema validation, migration, and
   compatibility matrix coverage, plus git dependency commit pinning in

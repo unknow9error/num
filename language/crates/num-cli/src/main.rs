@@ -3,6 +3,7 @@ mod connector_sdk;
 mod connector_sdk_cli;
 mod demo;
 mod deploy;
+mod integrity;
 mod migration;
 mod openapi;
 mod package;
