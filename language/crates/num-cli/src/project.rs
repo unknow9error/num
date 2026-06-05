@@ -1,6 +1,5 @@
 use crate::compatibility;
-use crate::package::{DependencySource, PackageManifest};
-use crate::registry::LocalRegistry;
+use crate::package::PackageManifest;
 use num_compiler::SourceFile;
 use std::collections::HashSet;
 use std::fs;
@@ -113,24 +112,7 @@ fn collect_package_manifests(
 }
 
 fn dependency_manifests(manifest: &PackageManifest) -> Result<Vec<PackageManifest>, String> {
-    let mut manifests = manifest.path_dependency_manifests()?;
-    let registry = LocalRegistry::discover_for(manifest);
-    for dependency in &manifest.dependencies {
-        let DependencySource::Registry = dependency.source else {
-            continue;
-        };
-        let registry = registry.as_ref().ok_or_else(|| {
-            format!(
-                "registry dependency `{}` requires [registry].path or NUM_REGISTRY_PATH",
-                dependency.name
-            )
-        })?;
-        if let Some(resolved) = registry.resolve(dependency)? {
-            manifests.push(resolved);
-        }
-    }
-    manifests.sort_by(|left, right| left.project.name.cmp(&right.project.name));
-    Ok(manifests)
+    manifest.resolved_dependency_manifests()
 }
 
 pub fn create_project(path: &Path) -> Result<(), String> {
@@ -220,6 +202,7 @@ mod tests {
     use super::*;
     use num_compiler::check_program;
     use std::env;
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_project_dir(name: &str) -> PathBuf {
@@ -424,6 +407,71 @@ entry = "src/types.num"
     }
 
     #[test]
+    fn manifest_git_dependency_modules_are_part_of_program_input() {
+        let root = temp_project_dir("git_dependency_imports");
+        let shared = root.with_file_name(format!(
+            "{}_shared_git",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(shared.join("src")).unwrap();
+        fs::write(
+            shared.join("num.toml"),
+            r#"
+[project]
+name = "shared"
+version = "0.2.0"
+source = "src"
+entry = "src/domain.num"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            shared.join("src/domain.num"),
+            "module shared.domain\n\ntype SharedEvent {\n    message: Text\n}\n",
+        )
+        .unwrap();
+        init_git_repo(&shared);
+        let rev = git_head_rev(&shared);
+        fs::write(
+            root.join("num.toml"),
+            format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+entry = "src/main.num"
+
+[dependencies]
+shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
+"#,
+                path_to_toml_string(shared.display().to_string()),
+                rev
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            "module app.main\n\nuse shared.domain\n\nworkflow main(event: SharedEvent) {\n    audit(event.message)\n}\n",
+        )
+        .unwrap();
+
+        let input = load_program_input(&root).unwrap();
+
+        assert_eq!(input.files.len(), 2);
+        assert!(input
+            .files
+            .iter()
+            .any(|file| file.name.contains(".num-git") && file.name.ends_with("src/domain.num")));
+        let check = check_program(input.files);
+        assert!(check.diagnostics.is_empty());
+        assert!(root.join(".num-git").is_dir());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
     fn rejects_incompatible_dependency_language_version() {
         let root = temp_project_dir("incompatible_dependency");
         let shared = root.with_file_name(format!(
@@ -480,6 +528,51 @@ entry = "src/domain.num"
         assert!(err.contains("requires language 0.2.0"));
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();
+    }
+
+    fn init_git_repo(root: &Path) {
+        run_git(["init", "--quiet"], root);
+        run_git(["add", "num.toml", "src/domain.num"], root);
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.email=num@example.com",
+                "-c",
+                "user.name=num",
+                "commit",
+                "--quiet",
+                "-m",
+                "init",
+            ])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git commit failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn git_head_rev(root: &Path) -> String {
+        let output = run_git(["rev-parse", "HEAD"], root);
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn run_git<const N: usize>(args: [&str; N], root: &Path) -> std::process::Output {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git command failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
     }
 }
 

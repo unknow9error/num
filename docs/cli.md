@@ -402,8 +402,8 @@ legacy lockfiles and upgrade schema `0` lockfiles to schema `1`. Pass
 `--migrate --write` to apply the migration after reviewing the plan, or add
 `--json` for machine-readable CI output.
 
-Direct `path` dependencies and local filesystem registry dependencies are
-loaded during `check`, `run`, `route`, `serve`, and `serve-once`, which lets
+Direct `path`, local filesystem registry, and git dependencies are loaded
+during `check`, `run`, `route`, `serve`, and `serve-once`, which lets
 `use <module.path>` resolve modules declared in a dependency package.
 
 ### `registry`

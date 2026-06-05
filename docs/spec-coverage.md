@@ -215,6 +215,8 @@ Implemented:
 - deterministic git dependency checkout into `.num-git` during locking, with
   resolved commit SHA metadata in lockfiles and declared git selector labels in
   deploy plans;
+- git package source discovery for project commands through the same `.num-git`
+  checkout cache;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -541,7 +543,7 @@ Major full-spec areas not implemented in v0.1.0:
 - CI/CD integrations beyond local deployment bundle generation and release
   packaging;
 - external-language interop;
-- remote registry and git package imports;
+- remote registry package imports;
 - performance optimization strategy;
 - broader automatic source rewrite rules between language versions.
 
@@ -574,7 +576,8 @@ Major full-spec areas not implemented in v0.1.0:
 - lockfile schema validation and deploy artifact lockfile inclusion.
 - lockfile schema migration tooling.
 - fixture-backed manifest/source/lockfile compatibility matrix coverage.
-- git dependency checkout and commit pinning in lockfile outputs.
+- git dependency checkout, package source discovery, and commit pinning in
+  lockfile outputs.
 
 ### Foundation Only
 

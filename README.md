@@ -148,7 +148,7 @@ This repository contains a working production-grade foundation for:
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, with explicit lockfile schema validation, migration, and
   compatibility matrix coverage, plus git dependency commit pinning in
-  lockfiles;
+  lockfiles and git package source discovery;
 - LSP diagnostics, completions, hover, formatting, and document symbols;
 - VS Code syntax, snippets, commands, and language configuration;
 - separate example projects.
@@ -156,6 +156,6 @@ This repository contains a working production-grade foundation for:
 Major features from the full Num specification that are not implemented yet
 include a complete expression type checker, clustered/distributed workflow
 scheduling, managed/network-native connector hosting, remote package registry
-APIs, remote/git package pinning, dashboard, interactive debugger, full
-standard library, broader OpenAPI/database imports, async runtime, broader
+APIs, production git auth/cache hardening, dashboard, interactive debugger,
+full standard library, broader OpenAPI/database imports, async runtime, broader
 automatic source rewrite rules, and cloud/container deployment execution.
