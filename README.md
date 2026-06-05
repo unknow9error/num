@@ -137,9 +137,10 @@ This repository contains a working production-grade foundation for:
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;
 - manifest language/schema version compatibility checks, manifest migration
-  planning/application, source migration planning, manifest version upgrade
-  planning/application, graph-aware dependency version upgrade reports, and
-  fixture-backed compatibility matrix coverage;
+  planning/application, source migration planning/application with explicit
+  module declaration rewrites, manifest version upgrade planning/application,
+  graph-aware dependency version upgrade reports, and fixture-backed
+  compatibility matrix coverage;
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
@@ -152,5 +153,5 @@ Major features from the full Num specification that are not implemented yet
 include a complete expression type checker, clustered/distributed workflow
 scheduling, managed/network-native connector hosting, remote package registry
 APIs, remote/git package pinning, dashboard, interactive debugger, full
-standard library, broader OpenAPI/database imports, async runtime, automatic
-source rewrite application, and cloud/container deployment execution.
+standard library, broader OpenAPI/database imports, async runtime, broader
+automatic source rewrite rules, and cloud/container deployment execution.

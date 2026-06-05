@@ -12,8 +12,8 @@ technical specification.
 - Keep manifest compatibility, migration, and version-upgrade behavior covered
   by fixture-backed CLI matrix tests.
 - Keep version upgrade tooling graph-aware for resolved package dependencies.
-- Keep source migration planning deterministic before adding automatic source
-  rewrite application.
+- Keep source migration rewrites deterministic and reviewable as more language
+  versions are introduced.
 - Grow the local filesystem package registry into a stable package ecosystem
   foundation through publish/list/install workflows.
 - Use GitHub issues and pull requests for each meaningful platform slice.
@@ -44,7 +44,7 @@ technical specification.
 
 - Remote package registry publish/download service.
 - Git dependency checkout and remote registry/git lockfile pinning.
-- Automatic source rewrite application between language versions.
+- Broader automatic source rewrite rules between language versions.
 - Full standard library.
 - Hardened production HTTP runtime.
 - Broader OpenAPI and SQL import coverage.

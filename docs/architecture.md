@@ -163,7 +163,7 @@ from checked projects. `compatibility.rs`
 owns language-version, manifest-schema, and compatibility-policy validation for
 projects and dependency packages. `migration.rs` owns `num.toml` migration
 planning/application for legacy and partial manifest language metadata, plus
-planning-only `.num` source migration reports.
+`.num` source migration planning/application for versioned rewrite rules.
 `version_upgrade.rs` owns safe manifest language/project version upgrade
 planning/application, including dependency graph reporting for resolved
 path/local-registry manifests.
