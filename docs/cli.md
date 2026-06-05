@@ -419,17 +419,21 @@ num registry list --registry /tmp/num-registry
 num registry install refund-workflow 0.1.0 --registry /tmp/num-registry --to vendor/num
 ```
 
-`publish` validates the package manifest, collects package source files, and
-copies them into `<registry-root>/<package-name>/<version>/`. It skips common
-build/runtime output directories such as `.git`, `target`, `node_modules`,
-`.num-state`, and `dist`. Existing package versions are protected by default;
-pass `--replace` to overwrite a published local version.
+`publish` validates the package manifest, collects package source files, copies
+them into `<registry-root>/<package-name>/<version>/`, and writes
+`.num-package.json` package metadata with schema, language/manifest metadata,
+per-file hashes, and a package content hash. It skips common build/runtime
+output directories such as `.git`, `target`, `node_modules`, `.num-state`, and
+`dist`. Existing package versions are protected by default; pass `--replace` to
+overwrite a published local version.
 
 `list` reads package/version directories that contain `num.toml`. `install`
 copies a published package from the registry into `<install-root>/<name>/<version>/`.
-The default install root is `.num/packages`. These commands are local registry
-tooling for development and private package workflows; they do not implement a
-remote package service yet.
+When registry metadata exists, `install` verifies the content hash before
+copying and writes the metadata into the installed package too. The default
+install root is `.num/packages`. These commands are local registry tooling for
+development and private package workflows; they do not implement a remote
+package service yet.
 
 ### `connector-sdk`
 

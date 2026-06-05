@@ -153,10 +153,13 @@ compilation, including transitive dependency graphs. Git dependencies are
 resolved through the same project-local `.num-git` cache used by `num lock`.
 
 `num registry publish [project-dir|file] --registry <registry-root>` publishes a
-validated package into that layout. `num registry list --registry
-<registry-root>` prints available packages, and `num registry install <name>
-<version> --registry <registry-root> --to <install-root>` copies a package into
-a local vendor-style directory. Existing publish/install targets require
+validated package into that layout and writes `.num-package.json` metadata with
+schema, package identity, language/manifest metadata, per-file hashes, and a
+package content hash. `num registry list --registry <registry-root>` prints
+available packages, and `num registry install <name> <version> --registry
+<registry-root> --to <install-root>` verifies registry metadata when present,
+then copies a package into a local vendor-style directory and writes the same
+metadata next to the installed package. Existing publish/install targets require
 `--replace` before they are overwritten.
 
 ### `[registry]`
@@ -299,7 +302,8 @@ Implemented:
 - direct dependency declarations through `[dependencies]`;
 - direct path dependency source discovery for module imports;
 - local filesystem registry dependency source discovery for module imports;
-- local filesystem registry publish/list/install through `num registry`;
+- local filesystem registry publish/list/install through `num registry`, with
+  package metadata and content-hash checks;
 - deterministic `num.lock` generation through `num lock`;
 - transitive `num.lock` pinning for resolved path/local-registry dependency
   graphs.

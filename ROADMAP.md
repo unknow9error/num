@@ -22,7 +22,8 @@ technical specification.
   versions are introduced.
 - Keep migration guides and fixtures aligned for every released migration rule.
 - Grow the local filesystem package registry into a stable package ecosystem
-  foundation through publish/list/install workflows.
+  foundation through publish/list/install workflows, package metadata, and
+  integrity checks.
 - Use GitHub issues and pull requests for each meaningful platform slice.
 
 ## Near Term
