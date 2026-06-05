@@ -146,7 +146,8 @@ This repository contains a working production-grade foundation for:
 - local filesystem registry publish/list/install workflow for package
   ecosystem development;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
-  dependency graphs, with explicit lockfile schema validation and migration;
+  dependency graphs, with explicit lockfile schema validation, migration, and
+  compatibility matrix coverage;
 - LSP diagnostics, completions, hover, formatting, and document symbols;
 - VS Code syntax, snippets, commands, and language configuration;
 - separate example projects.

@@ -162,6 +162,84 @@ fn legacy_missing_module_source_migrates_and_then_checks() {
 }
 
 #[test]
+fn legacy_lock_missing_schema_migrates_and_then_checks() {
+    let project = temp_project("legacy_lock_missing_schema");
+    let project_arg = path_arg(&project);
+    let lock_path = project.join("num.lock");
+
+    let before = run_num(&["lock", &project_arg, "--check"]);
+    assert!(!before.status.success());
+    assert!(stderr(&before).contains("missing lockfile `version`"));
+
+    let plan = run_num(&["lock", &project_arg, "--migrate", "--json"]);
+    let plan_report = stdout_json(&plan);
+    assert_eq!(plan_report["changed"], true);
+    assert_eq!(plan_report["applied"], false);
+    assert_eq!(plan_report["schema"], Value::Null);
+    assert!(plan_report["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == "add lockfile schema version 1"));
+    assert!(!fs::read_to_string(&lock_path)
+        .unwrap()
+        .contains("version = 1\n\n[[package]]"));
+
+    let migration = run_num(&["lock", &project_arg, "--migrate", "--write", "--json"]);
+    let migration_report = stdout_json(&migration);
+    assert_eq!(migration_report["changed"], true);
+    assert_eq!(migration_report["applied"], true);
+    let migrated_lockfile = fs::read_to_string(&lock_path).unwrap();
+    assert!(migrated_lockfile.contains("version = 1\n\n[[package]]"));
+    assert!(migrated_lockfile.contains("legacy-lock-missing-schema"));
+
+    let after = run_num(&["lock", &project_arg, "--check"]);
+    assert!(
+        after.status.success(),
+        "lock check failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&after.stdout),
+        String::from_utf8_lossy(&after.stderr)
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn lock_schema_zero_migrates_and_then_checks() {
+    let project = temp_project("lock_schema_0");
+    let project_arg = path_arg(&project);
+    let lock_path = project.join("num.lock");
+
+    let before = run_num(&["lock", &project_arg, "--check"]);
+    assert!(!before.status.success());
+    assert!(stderr(&before).contains("invalid lockfile version 0"));
+
+    let migration = run_num(&["lock", &project_arg, "--migrate", "--write", "--json"]);
+    let migration_report = stdout_json(&migration);
+    assert_eq!(migration_report["changed"], true);
+    assert_eq!(migration_report["applied"], true);
+    assert_eq!(migration_report["schema"], 0);
+    assert!(migration_report["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == "upgrade lockfile schema from 0 to 1"));
+    assert!(fs::read_to_string(&lock_path)
+        .unwrap()
+        .contains("version = 1\n\n[[package]]"));
+
+    let after = run_num(&["lock", &project_arg, "--check"]);
+    assert!(
+        after.status.success(),
+        "lock check failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&after.stdout),
+        String::from_utf8_lossy(&after.stderr)
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
 fn future_schema_is_rejected_by_compatibility_and_migration() {
     let project = fixture("future_schema");
     let project_arg = path_arg(&project);
