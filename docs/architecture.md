@@ -89,6 +89,7 @@ Owns runtime contracts and the demo interpreter:
 - append-only file-backed `AuditSink`;
 - memory and file-backed secret stores;
 - memory and file-backed workflow event queues;
+- file-backed worker leases, retry attempts, and dead-letter event handling;
 - batch workflow event worker for draining queued lifecycle events into
   file-backed workflow state and audit logs;
 - in-memory database connector executor for SQL-imported connector contracts;
@@ -100,9 +101,9 @@ Owns runtime contracts and the demo interpreter:
 
 The interpreter is intentionally small and mocked. It is useful for validating
 the end-to-end language slice. The runtime has durable file-backed state, audit
-primitives, lifecycle transitions, file-backed event queues, and a batch worker
-for draining queued lifecycle events, but it is not yet a clustered distributed
-workflow platform.
+primitives, lifecycle transitions, file-backed event queues, worker leases,
+retry attempts, dead-letter handling, and a batch worker for draining queued
+lifecycle events, but it is not yet a clustered distributed workflow platform.
 
 ### `num-lsp`
 
@@ -321,6 +322,7 @@ The runtime crate contains two layers:
 - a workflow lifecycle engine that validates and persists Running, Waiting,
   Completed, Failed, Compensated, and Cancelled states and writes audit events.
 - memory and file-backed workflow event queues.
+- file-backed worker ownership leases, retries, and dead-letter handling.
 - queued workflow event processing through `WorkflowEngine`.
 - tenant-aware workflow load and transition helpers through `WorkflowEngine`.
 

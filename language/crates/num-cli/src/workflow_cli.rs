@@ -2,12 +2,13 @@ use num_runtime::{
     engine::{WorkflowEngine, WorkflowStart},
     events::{FileWorkflowEventQueue, WorkflowEvent, WorkflowEventKind, WorkflowEventQueue},
     storage::{FileAuditSink, FileStateStore},
-    worker::{WorkflowDrainOptions, WorkflowWorker},
+    worker::{WorkflowLeasedDrainOptions, WorkflowWorker},
     SecurityContext,
 };
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     let mut args = args;
@@ -79,7 +80,9 @@ fn drain(args: impl Iterator<Item = String>) -> Result<(), String> {
     let state_root = args
         .next()
         .map(PathBuf::from)
-        .ok_or_else(|| "usage: num workflow drain <state-root> [--max-events N]".to_string())?;
+        .ok_or_else(|| {
+            "usage: num workflow drain <state-root> [--max-events N] [--worker-id ID] [--lease-ms N] [--max-attempts N]".to_string()
+        })?;
     let options = parse_drain_options(args)?;
 
     let state_store = FileStateStore::new(&state_root);
@@ -88,9 +91,12 @@ fn drain(args: impl Iterator<Item = String>) -> Result<(), String> {
     let queue = FileWorkflowEventQueue::new(queue_dir(&state_root));
     let mut worker = WorkflowWorker::new(engine, queue);
     let report = worker
-        .drain(WorkflowDrainOptions {
+        .drain_leased(WorkflowLeasedDrainOptions {
             max_events: options.max_events,
             stop_on_error: options.stop_on_error,
+            worker_id: options.worker_id,
+            lease_timeout: Duration::from_millis(options.lease_timeout_ms),
+            max_attempts: options.max_attempts,
         })
         .map_err(|err| format!("failed to drain workflow events: {err:?}"))?;
 
@@ -148,10 +154,13 @@ impl Default for EventOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct DrainCliOptions {
     max_events: Option<usize>,
     stop_on_error: bool,
+    worker_id: String,
+    lease_timeout_ms: u64,
+    max_attempts: u32,
     format_json: bool,
 }
 
@@ -160,6 +169,9 @@ impl Default for DrainCliOptions {
         Self {
             max_events: None,
             stop_on_error: true,
+            worker_id: "local-worker".to_string(),
+            lease_timeout_ms: 30_000,
+            max_attempts: 3,
             format_json: false,
         }
     }
@@ -319,6 +331,30 @@ fn parse_drain_options(args: impl Iterator<Item = String>) -> Result<DrainCliOpt
                 );
             }
             "--no-stop-on-error" => options.stop_on_error = false,
+            "--worker-id" => {
+                options.worker_id = args
+                    .next()
+                    .ok_or_else(|| "usage: --worker-id <id>".to_string())?;
+            }
+            "--lease-ms" => {
+                let raw = args
+                    .next()
+                    .ok_or_else(|| "usage: --lease-ms <milliseconds>".to_string())?;
+                options.lease_timeout_ms = raw
+                    .parse::<u64>()
+                    .map_err(|_| format!("invalid --lease-ms value '{raw}'"))?;
+            }
+            "--max-attempts" => {
+                let raw = args
+                    .next()
+                    .ok_or_else(|| "usage: --max-attempts <count>".to_string())?;
+                options.max_attempts = raw
+                    .parse::<u32>()
+                    .map_err(|_| format!("invalid --max-attempts value '{raw}'"))?;
+                if options.max_attempts == 0 {
+                    return Err("--max-attempts must be at least 1".to_string());
+                }
+            }
             "--json" => options.format_json = true,
             other => return Err(format!("unexpected workflow drain argument '{other}'")),
         }
@@ -418,6 +454,12 @@ mod tests {
                 "--max-events".to_string(),
                 "2".to_string(),
                 "--no-stop-on-error".to_string(),
+                "--worker-id".to_string(),
+                "worker_a".to_string(),
+                "--lease-ms".to_string(),
+                "1500".to_string(),
+                "--max-attempts".to_string(),
+                "5".to_string(),
                 "--json".to_string(),
             ]
             .into_iter(),
@@ -426,6 +468,9 @@ mod tests {
 
         assert_eq!(options.max_events, Some(2));
         assert!(!options.stop_on_error);
+        assert_eq!(options.worker_id, "worker_a");
+        assert_eq!(options.lease_timeout_ms, 1500);
+        assert_eq!(options.max_attempts, 5);
         assert!(options.format_json);
     }
 

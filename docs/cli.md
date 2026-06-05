@@ -233,6 +233,7 @@ cargo run -p num -- workflow enqueue .num-state wait wf_1
 cargo run -p num -- workflow enqueue .num-state resume wf_1
 cargo run -p num -- workflow enqueue .num-state complete wf_1
 cargo run -p num -- workflow drain .num-state --max-events 10
+cargo run -p num -- workflow drain .num-state --worker-id worker_a --max-attempts 5
 cargo run -p num -- workflow drain .num-state --json
 ```
 
@@ -244,13 +245,19 @@ Transition events require only `<workflow-id>`.
 The state root uses:
 
 - `<state-root>/events` for queued event files;
+- `<state-root>/events/leases` for claimed event leases;
+- `<state-root>/events/dead` for exhausted failed events;
 - `<state-root>/workflows` for persisted workflow state;
 - `<state-root>/audit/events.jsonl` for lifecycle audit events.
 
 `workflow drain` stops on the first failed event by default and reports
 processed states plus failures. Pass `--no-stop-on-error` to continue through a
-batch after failures. This is a durable local/CI worker foundation, not a
-cluster scheduler with worker leases, retries, or distributed queue ownership.
+batch after failures. File-backed draining claims events with a worker lease,
+acks successful events, requeues failed events until `--max-attempts`, and moves
+exhausted events into the dead-letter directory. `--worker-id` controls the
+lease owner label, `--lease-ms` controls stale lease recovery, and
+`--max-attempts` controls retry exhaustion. This is a durable local/CI worker
+foundation, not a networked cluster scheduler.
 
 ### `route`
 

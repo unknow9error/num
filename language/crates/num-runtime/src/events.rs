@@ -115,6 +115,49 @@ pub trait WorkflowEventQueue {
     fn dequeue(&mut self) -> Result<Option<WorkflowEvent>, RuntimeError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowLeaseOptions {
+    pub worker_id: String,
+    pub lease_timeout: Duration,
+    pub max_attempts: u32,
+}
+
+impl Default for WorkflowLeaseOptions {
+    fn default() -> Self {
+        Self {
+            worker_id: "local-worker".to_string(),
+            lease_timeout: Duration::from_secs(30),
+            max_attempts: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowEventLease {
+    pub event: WorkflowEvent,
+    pub worker_id: String,
+    pub attempt: u32,
+    path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowLeaseDisposition {
+    Requeued,
+    DeadLettered,
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowQueueItem {
+    event: WorkflowEvent,
+    attempt: u32,
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowLeaseMetadata {
+    worker_id: String,
+    leased_at: SystemTime,
+}
+
 #[derive(Debug, Default)]
 pub struct MemoryWorkflowEventQueue {
     events: VecDeque<WorkflowEvent>,
@@ -159,6 +202,121 @@ impl FileWorkflowEventQueue {
         &self.dir
     }
 
+    pub fn leases_dir(&self) -> PathBuf {
+        self.dir.join("leases")
+    }
+
+    pub fn dead_letter_dir(&self) -> PathBuf {
+        self.dir.join("dead")
+    }
+
+    pub fn claim(
+        &mut self,
+        options: &WorkflowLeaseOptions,
+    ) -> Result<Option<WorkflowEventLease>, RuntimeError> {
+        fs::create_dir_all(&self.dir).map_storage()?;
+        fs::create_dir_all(self.leases_dir()).map_storage()?;
+        fs::create_dir_all(self.dead_letter_dir()).map_storage()?;
+        self.recover_expired_leases(options)?;
+
+        let Some(path) = next_event_path(&self.dir)? else {
+            return Ok(None);
+        };
+        let Some(file_name) = path.file_name().map(|name| name.to_owned()) else {
+            return Ok(None);
+        };
+        let lease_path = self.leases_dir().join(file_name);
+        match fs::rename(&path, &lease_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(RuntimeError::Storage(err.to_string())),
+        }
+
+        let mut item = read_queue_item(&lease_path)?;
+        item.attempt = item.attempt.saturating_add(1);
+        write_leased_item(&lease_path, &item, &options.worker_id, SystemTime::now())?;
+        Ok(Some(WorkflowEventLease {
+            event: item.event,
+            worker_id: options.worker_id.clone(),
+            attempt: item.attempt,
+            path: lease_path,
+        }))
+    }
+
+    pub fn ack(&mut self, lease: &WorkflowEventLease) -> Result<(), RuntimeError> {
+        if lease.path.exists() {
+            fs::remove_file(&lease.path).map_storage()?;
+        }
+        Ok(())
+    }
+
+    pub fn fail(
+        &mut self,
+        lease: &WorkflowEventLease,
+        error: &str,
+        max_attempts: u32,
+    ) -> Result<WorkflowLeaseDisposition, RuntimeError> {
+        if lease.attempt >= max_attempts {
+            let path = self.archive_path(&self.dead_letter_dir(), &lease.event)?;
+            write_dead_letter_item(&path, &lease.event, lease.attempt, &lease.worker_id, error)?;
+            if lease.path.exists() {
+                fs::remove_file(&lease.path).map_storage()?;
+            }
+            return Ok(WorkflowLeaseDisposition::DeadLettered);
+        }
+
+        let item = WorkflowQueueItem {
+            event: lease.event.clone(),
+            attempt: lease.attempt,
+        };
+        let path = self.event_path(&lease.event)?;
+        write_queue_item(&path, &item)?;
+        if lease.path.exists() {
+            fs::remove_file(&lease.path).map_storage()?;
+        }
+        Ok(WorkflowLeaseDisposition::Requeued)
+    }
+
+    fn recover_expired_leases(
+        &mut self,
+        options: &WorkflowLeaseOptions,
+    ) -> Result<(), RuntimeError> {
+        let leases_dir = self.leases_dir();
+        if !leases_dir.exists() {
+            return Ok(());
+        }
+        let now = SystemTime::now();
+        for entry in fs::read_dir(&leases_dir).map_storage()? {
+            let path = entry.map_storage()?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let (item, lease) = read_leased_queue_item(&path)?;
+            let expired = now
+                .duration_since(lease.leased_at)
+                .unwrap_or_default()
+                >= options.lease_timeout;
+            if !expired {
+                continue;
+            }
+            if item.attempt >= options.max_attempts {
+                let dead_path = self.archive_path(&self.dead_letter_dir(), &item.event)?;
+                write_dead_letter_item(
+                    &dead_path,
+                    &item.event,
+                    item.attempt,
+                    &lease.worker_id,
+                    "lease expired",
+                )?;
+            } else {
+                let retry_path = self.event_path(&item.event)?;
+                write_queue_item(&retry_path, &item)?;
+            }
+            fs::remove_file(path).map_storage()?;
+        }
+        Ok(())
+    }
+
     fn event_path(&self, event: &WorkflowEvent) -> Result<PathBuf, RuntimeError> {
         let mut prefix = system_time_ns(SystemTime::now());
         while event_prefix_exists(&self.dir, prefix)? {
@@ -168,6 +326,18 @@ impl FileWorkflowEventQueue {
             .dir
             .join(format!("{prefix:030}-{}.json", safe_file_id(&event.id))))
     }
+
+    fn archive_path(&self, dir: &Path, event: &WorkflowEvent) -> Result<PathBuf, RuntimeError> {
+        fs::create_dir_all(dir).map_storage()?;
+        let mut prefix = system_time_ns(SystemTime::now());
+        while event_prefix_exists(dir, prefix)? {
+            prefix += 1;
+        }
+        Ok(dir.join(format!(
+            "{prefix:030}-{}.json",
+            safe_file_id(&event.id)
+        )))
+    }
 }
 
 impl WorkflowEventQueue for FileWorkflowEventQueue {
@@ -175,7 +345,8 @@ impl WorkflowEventQueue for FileWorkflowEventQueue {
         fs::create_dir_all(&self.dir).map_storage()?;
         let path = self.event_path(&event)?;
         let temp_path = path.with_extension("json.tmp");
-        let bytes = serde_json::to_vec_pretty(&event_to_json(&event)).map_storage()?;
+        let item = WorkflowQueueItem { event, attempt: 0 };
+        let bytes = serde_json::to_vec_pretty(&queue_item_to_json(&item)).map_storage()?;
         fs::write(&temp_path, bytes).map_storage()?;
         fs::rename(temp_path, path).map_storage()
     }
@@ -187,11 +358,9 @@ impl WorkflowEventQueue for FileWorkflowEventQueue {
         let Some(path) = next_event_path(&self.dir)? else {
             return Ok(None);
         };
-        let bytes = fs::read(&path).map_storage()?;
-        let value: Value = serde_json::from_slice(&bytes).map_storage()?;
-        let event = json_to_event(&value)?;
+        let item = read_queue_item(&path)?;
         fs::remove_file(path).map_storage()?;
-        Ok(Some(event))
+        Ok(Some(item.event))
     }
 }
 
@@ -228,6 +397,51 @@ fn event_to_json(event: &WorkflowEvent) -> Value {
         "id": event.id,
         "queued_at_ms": system_time_ms(event.queued_at),
         "kind": event_kind_to_json(&event.kind),
+    })
+}
+
+fn queue_item_to_json(item: &WorkflowQueueItem) -> Value {
+    json!({
+        "event": event_to_json(&item.event),
+        "delivery": {
+            "attempt": item.attempt,
+        },
+    })
+}
+
+fn leased_queue_item_to_json(
+    item: &WorkflowQueueItem,
+    worker_id: &str,
+    leased_at: SystemTime,
+) -> Value {
+    json!({
+        "event": event_to_json(&item.event),
+        "delivery": {
+            "attempt": item.attempt,
+        },
+        "lease": {
+            "worker_id": worker_id,
+            "leased_at_ms": system_time_ms(leased_at),
+        },
+    })
+}
+
+fn dead_letter_item_to_json(
+    event: &WorkflowEvent,
+    attempt: u32,
+    worker_id: &str,
+    error: &str,
+) -> Value {
+    json!({
+        "event": event_to_json(event),
+        "delivery": {
+            "attempt": attempt,
+        },
+        "dead_letter": {
+            "worker_id": worker_id,
+            "failed_at_ms": system_time_ms(SystemTime::now()),
+            "error": error,
+        },
     })
 }
 
@@ -284,6 +498,86 @@ fn json_to_event(value: &Value) -> Result<WorkflowEvent, RuntimeError> {
                 .ok_or_else(|| storage_error("missing workflow event kind"))?,
         )?,
     })
+}
+
+fn json_to_queue_item(value: &Value) -> Result<WorkflowQueueItem, RuntimeError> {
+    if let Some(event) = value.get("event") {
+        return Ok(WorkflowQueueItem {
+            event: json_to_event(event)?,
+            attempt: delivery_attempt(value)?,
+        });
+    }
+
+    Ok(WorkflowQueueItem {
+        event: json_to_event(value)?,
+        attempt: 0,
+    })
+}
+
+fn json_to_lease_metadata(value: &Value) -> Result<WorkflowLeaseMetadata, RuntimeError> {
+    let lease = value
+        .get("lease")
+        .ok_or_else(|| storage_error("missing workflow event lease metadata"))?;
+    Ok(WorkflowLeaseMetadata {
+        worker_id: string_field(lease, "worker_id")?,
+        leased_at: system_time_from_ms(u64_field(lease, "leased_at_ms")?),
+    })
+}
+
+fn delivery_attempt(value: &Value) -> Result<u32, RuntimeError> {
+    let Some(delivery) = value.get("delivery") else {
+        return Ok(0);
+    };
+    let raw = delivery.get("attempt").and_then(Value::as_u64).unwrap_or(0);
+    raw.try_into()
+        .map_err(|_| storage_error("workflow event delivery attempt is too large"))
+}
+
+fn read_queue_item(path: &Path) -> Result<WorkflowQueueItem, RuntimeError> {
+    let bytes = fs::read(path).map_storage()?;
+    let value: Value = serde_json::from_slice(&bytes).map_storage()?;
+    json_to_queue_item(&value)
+}
+
+fn read_leased_queue_item(
+    path: &Path,
+) -> Result<(WorkflowQueueItem, WorkflowLeaseMetadata), RuntimeError> {
+    let bytes = fs::read(path).map_storage()?;
+    let value: Value = serde_json::from_slice(&bytes).map_storage()?;
+    Ok((json_to_queue_item(&value)?, json_to_lease_metadata(&value)?))
+}
+
+fn write_queue_item(path: &Path, item: &WorkflowQueueItem) -> Result<(), RuntimeError> {
+    let temp_path = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(&queue_item_to_json(item)).map_storage()?;
+    fs::write(&temp_path, bytes).map_storage()?;
+    fs::rename(temp_path, path).map_storage()
+}
+
+fn write_leased_item(
+    path: &Path,
+    item: &WorkflowQueueItem,
+    worker_id: &str,
+    leased_at: SystemTime,
+) -> Result<(), RuntimeError> {
+    let bytes =
+        serde_json::to_vec_pretty(&leased_queue_item_to_json(item, worker_id, leased_at))
+            .map_storage()?;
+    fs::write(path, bytes).map_storage()
+}
+
+fn write_dead_letter_item(
+    path: &Path,
+    event: &WorkflowEvent,
+    attempt: u32,
+    worker_id: &str,
+    error: &str,
+) -> Result<(), RuntimeError> {
+    let bytes = serde_json::to_vec_pretty(&dead_letter_item_to_json(
+        event, attempt, worker_id, error,
+    ))
+    .map_storage()?;
+    fs::write(path, bytes).map_storage()
 }
 
 fn json_to_event_kind(value: &Value) -> Result<WorkflowEventKind, RuntimeError> {
@@ -432,7 +726,7 @@ mod tests {
     use crate::SecurityContext;
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn memory_workflow_event_queue_preserves_order() {
@@ -477,6 +771,97 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn file_workflow_event_queue_claims_and_acks_leases() {
+        let root = unique_test_dir("lease-ack");
+        let mut queue = FileWorkflowEventQueue::new(root.join("queue"));
+
+        queue
+            .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
+            .unwrap();
+
+        let lease = queue
+            .claim(&lease_options("worker_a", 3))
+            .unwrap()
+            .unwrap();
+        assert_eq!(lease.event.id, "evt_wait");
+        assert_eq!(lease.worker_id, "worker_a");
+        assert_eq!(lease.attempt, 1);
+        assert!(queue.dequeue().unwrap().is_none());
+
+        queue.ack(&lease).unwrap();
+        assert_eq!(json_file_count(&queue.leases_dir()), 0);
+        assert!(queue.claim(&lease_options("worker_a", 3)).unwrap().is_none());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_workflow_event_queue_retries_and_dead_letters_failed_leases() {
+        let root = unique_test_dir("lease-fail");
+        let mut queue = FileWorkflowEventQueue::new(root.join("queue"));
+
+        queue
+            .enqueue(WorkflowEvent::complete("evt_complete", "wf_file"))
+            .unwrap();
+
+        let first = queue
+            .claim(&lease_options("worker_a", 2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.attempt, 1);
+        assert_eq!(
+            queue.fail(&first, "workflow missing", 2).unwrap(),
+            super::WorkflowLeaseDisposition::Requeued
+        );
+
+        let second = queue
+            .claim(&lease_options("worker_b", 2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.attempt, 2);
+        assert_eq!(
+            queue.fail(&second, "workflow missing", 2).unwrap(),
+            super::WorkflowLeaseDisposition::DeadLettered
+        );
+        assert_eq!(json_file_count(&queue.dead_letter_dir()), 1);
+        assert!(queue.claim(&lease_options("worker_c", 2)).unwrap().is_none());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_workflow_event_queue_recovers_expired_leases() {
+        let root = unique_test_dir("lease-expired");
+        let mut queue = FileWorkflowEventQueue::new(root.join("queue"));
+
+        queue
+            .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
+            .unwrap();
+        let first = queue
+            .claim(&lease_options("worker_a", 3))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.attempt, 1);
+
+        let recovered = queue
+            .claim(&super::WorkflowLeaseOptions {
+                worker_id: "worker_b".to_string(),
+                lease_timeout: Duration::from_millis(0),
+                max_attempts: 3,
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(recovered.event.id, "evt_wait");
+        assert_eq!(recovered.worker_id, "worker_b");
+        assert_eq!(recovered.attempt, 2);
+        queue.ack(&recovered).unwrap();
+        assert_eq!(json_file_count(&queue.leases_dir()), 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn workflow_start(id: &str) -> WorkflowStart {
         let mut permissions = BTreeSet::new();
         permissions.insert("IssueRefund".to_string());
@@ -494,6 +879,27 @@ mod tests {
             },
             metadata,
         }
+    }
+
+    fn lease_options(worker_id: &str, max_attempts: u32) -> super::WorkflowLeaseOptions {
+        super::WorkflowLeaseOptions {
+            worker_id: worker_id.to_string(),
+            lease_timeout: Duration::from_secs(30),
+            max_attempts,
+        }
+    }
+
+    fn json_file_count(dir: &std::path::Path) -> usize {
+        fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     fn unique_test_dir(name: &str) -> std::path::PathBuf {

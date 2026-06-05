@@ -20,7 +20,7 @@ technical specification.
 - Distributed workflow execution:
   - multi-worker coordination on top of the file-backed queue runner;
   - idempotent event processing;
-  - worker ownership and retry semantics;
+  - clustered queue sharding beyond file-backed worker leases;
   - tenant-aware state transitions.
 - Connector platform:
   - broader connector SDK language targets;
