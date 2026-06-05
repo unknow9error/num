@@ -123,9 +123,10 @@ manifest. `num lock --check` validates the lockfile schema, and
 with `--write`. The lockfile records the workspace package plus direct and
 transitive path/local-registry dependencies when those packages can be resolved
 locally. Resolved package entries include language/schema compatibility metadata
-and sorted dependency edges. Git dependencies, and registry dependencies without
-a configured local registry root, remain metadata-only entries. Git metadata
-entries include any requested `rev`, `tag`, `branch`, or `ref` selector.
+and sorted dependency edges. Git dependencies are checked out into a
+project-local `.num-git` cache during locking, and their lock entries pin the
+resolved commit SHA. Registry dependencies without a configured local registry
+root remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`

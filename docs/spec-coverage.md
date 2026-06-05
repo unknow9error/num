@@ -212,8 +212,9 @@ Implemented:
   development and private package sharing;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs;
-- deterministic git dependency selector metadata in lockfiles and deploy plans
-  for declared `rev`, `tag`, `branch`, or `ref` selectors;
+- deterministic git dependency checkout into `.num-git` during locking, with
+  resolved commit SHA metadata in lockfiles and declared git selector labels in
+  deploy plans;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -516,8 +517,8 @@ Not yet implemented:
 Major full-spec areas not implemented in v0.1.0:
 
 - remote package registry HTTP/service APIs;
-- git package fetching;
-- remote/git package lockfile pinning;
+- production remote git auth/cache policy;
+- remote registry package lockfile pinning;
 - complete standard library;
 - hardened production HTTP server runtime;
 - production database connectors;
@@ -573,7 +574,7 @@ Major full-spec areas not implemented in v0.1.0:
 - lockfile schema validation and deploy artifact lockfile inclusion.
 - lockfile schema migration tooling.
 - fixture-backed manifest/source/lockfile compatibility matrix coverage.
-- git dependency selector metadata in lockfile/deploy outputs.
+- git dependency checkout and commit pinning in lockfile outputs.
 
 ### Foundation Only
 
