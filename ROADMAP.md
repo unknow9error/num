@@ -33,7 +33,7 @@ technical specification.
   - idempotent event processing;
   - clustered queue sharding beyond file-backed worker leases;
   - tenant-aware state transitions;
-  - broader manifest runtime backend wiring for demo interpreter commands.
+  - manifest runtime backend wiring for HTTP serve commands.
 - Connector platform:
   - broader connector SDK language targets;
   - auth/secrets binding;

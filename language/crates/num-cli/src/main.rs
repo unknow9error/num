@@ -116,6 +116,7 @@ fn run() -> Result<(), String> {
             let path = required_path(args.next(), "run")?;
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
 
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
@@ -127,13 +128,16 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
             let workflow_args = demo::workflow_args(&workflow_name);
 
-            runtime.run_workflow(&workflow_name, workflow_args)?;
+            let result = runtime.run_workflow(&workflow_name, workflow_args);
+            persist_interpreter_audits(&audit_target, "run", runtime.audit_events())?;
+            result?;
             Ok(())
         }
         "test" => {
             let path = required_path(args.next(), "test")?;
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tests = compilation
                 .module
                 .declarations
@@ -156,7 +160,9 @@ fn run() -> Result<(), String> {
                     demo::default_permissions(),
                     Box::new(connectors.clone()),
                 );
-                match runtime.run_test(test_name) {
+                let result = runtime.run_test(test_name);
+                persist_interpreter_audits(&audit_target, "test", runtime.audit_events())?;
+                match result {
                     Ok(()) => println!("test {test_name} ... ok"),
                     Err(err) => {
                         println!("test {test_name} ... FAILED");
@@ -189,6 +195,7 @@ fn run() -> Result<(), String> {
             let path = required_path(args.next(), "trace")?;
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
@@ -198,7 +205,9 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
             let workflow_args = demo::workflow_args(&workflow_name);
 
-            runtime.run_workflow(&workflow_name, workflow_args)?;
+            let result = runtime.run_workflow(&workflow_name, workflow_args);
+            persist_interpreter_audits(&audit_target, "trace", runtime.audit_events())?;
+            result?;
             let events = runtime
                 .trace_events()
                 .iter()
@@ -214,6 +223,7 @@ fn run() -> Result<(), String> {
             let options = parse_debug_options(args)?;
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
@@ -226,6 +236,7 @@ fn run() -> Result<(), String> {
             let workflow_args = demo::workflow_args(&workflow_name);
 
             let result = runtime.run_workflow(&workflow_name, workflow_args);
+            persist_interpreter_audits(&audit_target, "debug", runtime.audit_events())?;
             let report = DebugReport::from_trace(
                 workflow_name,
                 result.clone(),
@@ -384,6 +395,7 @@ fn run() -> Result<(), String> {
             }
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
@@ -393,7 +405,9 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
             let workflow_args = demo::workflow_args(&workflow_name);
 
-            runtime.run_workflow(&workflow_name, workflow_args)?;
+            let result = runtime.run_workflow(&workflow_name, workflow_args);
+            persist_interpreter_audits(&audit_target, "cost-report", runtime.audit_events())?;
+            result?;
             let report = cost_report::summarize_cost_entries(runtime.cost_entries());
             if format_json {
                 let json = serde_json::to_string_pretty(&report.to_json())
@@ -473,13 +487,16 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let input = demo::route_input(&compilation.module, &service_name, &method, &route_path);
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
 
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
             );
-            runtime.run_service_route(&service_name, &method, &route_path, input)?;
+            let result = runtime.run_service_route(&service_name, &method, &route_path, input);
+            persist_interpreter_audits(&audit_target, "route", runtime.audit_events())?;
+            result?;
             Ok(())
         }
         "serve-once" => {
@@ -658,6 +675,14 @@ fn connector_executor_for_path(path: &Path) -> Result<Arc<dyn ConnectorExecutor>
         Box::new(process),
         Box::new(DemoConnectorExecutor),
     ])))
+}
+
+fn persist_interpreter_audits(
+    target: &runtime_config::InterpreterAuditTarget,
+    command: &str,
+    events: &[String],
+) -> Result<(), String> {
+    runtime_config::write_interpreter_audit_events(target, command, events)
 }
 
 fn apply_policy_mode(

@@ -259,6 +259,10 @@ Implemented:
 - project manifest `[runtime].workflow_store = "file:<state-root>"` and
   `[runtime].audit_store = "file:<events.jsonl>"` resolution for `num workflow
   enqueue`, `num workflow drain`, and `num workflow-report`;
+- project manifest `[runtime].audit_store = "file:<events.jsonl>"` resolution
+  for demo interpreter commands `num run`, `num test`, `num trace`,
+  `num debug`, `num cost-report`, and `num route`, with report-compatible demo
+  audit JSONL output;
 - file-backed workflow state store;
 - file-backed append-only audit JSONL sink;
 - memory and file-backed secret stores with redacted secret value debug output;

@@ -1,5 +1,9 @@
 use crate::package::PackageManifest;
+use serde_json::json;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRuntimePaths {
@@ -13,6 +17,12 @@ pub struct WorkflowRuntimePaths {
 pub enum RuntimePathSource {
     ExplicitStateRoot,
     Manifest { manifest_path: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterpreterAuditTarget {
+    Stdout,
+    File(PathBuf),
 }
 
 pub fn resolve_workflow_runtime_paths(input: &Path) -> Result<WorkflowRuntimePaths, String> {
@@ -38,11 +48,78 @@ pub fn resolve_workflow_runtime_paths(input: &Path) -> Result<WorkflowRuntimePat
     })
 }
 
+pub fn resolve_interpreter_audit_target(input: &Path) -> Result<InterpreterAuditTarget, String> {
+    let Some(manifest) = manifest_for_runtime_target(input)? else {
+        return Ok(InterpreterAuditTarget::Stdout);
+    };
+    resolve_interpreter_audit_store(&manifest)
+}
+
+pub fn write_interpreter_audit_events(
+    target: &InterpreterAuditTarget,
+    command: &str,
+    events: &[String],
+) -> Result<(), String> {
+    let InterpreterAuditTarget::File(path) = target else {
+        return Ok(());
+    };
+    if events.is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+    let event_batch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for (index, event) in events.iter().enumerate() {
+        let line = serde_json::to_string(&json!({
+            "event_id": format!("demo-{command}-{event_batch}-{}", index + 1),
+            "actor": "demo",
+            "tenant": "default",
+            "command": command,
+            "action": command,
+            "result": {
+                "kind": "Succeeded",
+            },
+            "demo_event": event,
+        }))
+        .map_err(|err| format!("failed to render demo audit event: {err}"))?;
+        writeln!(file, "{line}")
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn manifest_for_runtime_target(input: &Path) -> Result<Option<PackageManifest>, String> {
     if input.is_file() || input.join("num.toml").is_file() {
         return PackageManifest::discover(input);
     }
     Ok(None)
+}
+
+fn resolve_interpreter_audit_store(
+    manifest: &PackageManifest,
+) -> Result<InterpreterAuditTarget, String> {
+    let spec = manifest.runtime.audit_store.trim();
+    if spec == "stdout" {
+        return Ok(InterpreterAuditTarget::Stdout);
+    }
+    let path = spec.strip_prefix("file:").ok_or_else(|| {
+        format!(
+            "{} uses unsupported [runtime].audit_store `{spec}`; expected `stdout` or `file:<events.jsonl>`",
+            manifest.path.display()
+        )
+    })?;
+    resolve_manifest_relative_path(manifest, path, "[runtime].audit_store")
+        .map(InterpreterAuditTarget::File)
 }
 
 fn resolve_workflow_store(manifest: &PackageManifest) -> Result<PathBuf, String> {
@@ -95,7 +172,10 @@ fn resolve_manifest_relative_path(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_workflow_runtime_paths, RuntimePathSource};
+    use super::{
+        resolve_interpreter_audit_target, resolve_workflow_runtime_paths,
+        write_interpreter_audit_events, InterpreterAuditTarget, RuntimePathSource,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -174,6 +254,36 @@ workflow_store = "memory"
         let err = resolve_workflow_runtime_paths(&root).unwrap_err();
 
         assert!(err.contains("durable workflow commands require `file:<state-root>`"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolves_and_writes_interpreter_file_audit_store() {
+        let root = temp_dir("interpreter_audit_store");
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[runtime]
+audit_store = "file:audit/demo.jsonl"
+"#,
+        )
+        .unwrap();
+
+        let target = resolve_interpreter_audit_target(&root).unwrap();
+        write_interpreter_audit_events(&target, "run", &["\"ok\"".to_string()]).unwrap();
+
+        let InterpreterAuditTarget::File(path) = target else {
+            panic!("expected file audit target");
+        };
+        let source = fs::read_to_string(path).unwrap();
+        assert!(source.contains("\"result\":{\"kind\":\"Succeeded\"}"));
+        assert!(source.contains("\"action\":\"run\""));
+        assert!(source.contains("\"command\":\"run\""));
+        assert!(source.contains("\\\"ok\\\""));
         fs::remove_dir_all(root).unwrap();
     }
 }
