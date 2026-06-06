@@ -13,6 +13,8 @@ pub struct CompatibilityReport {
     pub compatibility: String,
     pub manifest_schema: u32,
     pub current_manifest_schema: u32,
+    pub status: String,
+    pub reason: Option<String>,
 }
 
 impl CompatibilityReport {
@@ -25,7 +27,24 @@ impl CompatibilityReport {
             compatibility: manifest.language.compatibility.clone(),
             manifest_schema: manifest.language.manifest_schema,
             current_manifest_schema: CURRENT_MANIFEST_SCHEMA,
+            status: "compatible".to_string(),
+            reason: None,
         }
+    }
+
+    pub fn incompatible_from_manifest(
+        manifest: &PackageManifest,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            status: "incompatible".to_string(),
+            reason: Some(reason.into()),
+            ..Self::from_manifest(manifest)
+        }
+    }
+
+    pub fn is_compatible(&self) -> bool {
+        self.status == "compatible"
     }
 
     pub fn to_json(&self) -> Value {
@@ -43,12 +62,13 @@ impl CompatibilityReport {
                 "schema": self.manifest_schema,
                 "current_schema": self.current_manifest_schema,
             },
-            "status": "compatible",
+            "status": self.status,
+            "reason": self.reason,
         })
     }
 
     pub fn render_text(&self) -> String {
-        format!(
+        let mut out = format!(
             "Compatibility OK for {} {}\n  language: {} against current {} ({})\n  manifest schema: {} against current {}\n",
             self.package_name,
             self.package_version,
@@ -57,7 +77,21 @@ impl CompatibilityReport {
             self.compatibility,
             self.manifest_schema,
             self.current_manifest_schema,
-        )
+        );
+        if !self.is_compatible() {
+            out = out.replacen("Compatibility OK", "Compatibility FAILED", 1);
+            if let Some(reason) = &self.reason {
+                out.push_str(&format!("  reason: {reason}\n"));
+            }
+        }
+        out
+    }
+}
+
+pub fn report_manifest(manifest: &PackageManifest) -> CompatibilityReport {
+    match validate_manifest(manifest) {
+        Ok(report) => report,
+        Err(reason) => CompatibilityReport::incompatible_from_manifest(manifest, reason),
     }
 }
 
@@ -180,6 +214,7 @@ version = "0.1.0"
         assert_eq!(report.language_version, CURRENT_LANGUAGE_VERSION);
         assert_eq!(report.manifest_schema, CURRENT_MANIFEST_SCHEMA);
         assert_eq!(report.to_json()["status"], "compatible");
+        assert_eq!(report.to_json()["reason"], Value::Null);
     }
 
     #[test]
@@ -208,5 +243,25 @@ manifest_schema = 2
         assert!(validate_manifest(&manifest)
             .unwrap_err()
             .contains("requires manifest schema 2"));
+    }
+
+    #[test]
+    fn reports_incompatible_manifest_as_structured_json() {
+        let manifest = manifest(
+            r#"
+version = "0.2.0"
+compatibility = "minor"
+"#,
+        );
+
+        let report = report_manifest(&manifest);
+
+        assert!(!report.is_compatible());
+        assert_eq!(report.to_json()["status"], "incompatible");
+        assert!(report.to_json()["reason"]
+            .as_str()
+            .unwrap()
+            .contains("requires language 0.2.0"));
+        assert!(report.render_text().contains("Compatibility FAILED"));
     }
 }

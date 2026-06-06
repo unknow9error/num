@@ -186,7 +186,8 @@ Implemented:
 - `[language]` manifest metadata for language version, compatibility policy,
   and manifest schema version;
 - `num compat` language/schema compatibility reports for packages and loaded
-  path/local-registry dependencies;
+  path/local-registry dependencies, including structured incompatible JSON
+  reports with non-zero CI gate exit behavior;
 - `num migrate` dry-run/write migration reports for legacy or partial
   `[language]` manifest metadata;
 - `num migrate --source` source migration reports for workspace `.num` files,
@@ -207,7 +208,8 @@ Implemented:
 - fixture-backed CLI compatibility matrix coverage for current manifests,
   legacy missing-language manifests, schema `0` migration, future schema
   rejection, future language rejection, project-version upgrades, source
-  module declaration rewrites, and lockfile schema migrations;
+  module declaration rewrites, structured incompatible reports, and lockfile
+  schema migrations;
 - local filesystem registry publish/list/install workflow for package
   development and private package sharing, including package metadata and
   content-hash verification;

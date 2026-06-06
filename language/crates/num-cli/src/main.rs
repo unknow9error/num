@@ -340,8 +340,9 @@ fn run() -> Result<(), String> {
 
             let reports = project::load_package_manifests(&path)?
                 .iter()
-                .map(compatibility::CompatibilityReport::from_manifest)
+                .map(compatibility::report_manifest)
                 .collect::<Vec<_>>();
+            let has_incompatible = reports.iter().any(|report| !report.is_compatible());
             if format_json {
                 let json = serde_json::to_string_pretty(
                     &reports
@@ -355,6 +356,14 @@ fn run() -> Result<(), String> {
                 for report in &reports {
                     print!("{}", report.render_text());
                 }
+            }
+            if has_incompatible {
+                let reasons = reports
+                    .iter()
+                    .filter_map(|report| report.reason.as_deref())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(format!("compatibility check failed: {reasons}"));
             }
             Ok(())
         }

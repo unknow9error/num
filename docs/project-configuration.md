@@ -54,8 +54,10 @@ Meaning:
 Project commands validate this contract before compiling package source. The
 check applies to direct and transitive path/local-registry dependencies too, so
 an incompatible dependency cannot be silently compiled. `num compat
-[project-dir|file] [--json]` prints the compatibility report, and `num deploy`
-embeds the same language/schema metadata into the deployment plan artifact.
+[project-dir|file] [--json]` prints compatibility reports, including structured
+`status` and `reason` fields for incompatible manifests when `--json` is used,
+and `num deploy` embeds the same language/schema metadata into the deployment
+plan artifact.
 `num migrate [project-dir|file] [--write]` can add missing `[language]`
 metadata, fill partial language sections, and upgrade schema `0` manifests to
 the current schema. `num migrate --source` provides deterministic source
@@ -71,9 +73,10 @@ dependency language upgrades only when paired with `--write`. The CLI test
 suite includes fixture projects for current manifests, legacy missing-language
 manifests, schema `0` migration, future schema rejection, future language
 rejection, project-version upgrade compatibility, and graph-aware dependency
-upgrade planning. It also pins released lockfile migration behavior for legacy
-missing-schema and schema `0` lockfiles. Released migration behavior is
-documented in [migration-guides.md](migration-guides.md).
+upgrade planning. It also pins structured incompatible `num compat --json`
+reports and released lockfile migration behavior for legacy missing-schema and
+schema `0` lockfiles. Released migration behavior is documented in
+[migration-guides.md](migration-guides.md).
 
 ### `[project]`
 
