@@ -254,6 +254,28 @@ Current fields used in examples:
 These fields are parsed as metadata but are not loaded by the demo interpreter
 in v0.1.0. `num deploy` includes them in the generated deployment plan.
 
+### `[environment]`
+
+Example:
+
+```toml
+[environment]
+required = ["PAYMENTS_API_KEY", "SMTP_TOKEN"]
+optional = ["NUM_LOG_LEVEL"]
+```
+
+Supported fields:
+
+- `required` - environment variables that must be present before executing the
+  deployment target;
+- `optional` - environment variables recorded in the deployment plan when
+  present, without making the target incomplete.
+
+`num deploy` checks these variables at plan time without reading or emitting
+their values. The generated plan, materialized `manifest.json`, and runbook
+include each variable name, whether it is present, and a `missing-required`
+status when required variables are absent.
+
 ### `[deployment]`
 
 Example:
@@ -276,8 +298,8 @@ Supported fields:
 
 `num deploy` validates the project and renders these values together with the
 compiled workflows, actions, service routes, connectors, dependencies, runtime
-metadata, target profile metadata, deployment warnings, and security metadata.
-Target profiles classify `local`, `container`/`docker`/`oci`,
+metadata, environment validation metadata, target profile metadata, deployment
+warnings, and security metadata. Target profiles classify `local`, `container`/`docker`/`oci`,
 `kubernetes`/`k8s`, `cloud`/`aws`/`gcp`/`azure`, and custom targets, then record
 the expected external execution boundary and required artifacts. `num deploy
 --apply` also materializes a local/CI deployment bundle. By default, the bundle
@@ -313,7 +335,8 @@ Implemented:
   graphs.
 - deployment plan generation and local/CI deployment bundle materialization
   through `num deploy --apply`;
-- deployment target profile classification and deploy-time warnings.
+- deployment target profile classification and deploy-time warnings;
+- deployment environment validation metadata through `[environment]`.
 
 Not implemented yet:
 
