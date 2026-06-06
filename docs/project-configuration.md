@@ -126,10 +126,12 @@ manifest. `num lock --check` validates the lockfile schema, and
 with `--write`. The lockfile records the workspace package plus direct and
 transitive path/local-registry dependencies when those packages can be resolved
 locally. Resolved package entries include language/schema compatibility metadata
-and sorted dependency edges. Git dependencies are checked out into a
-project-local `.num-git` cache during locking, and their lock entries pin the
-resolved commit SHA. Registry dependencies without a configured local registry
-root remain metadata-only entries.
+and sorted dependency edges. Local-registry package entries also include a
+`content_hash` pin from `.num-package.json` metadata, or from the computed
+package hash when metadata has not been written yet. Git dependencies are
+checked out into a project-local `.num-git` cache during locking, and their
+lock entries pin the resolved commit SHA. Registry dependencies without a
+configured local registry root remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`
@@ -346,7 +348,7 @@ Implemented:
   package metadata and content-hash checks;
 - deterministic `num.lock` generation through `num lock`;
 - transitive `num.lock` pinning for resolved path/local-registry dependency
-  graphs.
+  graphs, including content-hash pins for resolved local-registry packages;
 - deployment plan generation and local/CI deployment bundle materialization
   through `num deploy --apply`;
 - deployment target profile classification and deploy-time warnings;

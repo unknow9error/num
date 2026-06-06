@@ -23,7 +23,8 @@ technical specification.
 - Keep migration guides and fixtures aligned for every released migration rule.
 - Grow the local filesystem package registry into a stable package ecosystem
   foundation through publish/list/install workflows, package metadata, and
-  integrity checks.
+  integrity checks, including lockfile content-hash pins for resolved registry
+  packages.
 - Use GitHub issues and pull requests for each meaningful platform slice.
 
 ## Near Term

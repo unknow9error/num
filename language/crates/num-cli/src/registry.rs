@@ -53,6 +53,12 @@ pub struct RegistryPackage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryPackageResolution {
+    pub manifest: PackageManifest,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RegistryPackageMetadata {
     schema: u32,
     name: String,
@@ -89,6 +95,15 @@ impl LocalRegistry {
         &self,
         dependency: &PackageDependency,
     ) -> Result<Option<PackageManifest>, String> {
+        Ok(self
+            .resolve_with_metadata(dependency)?
+            .map(|resolved| resolved.manifest))
+    }
+
+    pub fn resolve_with_metadata(
+        &self,
+        dependency: &PackageDependency,
+    ) -> Result<Option<RegistryPackageResolution>, String> {
         let DependencySource::Registry = dependency.source else {
             return Ok(None);
         };
@@ -110,8 +125,11 @@ impl LocalRegistry {
         if manifest.registry.path.is_none() {
             manifest.registry.path = Some(self.root.display().to_string());
         }
-        validate_registry_metadata(&package_root, &manifest)?;
-        Ok(Some(manifest))
+        let metadata = validate_registry_metadata(&package_root, &manifest)?;
+        Ok(Some(RegistryPackageResolution {
+            manifest,
+            content_hash: metadata.content_hash,
+        }))
     }
 
     pub fn publish(
@@ -687,8 +705,14 @@ entry = "src/lib.num"
         };
 
         let manifest = registry.resolve(&dependency).unwrap().unwrap();
+        let resolved = registry
+            .resolve_with_metadata(&dependency)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(manifest.project.name, "shared");
+        assert_eq!(resolved.manifest.project.name, "shared");
+        assert!(resolved.content_hash.starts_with("sha256:"));
         assert_eq!(manifest.entry_path(), package_root.join("src/lib.num"));
         fs::remove_dir_all(registry_root).unwrap();
     }

@@ -214,7 +214,8 @@ Implemented:
   development and private package sharing, including package metadata and
   content-hash verification;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
-  dependency graphs;
+  dependency graphs, including content-hash pins for resolved local-registry
+  packages;
 - deterministic git dependency checkout into `.num-git` during locking, with
   resolved commit SHA metadata in lockfiles and declared git selector labels in
   deploy plans;
