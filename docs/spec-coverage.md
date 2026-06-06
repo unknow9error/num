@@ -263,6 +263,10 @@ Implemented:
   for demo interpreter commands `num run`, `num test`, `num trace`,
   `num debug`, `num cost-report`, and `num route`, with report-compatible demo
   audit JSONL output;
+- project manifest `[runtime].audit_store = "file:<events.jsonl>"` resolution
+  for HTTP service commands `num serve` and `num serve-once`, with
+  request-scoped actor, tenant, request id, correlation id, service, method, and
+  path metadata in report-compatible audit JSONL output;
 - file-backed workflow state store;
 - file-backed append-only audit JSONL sink;
 - memory and file-backed secret stores with redacted secret value debug output;

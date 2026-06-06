@@ -194,6 +194,9 @@ When a project manifest sets `[runtime].audit_store = "file:<events.jsonl>"`,
 demo interpreter commands (`run`, `test`, `trace`, `debug`, `cost-report`, and
 `route`) append report-compatible demo audit JSONL to that manifest-relative
 path. `audit_store = "stdout"` keeps the previous console-only behavior.
+HTTP service commands (`serve` and `serve-once`) use the same setting and record
+request actor, tenant, request id, correlation id, service, method, and path
+metadata from the request security context.
 
 ### `audit-report`
 

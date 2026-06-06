@@ -1,17 +1,21 @@
 use crate::http::{HttpRequest, HttpResponse};
 use crate::interpreter::{Runtime, Value};
 use crate::json;
-use crate::SecurityContext;
+use crate::{RuntimeError, SecurityContext};
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
 use num_compiler::ast::{Declaration, Module};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+
+type ServiceAuditRecorder<'a> =
+    Arc<dyn Fn(&SecurityContext, &str, &str, &[String]) -> Result<(), RuntimeError> + 'a>;
 
 pub struct ServiceRuntime<'a> {
     module: &'a Module,
     service_name: String,
     permissions: Vec<String>,
     connectors: Arc<dyn ConnectorExecutor + 'a>,
+    audit_recorder: Option<ServiceAuditRecorder<'a>>,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -25,6 +29,7 @@ impl<'a> ServiceRuntime<'a> {
             service_name: service_name.into(),
             permissions,
             connectors: Arc::new(DemoConnectorExecutor),
+            audit_recorder: None,
         }
     }
 
@@ -39,7 +44,16 @@ impl<'a> ServiceRuntime<'a> {
             service_name: service_name.into(),
             permissions,
             connectors,
+            audit_recorder: None,
         }
+    }
+
+    pub fn with_audit_recorder(
+        mut self,
+        recorder: impl Fn(&SecurityContext, &str, &str, &[String]) -> Result<(), RuntimeError> + 'a,
+    ) -> Self {
+        self.audit_recorder = Some(Arc::new(recorder));
+        self
     }
 
     pub fn first_service_name(module: &Module) -> Option<String> {
@@ -112,10 +126,22 @@ impl<'a> ServiceRuntime<'a> {
 
         let mut runtime = Runtime::with_connectors_and_security(
             self.module,
-            security,
+            security.clone(),
             Box::new(self.connectors.clone()),
         );
-        match runtime.run_service_route(&self.service_name, &request.method, &request.path, input) {
+        let result =
+            runtime.run_service_route(&self.service_name, &request.method, &request.path, input);
+        if let Err(err) =
+            self.record_audit_events(&security, &request.method, &request.path, runtime.audit_events())
+        {
+            return HttpResponse::text(
+                500,
+                "Internal Server Error",
+                format!("failed to persist audit events: {err:?}\n"),
+            );
+        }
+
+        match result {
             Ok(()) => HttpResponse::text(200, "OK", "ok\n"),
             Err(message) if message.contains("not found") => {
                 HttpResponse::text(404, "Not Found", format!("{message}\n"))
@@ -130,6 +156,19 @@ impl<'a> ServiceRuntime<'a> {
                 HttpResponse::text(500, "Internal Server Error", format!("{message}\n"))
             }
         }
+    }
+
+    fn record_audit_events(
+        &self,
+        security: &SecurityContext,
+        method: &str,
+        path: &str,
+        events: &[String],
+    ) -> Result<(), RuntimeError> {
+        let Some(recorder) = &self.audit_recorder else {
+            return Ok(());
+        };
+        recorder(security, method, path, events)
     }
 }
 
@@ -147,7 +186,9 @@ fn request_roles(request: &HttpRequest) -> impl Iterator<Item = &str> {
 mod tests {
     use super::ServiceRuntime;
     use crate::http::HttpRequest;
+    use crate::RuntimeError;
     use num_compiler::compile;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn maps_http_request_to_service_route() {
@@ -342,5 +383,78 @@ role Auditor {
         assert!(context.permissions.contains("ViewBilling"));
         assert!(context.permissions.contains("IssueRefund"));
         assert!(context.permissions.contains("ExportData"));
+    }
+
+    #[test]
+    fn records_service_audit_events_with_request_security() {
+        let source = r#"
+module test.api
+
+type RefundRequest {
+    id: Text
+}
+
+service BillingApi {
+    route POST "/refunds" {
+        input request: RefundRequest from HttpBody
+        audit(request.id)
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&captured);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_audit_recorder(move |security, method, path, events| {
+                captured_events.lock().unwrap().push((
+                    security.actor.clone(),
+                    security.tenant.clone(),
+                    method.to_string(),
+                    path.to_string(),
+                    events.to_vec(),
+                ));
+                Ok(())
+            });
+        let mut request = HttpRequest::new("POST", "/refunds", r#"{"id":"refund_1"}"#);
+        request
+            .headers
+            .insert("x-actor".to_string(), "agent@example.com".to_string());
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_a".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        let records = captured.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "agent@example.com");
+        assert_eq!(records[0].1, "tenant_a");
+        assert_eq!(records[0].2, "POST");
+        assert_eq!(records[0].3, "/refunds");
+        assert_eq!(records[0].4, vec!["\"refund_1\"".to_string()]);
+    }
+
+    #[test]
+    fn audit_recorder_failure_returns_internal_server_error() {
+        let source = r#"
+module test.api
+
+service BillingApi {
+    route POST "/refunds" {
+        audit("refund")
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_audit_recorder(|_, _, _, _| {
+                Err(RuntimeError::Storage("audit disk is unavailable".to_string()))
+            });
+
+        let response = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));
+
+        assert_eq!(response.status, 500);
+        assert!(response.body.contains("failed to persist audit events"));
     }
 }
