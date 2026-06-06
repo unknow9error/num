@@ -564,6 +564,7 @@ struct LockPackage {
     name: String,
     version: String,
     source: String,
+    content_hash: Option<String>,
     language: Option<String>,
     compatibility: Option<String>,
     manifest_schema: Option<u32>,
@@ -577,6 +578,7 @@ fn direct_lock_entries(manifest: &PackageManifest) -> Vec<LockPackage> {
         name: dependency.name.clone(),
         version: dependency.version.clone(),
         source: dependency.source.lock_source(),
+        content_hash: None,
         language: None,
         compatibility: None,
         manifest_schema: None,
@@ -596,6 +598,7 @@ fn resolve_lock_entries(manifest: &PackageManifest) -> Result<Vec<LockPackage>, 
     resolve_lock_manifest(
         manifest,
         "workspace".to_string(),
+        None,
         &mut visited,
         &mut packages,
     )?;
@@ -609,13 +612,16 @@ fn resolve_lock_entries(manifest: &PackageManifest) -> Result<Vec<LockPackage>, 
 fn resolve_lock_manifest(
     manifest: &PackageManifest,
     source: String,
+    content_hash: Option<String>,
     visited: &mut BTreeSet<String>,
     packages: &mut Vec<LockPackage>,
 ) -> Result<(), String> {
     compatibility::validate_manifest(manifest)?;
     let key = format!(
-        "{}@{} {source}",
-        manifest.project.name, manifest.project.version
+        "{}@{} {source} {}",
+        manifest.project.name,
+        manifest.project.version,
+        content_hash.as_deref().unwrap_or("")
     );
     if !visited.insert(key) {
         return Ok(());
@@ -631,6 +637,7 @@ fn resolve_lock_manifest(
         name: manifest.project.name.clone(),
         version: manifest.project.version.clone(),
         source,
+        content_hash,
         language: Some(manifest.language.version.clone()),
         compatibility: Some(manifest.language.compatibility.clone()),
         manifest_schema: Some(manifest.language.manifest_schema),
@@ -645,6 +652,7 @@ fn resolve_lock_manifest(
                 resolve_lock_manifest(
                     &dependency_manifest,
                     dependency.source.lock_source(),
+                    None,
                     visited,
                     packages,
                 )?;
@@ -654,14 +662,15 @@ fn resolve_lock_manifest(
                     add_unresolved_lock_dependency(dependency, visited, packages);
                     continue;
                 };
-                let Some(dependency_manifest) = registry.resolve(dependency)? else {
+                let Some(resolved) = registry.resolve_with_metadata(dependency)? else {
                     add_unresolved_lock_dependency(dependency, visited, packages);
                     continue;
                 };
-                validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
+                validate_dependency_manifest_identity(dependency, &resolved.manifest)?;
                 resolve_lock_manifest(
-                    &dependency_manifest,
+                    &resolved.manifest,
                     dependency.source.lock_source(),
+                    Some(resolved.content_hash),
                     visited,
                     packages,
                 )?;
@@ -670,7 +679,13 @@ fn resolve_lock_manifest(
                 let (dependency_manifest, resolved_source) =
                     load_git_dependency_manifest(manifest, dependency)?;
                 validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
-                resolve_lock_manifest(&dependency_manifest, resolved_source, visited, packages)?;
+                resolve_lock_manifest(
+                    &dependency_manifest,
+                    resolved_source,
+                    None,
+                    visited,
+                    packages,
+                )?;
             }
         }
     }
@@ -692,6 +707,7 @@ fn add_unresolved_lock_dependency(
         name: dependency.name.clone(),
         version: dependency.version.clone(),
         source,
+        content_hash: None,
         language: None,
         compatibility: None,
         manifest_schema: None,
@@ -892,6 +908,7 @@ fn workspace_lock_package(manifest: &PackageManifest) -> LockPackage {
         name: manifest.project.name.clone(),
         version: manifest.project.version.clone(),
         source: "workspace".to_string(),
+        content_hash: None,
         language: Some(manifest.language.version.clone()),
         compatibility: Some(manifest.language.compatibility.clone()),
         manifest_schema: Some(manifest.language.manifest_schema),
@@ -904,6 +921,7 @@ fn lock_package_order(left: &LockPackage, right: &LockPackage) -> std::cmp::Orde
         .cmp(&right.name)
         .then_with(|| left.version.cmp(&right.version))
         .then_with(|| left.source.cmp(&right.source))
+        .then_with(|| left.content_hash.cmp(&right.content_hash))
 }
 
 fn lock_dependency_label(dependency: &PackageDependency) -> String {
@@ -924,6 +942,9 @@ fn render_lock_entries(entries: &[LockPackage]) -> String {
         push_lock_field(&mut out, "name", &package.name);
         push_lock_field(&mut out, "version", &package.version);
         push_lock_field(&mut out, "source", &package.source);
+        if let Some(content_hash) = &package.content_hash {
+            push_lock_field(&mut out, "content_hash", content_hash);
+        }
         if let Some(language) = &package.language {
             push_lock_field(&mut out, "language", language);
         }
@@ -1935,6 +1956,7 @@ version = "1.0.0"
         assert!(lockfile.contains("name = \"shared\""));
         assert!(lockfile.contains("name = \"core\""));
         assert!(lockfile.contains("source = \"registry\""));
+        assert_eq!(lockfile.matches("content_hash = \"sha256:").count(), 2);
         assert!(lockfile.contains("dependencies = [\"core@1.0.0 registry\"]"));
 
         fs::remove_dir_all(root).unwrap();
