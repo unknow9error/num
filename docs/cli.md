@@ -190,6 +190,11 @@ individual cost entries. The `--json` flag emits the final report payload as
 structured JSON. This is a cost dashboard foundation, not an interactive or
 persisted cost dashboard.
 
+When a project manifest sets `[runtime].audit_store = "file:<events.jsonl>"`,
+demo interpreter commands (`run`, `test`, `trace`, `debug`, `cost-report`, and
+`route`) append report-compatible demo audit JSONL to that manifest-relative
+path. `audit_store = "stdout"` keeps the previous console-only behavior.
+
 ### `audit-report`
 
 Summarize append-only audit JSONL events written by the runtime `FileAuditSink`.

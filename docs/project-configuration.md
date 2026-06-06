@@ -257,8 +257,11 @@ Current fields used in examples:
 these fields when their first argument is a project directory or project file.
 Relative `file:` paths are resolved from the package root. Explicit state-root
 arguments still use the direct `<state-root>/events`, `<state-root>/workflows`,
-and `<state-root>/audit/events.jsonl` layout. `num deploy` includes the same
-runtime values in the generated deployment plan.
+and `<state-root>/audit/events.jsonl` layout. Demo interpreter commands
+`num run`, `num test`, `num trace`, `num debug`, `num cost-report`, and
+`num route` append report-compatible demo audit JSONL when `audit_store` is a
+`file:` path. `num deploy` includes the same runtime values in the generated
+deployment plan.
 
 ### `[environment]`
 
@@ -349,5 +352,6 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- manifest runtime backend selection for demo interpreter commands;
+- manifest runtime backend selection for HTTP `serve` and `serve-once`
+  interpreter commands;
 - deployment execution against cloud/container platforms.
