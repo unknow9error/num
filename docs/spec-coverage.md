@@ -271,6 +271,9 @@ Implemented:
   path metadata in report-compatible audit JSONL output;
 - file-backed workflow state store;
 - file-backed append-only audit JSONL sink;
+- idempotent durable workflow event replay by persisted event id metadata,
+  preventing duplicate lifecycle audit output and invalid terminal transition
+  reapplication for already processed queue events;
 - memory and file-backed secret stores with redacted secret value debug output;
 - memory and file-backed workflow event queues;
 - file-backed worker ownership leases, retry attempts, stale lease recovery,

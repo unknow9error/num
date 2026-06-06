@@ -278,8 +278,11 @@ batch after failures. File-backed draining claims events with a worker lease,
 acks successful events, requeues failed events until `--max-attempts`, and moves
 exhausted events into the dead-letter directory. `--worker-id` controls the
 lease owner label, `--lease-ms` controls stale lease recovery, and
-`--max-attempts` controls retry exhaustion. This is a durable local/CI worker
-foundation, not a networked cluster scheduler.
+`--max-attempts` controls retry exhaustion. Successfully applied lifecycle
+events are recorded in workflow metadata by event id, so replayed duplicate
+event files are acknowledged without reapplying terminal transitions or writing
+duplicate lifecycle audit events. This is a durable local/CI worker foundation,
+not a networked cluster scheduler.
 
 ### `route`
 

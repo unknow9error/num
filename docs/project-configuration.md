@@ -351,6 +351,8 @@ Implemented:
   through `num deploy --apply`;
 - deployment target profile classification and deploy-time warnings;
 - deployment environment validation metadata through `[environment]`.
+- idempotent durable workflow event replay through persisted event id metadata
+  in workflow state.
 
 Not implemented yet:
 
