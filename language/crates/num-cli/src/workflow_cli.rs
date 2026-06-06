@@ -1,3 +1,4 @@
+use crate::runtime_config;
 use num_runtime::{
     engine::{WorkflowEngine, WorkflowStart},
     events::{FileWorkflowEventQueue, WorkflowEvent, WorkflowEventKind, WorkflowEventQueue},
@@ -7,7 +8,7 @@ use num_runtime::{
 };
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
@@ -24,13 +25,13 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn enqueue(args: impl Iterator<Item = String>) -> Result<(), String> {
     let mut args = args;
-    let state_root = args
-        .next()
-        .map(PathBuf::from)
-        .ok_or_else(|| "usage: num workflow enqueue <state-root> <event> ...".to_string())?;
-    let kind = args
-        .next()
-        .ok_or_else(|| "usage: num workflow enqueue <state-root> <event> ...".to_string())?;
+    let runtime_paths = args.next().map(PathBuf::from).ok_or_else(|| {
+        "usage: num workflow enqueue <state-root|project-dir|file.num> <event> ...".to_string()
+    })?;
+    let runtime_paths = runtime_config::resolve_workflow_runtime_paths(&runtime_paths)?;
+    let kind = args.next().ok_or_else(|| {
+        "usage: num workflow enqueue <state-root|project-dir|file.num> <event> ...".to_string()
+    })?;
 
     let (event, format_json) = match kind.as_str() {
         "start" => parse_start_event(args)?,
@@ -47,7 +48,7 @@ fn enqueue(args: impl Iterator<Item = String>) -> Result<(), String> {
         }
     };
 
-    let mut queue = FileWorkflowEventQueue::new(queue_dir(&state_root));
+    let mut queue = FileWorkflowEventQueue::new(&runtime_paths.queue_dir);
     queue
         .enqueue(event.clone())
         .map_err(|err| format!("failed to enqueue workflow event: {err:?}"))?;
@@ -55,7 +56,8 @@ fn enqueue(args: impl Iterator<Item = String>) -> Result<(), String> {
     if format_json {
         let payload = json!({
             "queued": true,
-            "state_root": state_root.display().to_string(),
+            "state_root": runtime_paths.state_root.display().to_string(),
+            "audit_path": runtime_paths.audit_path.display().to_string(),
             "queue_dir": queue.dir().display().to_string(),
             "event_id": event.id,
             "event_kind": event_kind_label(&event.kind),
@@ -77,18 +79,19 @@ fn enqueue(args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn drain(args: impl Iterator<Item = String>) -> Result<(), String> {
     let mut args = args;
-    let state_root = args
+    let runtime_paths = args
         .next()
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "usage: num workflow drain <state-root> [--max-events N] [--worker-id ID] [--lease-ms N] [--max-attempts N]".to_string()
+            "usage: num workflow drain <state-root|project-dir|file.num> [--max-events N] [--worker-id ID] [--lease-ms N] [--max-attempts N]".to_string()
         })?;
+    let runtime_paths = runtime_config::resolve_workflow_runtime_paths(&runtime_paths)?;
     let options = parse_drain_options(args)?;
 
-    let state_store = FileStateStore::new(&state_root);
-    let audit_sink = FileAuditSink::new(state_root.join("audit/events.jsonl"));
+    let state_store = FileStateStore::new(&runtime_paths.state_root);
+    let audit_sink = FileAuditSink::new(&runtime_paths.audit_path);
     let engine = WorkflowEngine::new(state_store, audit_sink);
-    let queue = FileWorkflowEventQueue::new(queue_dir(&state_root));
+    let queue = FileWorkflowEventQueue::new(&runtime_paths.queue_dir);
     let mut worker = WorkflowWorker::new(engine, queue);
     let report = worker
         .drain_leased(WorkflowLeasedDrainOptions {
@@ -180,10 +183,10 @@ impl Default for DrainCliOptions {
 fn parse_start_event(args: impl Iterator<Item = String>) -> Result<(WorkflowEvent, bool), String> {
     let mut args = args;
     let workflow_id = args.next().ok_or_else(|| {
-        "usage: num workflow enqueue <state-root> start <workflow-id> <workflow-name>".to_string()
+        "usage: num workflow enqueue <state-root|project-dir|file.num> start <workflow-id> <workflow-name>".to_string()
     })?;
     let workflow_name = args.next().ok_or_else(|| {
-        "usage: num workflow enqueue <state-root> start <workflow-id> <workflow-name>".to_string()
+        "usage: num workflow enqueue <state-root|project-dir|file.num> start <workflow-id> <workflow-name>".to_string()
     })?;
     let options = parse_event_options(args)?;
     let event_id = options
@@ -220,7 +223,7 @@ fn parse_transition_event(
     let mut args = args;
     let workflow_id = args.next().ok_or_else(|| {
         format!(
-            "usage: num workflow enqueue <state-root> {} <workflow-id>",
+            "usage: num workflow enqueue <state-root|project-dir|file.num> {} <workflow-id>",
             transition.cli_name()
         )
     })?;
@@ -242,10 +245,10 @@ fn parse_transition_event(
 fn parse_fail_event(args: impl Iterator<Item = String>) -> Result<(WorkflowEvent, bool), String> {
     let mut args = args;
     let workflow_id = args.next().ok_or_else(|| {
-        "usage: num workflow enqueue <state-root> fail <workflow-id> <reason>".to_string()
+        "usage: num workflow enqueue <state-root|project-dir|file.num> fail <workflow-id> <reason>".to_string()
     })?;
     let reason = args.next().ok_or_else(|| {
-        "usage: num workflow enqueue <state-root> fail <workflow-id> <reason>".to_string()
+        "usage: num workflow enqueue <state-root|project-dir|file.num> fail <workflow-id> <reason>".to_string()
     })?;
     let options = parse_event_options(args)?;
     let event_id = options
@@ -374,10 +377,6 @@ impl WorkflowTransition {
     }
 }
 
-fn queue_dir(state_root: &Path) -> PathBuf {
-    state_root.join("events")
-}
-
 fn event_kind_label(kind: &WorkflowEventKind) -> &'static str {
     match kind {
         WorkflowEventKind::Start(_) => "Start",
@@ -504,6 +503,52 @@ mod tests {
 
         let store = FileStateStore::new(&root);
         assert_eq!(store.list_workflows().unwrap()[0].id, "wf_1");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workflow_cli_uses_manifest_runtime_store_for_project_paths() {
+        let root = unique_test_dir("cli-manifest-runtime");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "runtime-app"
+version = "0.1.0"
+
+[runtime]
+workflow_store = "file:.num-state"
+audit_store = "file:audit/events.jsonl"
+"#,
+        )
+        .unwrap();
+
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "start",
+            "wf_manifest",
+            "process_refund",
+            "--json",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run([
+            "drain",
+            root.to_str().unwrap(),
+            "--max-events",
+            "1",
+            "--json",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+
+        let store = FileStateStore::new(root.join(".num-state"));
+        assert_eq!(store.list_workflows().unwrap()[0].id, "wf_manifest");
+        assert!(root.join("audit/events.jsonl").is_file());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -206,11 +206,13 @@ dashboard foundation, not an interactive web dashboard.
 
 ### `workflow-report`
 
-Summarize workflow state files from a runtime `FileStateStore` root.
+Summarize workflow state files from a runtime `FileStateStore` root or from a
+project manifest with `[runtime].workflow_store = "file:<state-root>"`.
 
 ```bash
 num workflow-report .num-state
 num workflow-report .num-state --json
+num workflow-report durable-refund --json
 ```
 
 The command reads `.json` workflow state files under `<state-root>/workflows`,
@@ -223,7 +225,10 @@ web dashboard.
 ### `workflow`
 
 Queue and drain durable workflow lifecycle events through the file-backed
-runtime state root.
+runtime state root. The first argument can be an explicit state root or a
+project path whose manifest declares `[runtime].workflow_store =
+"file:<state-root>"`. In the project examples below, `durable-refund` is any
+package whose `[runtime]` section sets `workflow_store = "file:.num-state"`.
 
 ```bash
 num workflow enqueue .num-state start wf_1 process_refund \
@@ -237,6 +242,8 @@ num workflow enqueue .num-state complete wf_1
 num workflow drain .num-state --max-events 10
 num workflow drain .num-state --worker-id worker_a --max-attempts 5
 num workflow drain .num-state --json
+num workflow enqueue durable-refund start wf_project process_refund --json
+num workflow drain durable-refund --max-events 10 --json
 ```
 
 Supported event kinds are `start`, `wait`, `resume`, `complete`, `fail`,
@@ -251,6 +258,11 @@ The state root uses:
 - `<state-root>/events/dead` for exhausted failed events;
 - `<state-root>/workflows` for persisted workflow state;
 - `<state-root>/audit/events.jsonl` for lifecycle audit events.
+
+When a project manifest is used, `workflow_store = "file:.num-state"` resolves
+relative to the package root. `audit_store = "file:audit/events.jsonl"` writes
+lifecycle audit events to that manifest-relative path; `audit_store = "stdout"`
+falls back to `<state-root>/audit/events.jsonl` for durable workflow workers.
 
 `workflow drain` stops on the first failed event by default and reports
 processed states plus failures. Pass `--no-stop-on-error` to continue through a

@@ -256,6 +256,9 @@ Implemented:
   compensate/cancel transitions;
 - workflow state listing and dashboard-oriented report summarization by
   status/name/actor/tenant;
+- project manifest `[runtime].workflow_store = "file:<state-root>"` and
+  `[runtime].audit_store = "file:<events.jsonl>"` resolution for `num workflow
+  enqueue`, `num workflow drain`, and `num workflow-report`;
 - file-backed workflow state store;
 - file-backed append-only audit JSONL sink;
 - memory and file-backed secret stores with redacted secret value debug output;
