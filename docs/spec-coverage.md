@@ -218,6 +218,8 @@ Implemented:
   deploy plans;
 - git package source discovery for project commands through the same `.num-git`
   checkout cache;
+- deployment environment validation metadata from `[environment]` in deploy
+  plans, materialized artifact metadata, and generated runbooks;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which

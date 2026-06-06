@@ -16,6 +16,7 @@ pub struct PackageManifest {
     pub project: ProjectPackage,
     pub registry: PackageRegistry,
     pub runtime: PackageRuntime,
+    pub environment: PackageEnvironment,
     pub deployment: PackageDeployment,
     pub security: PackageSecurity,
     pub connectors: Vec<PackageConnectorProcess>,
@@ -52,6 +53,12 @@ pub struct PackageRegistry {
 pub struct PackageRuntime {
     pub workflow_store: String,
     pub audit_store: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageEnvironment {
+    pub required: Vec<String>,
+    pub optional: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,6 +181,8 @@ impl PackageManifest {
         let mut registry_path = None;
         let mut workflow_store = None;
         let mut audit_store = None;
+        let mut environment_required = Vec::new();
+        let mut environment_optional = Vec::new();
         let mut deployment_target = None;
         let mut deployment_service = None;
         let mut deployment_region = None;
@@ -226,6 +235,11 @@ impl PackageManifest {
                     "audit_store" => audit_store = parse_toml_string(value),
                     _ => {}
                 },
+                "environment" => match key.as_str() {
+                    "required" => environment_required.extend(parse_toml_string_array(value)),
+                    "optional" => environment_optional.extend(parse_toml_string_array(value)),
+                    _ => {}
+                },
                 "deployment" => match key.as_str() {
                     "target" => deployment_target = parse_toml_string(value),
                     "service" => deployment_service = parse_toml_string(value),
@@ -275,6 +289,10 @@ impl PackageManifest {
             runtime: PackageRuntime {
                 workflow_store: workflow_store.unwrap_or_else(|| "memory".to_string()),
                 audit_store: audit_store.unwrap_or_else(|| "stdout".to_string()),
+            },
+            environment: PackageEnvironment {
+                required: normalize_env_names(environment_required),
+                optional: normalize_env_names(environment_optional),
             },
             deployment: PackageDeployment {
                 target: deployment_target.unwrap_or_else(|| "local".to_string()),
@@ -1113,6 +1131,70 @@ fn parse_toml_string(value: &str) -> Option<String> {
     Some(value[1..value.len() - 1].to_string())
 }
 
+fn parse_toml_string_array(value: &str) -> Vec<String> {
+    let value = value.trim();
+    if value.len() < 2 || !value.starts_with('[') || !value.ends_with(']') {
+        return Vec::new();
+    }
+
+    let inner = &value[1..value.len() - 1];
+    split_toml_array_items(inner)
+        .into_iter()
+        .filter_map(|item| parse_toml_string(&item))
+        .collect()
+}
+
+fn split_toml_array_items(inner: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for ch in inner.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            current.push(ch);
+            continue;
+        }
+        if ch == ',' && !in_string {
+            let item = current.trim();
+            if !item.is_empty() {
+                items.push(item.to_string());
+            }
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+    }
+
+    let item = current.trim();
+    if !item.is_empty() {
+        items.push(item.to_string());
+    }
+
+    items
+}
+
+fn normalize_env_names(names: Vec<String>) -> Vec<String> {
+    names
+        .into_iter()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn parse_toml_bool(value: &str) -> Option<bool> {
     match value.trim() {
         "true" => Some(true),
@@ -1364,6 +1446,33 @@ artifact = "dist/deploy.json"
         assert_eq!(manifest.deployment.service, Some("BillingApi".to_string()));
         assert_eq!(manifest.deployment.region, Some("eu-west-1".to_string()));
         assert_eq!(manifest.deployment.artifact, "dist/deploy.json");
+    }
+
+    #[test]
+    fn manifest_reads_environment_metadata() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[environment]
+required = ["PAYMENTS_API_KEY", " SMTP_TOKEN ", "PAYMENTS_API_KEY"]
+optional = ["NUM_LOG_LEVEL"]
+"#,
+        );
+
+        assert_eq!(
+            manifest.environment.required,
+            vec!["PAYMENTS_API_KEY".to_string(), "SMTP_TOKEN".to_string()]
+        );
+        assert_eq!(
+            manifest.environment.optional,
+            vec!["NUM_LOG_LEVEL".to_string()]
+        );
     }
 
     #[test]

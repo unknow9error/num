@@ -475,10 +475,10 @@ num deploy examples/refund_workflow --apply --replace --json
 
 The plan includes package name/version, deployment target metadata, a checked
 target profile with execution class, required artifacts, and deployment
-warnings, runtime store metadata, security mode, compiled module count,
-workflows, actions, service routes, connectors, process connector bindings, and
-direct dependencies. It also embeds the manifest language/schema compatibility
-contract.
+warnings, environment validation status from `[environment]`, runtime store
+metadata, security mode, compiled module count, workflows, actions, service
+routes, connectors, process connector bindings, and direct dependencies. It
+also embeds the manifest language/schema compatibility contract.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
@@ -487,8 +487,9 @@ bundle. The bundle includes:
 - `num.toml` - source package manifest;
 - `num.lock` - validated package lockfile, when present;
 - `modules/` - source module snapshot used for compilation;
-- `manifest.json` - artifact metadata, target profile, and module map;
-- `RUNBOOK.md` - operations boundary and handoff notes.
+- `manifest.json` - artifact metadata, target profile, environment status, and
+  module map;
+- `RUNBOOK.md` - operations boundary, environment status, and handoff notes.
 
 The default bundle directory is derived from `[deployment].artifact` by removing
 the file extension. Use `--dir <artifact-dir>` to choose a different output

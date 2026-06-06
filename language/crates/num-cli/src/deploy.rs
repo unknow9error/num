@@ -3,6 +3,7 @@ use crate::package::{self, DependencySource, PackageManifest};
 use num_compiler::ast::{Declaration, Module, Risk};
 use num_compiler::SourceFile;
 use serde_json::{json, Value};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,7 @@ pub struct DeploymentPlan {
     pub source: String,
     pub entry: String,
     pub runtime: RuntimeDeployment,
+    pub environment: DeploymentEnvironment,
     pub security: SecurityDeployment,
     pub modules: usize,
     pub workflows: Vec<String>,
@@ -42,6 +44,20 @@ pub struct CompatibilityDeployment {
 pub struct RuntimeDeployment {
     pub workflow_store: String,
     pub audit_store: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentEnvironment {
+    pub status: String,
+    pub required: Vec<EnvironmentVariableDeployment>,
+    pub optional: Vec<EnvironmentVariableDeployment>,
+    pub missing_required: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnvironmentVariableDeployment {
+    pub name: String,
+    pub present: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +157,7 @@ pub fn build_deployment_plan(
             workflow_store: manifest.runtime.workflow_store.clone(),
             audit_store: manifest.runtime.audit_store.clone(),
         },
+        environment: DeploymentEnvironment::from_manifest(manifest),
         security: SecurityDeployment {
             policy_mode: manifest.security.policy_mode.clone(),
             tenant_isolation: manifest.security.tenant_isolation,
@@ -215,6 +232,7 @@ impl DeploymentPlan {
                 "workflow_store": self.runtime.workflow_store,
                 "audit_store": self.runtime.audit_store,
             },
+            "environment": self.environment.to_json(),
             "security": {
                 "policy_mode": self.security.policy_mode,
                 "tenant_isolation": self.security.tenant_isolation,
@@ -260,6 +278,12 @@ impl DeploymentPlan {
             self.runtime.workflow_store, self.runtime.audit_store
         ));
         out.push_str(&format!(
+            "Environment: status={}, required={}, optional={}\n",
+            self.environment.status,
+            self.environment.required.len(),
+            self.environment.optional.len()
+        ));
+        out.push_str(&format!(
             "Security: policy_mode={}, tenant_isolation={}\n",
             self.security.policy_mode, self.security.tenant_isolation
         ));
@@ -283,6 +307,12 @@ impl DeploymentPlan {
             out.push_str("Deployment warnings:\n");
             for warning in &self.target_profile.warnings {
                 out.push_str(&format!("  - {warning}\n"));
+            }
+        }
+        if !self.environment.missing_required.is_empty() {
+            out.push_str("Environment warnings:\n");
+            for name in &self.environment.missing_required {
+                out.push_str(&format!("  - missing required env `{name}`\n"));
             }
         }
         out
@@ -378,6 +408,65 @@ impl DeploymentTargetProfile {
             "execution": self.execution,
             "required_artifacts": self.required_artifacts,
             "warnings": self.warnings,
+        })
+    }
+}
+
+impl DeploymentEnvironment {
+    fn from_manifest(manifest: &PackageManifest) -> Self {
+        let required = manifest
+            .environment
+            .required
+            .iter()
+            .map(|name| EnvironmentVariableDeployment::from_name(name))
+            .collect::<Vec<_>>();
+        let optional = manifest
+            .environment
+            .optional
+            .iter()
+            .map(|name| EnvironmentVariableDeployment::from_name(name))
+            .collect::<Vec<_>>();
+        let missing_required = required
+            .iter()
+            .filter(|variable| !variable.present)
+            .map(|variable| variable.name.clone())
+            .collect::<Vec<_>>();
+        let status = if missing_required.is_empty() {
+            "ready"
+        } else {
+            "missing-required"
+        };
+
+        Self {
+            status: status.to_string(),
+            required,
+            optional,
+            missing_required,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "status": self.status,
+            "required": self.required.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+            "optional": self.optional.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+            "missing_required": self.missing_required,
+        })
+    }
+}
+
+impl EnvironmentVariableDeployment {
+    fn from_name(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            present: env::var_os(name).is_some(),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "name": self.name,
+            "present": self.present,
         })
     }
 }
@@ -489,6 +578,7 @@ pub fn materialize_deployment_artifact(
                 "target": plan.target,
                 "service": plan.service,
                 "target_profile": plan.target_profile.to_json(),
+                "environment": plan.environment.to_json(),
                 "modules": module_entries,
                 "plan": relative_to(&plan_path, artifact_root)?,
                 "manifest": relative_to(&manifest_path, artifact_root)?,
@@ -667,6 +757,34 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
         }
         out.push('\n');
     }
+    out.push_str("## Environment\n\n");
+    out.push_str(&format!("Status: `{}`\n\n", plan.environment.status));
+    if plan.environment.required.is_empty() {
+        out.push_str("Required variables: none\n\n");
+    } else {
+        out.push_str("Required variables:\n\n");
+        for variable in &plan.environment.required {
+            let status = if variable.present {
+                "present"
+            } else {
+                "missing"
+            };
+            out.push_str(&format!("- `{}` - {status}\n", variable.name));
+        }
+        out.push('\n');
+    }
+    if !plan.environment.optional.is_empty() {
+        out.push_str("Optional variables:\n\n");
+        for variable in &plan.environment.optional {
+            let status = if variable.present {
+                "present"
+            } else {
+                "missing"
+            };
+            out.push_str(&format!("- `{}` - {status}\n", variable.name));
+        }
+        out.push('\n');
+    }
     out.push_str("## Included Artifacts\n\n");
     out.push_str("- `num-deploy.json` checked deployment plan\n");
     out.push_str("- `num.toml` source package manifest\n");
@@ -685,6 +803,7 @@ mod tests {
     use super::{build_deployment_plan, materialize_deployment_artifact};
     use crate::package::{write_lockfile, PackageManifest};
     use num_compiler::{compile, SourceFile};
+    use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -816,6 +935,48 @@ target = "cloud"
     }
 
     #[test]
+    fn deployment_plan_reports_environment_validation() {
+        env::set_var("NUM_TEST_DEPLOY_PRESENT", "set");
+        env::remove_var("NUM_TEST_DEPLOY_MISSING");
+        env::remove_var("NUM_TEST_DEPLOY_OPTIONAL");
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[environment]
+required = ["NUM_TEST_DEPLOY_PRESENT", "NUM_TEST_DEPLOY_MISSING"]
+optional = ["NUM_TEST_DEPLOY_OPTIONAL"]
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        assert_eq!(plan.environment.status, "missing-required");
+        assert_eq!(
+            plan.environment.missing_required,
+            vec!["NUM_TEST_DEPLOY_MISSING".to_string()]
+        );
+        assert_eq!(plan.environment.required.len(), 2);
+        assert_eq!(plan.environment.optional.len(), 1);
+        assert_eq!(plan.to_json()["environment"]["status"], "missing-required");
+        assert_eq!(
+            plan.to_json()["environment"]["missing_required"][0],
+            "NUM_TEST_DEPLOY_MISSING"
+        );
+        assert!(plan
+            .render_text()
+            .contains("missing required env `NUM_TEST_DEPLOY_MISSING`"));
+
+        env::remove_var("NUM_TEST_DEPLOY_PRESENT");
+    }
+
+    #[test]
     fn materializes_deployment_artifact_bundle() {
         let root = temp_dir("bundle_project");
         fs::create_dir_all(root.join("src")).unwrap();
@@ -873,9 +1034,15 @@ artifact = "dist/num-deploy.json"
         assert!(fs::read_to_string(&report.runbook_path)
             .unwrap()
             .contains("Target Profile"));
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("## Environment"));
         assert!(fs::read_to_string(&report.metadata_path)
             .unwrap()
             .contains("\"target_profile\""));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"environment\""));
         assert!(materialize_deployment_artifact(
             &plan,
             &manifest,

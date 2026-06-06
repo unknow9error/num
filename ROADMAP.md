@@ -42,7 +42,7 @@ technical specification.
   - checked deploy plans;
   - local/CI artifact generation;
   - container/runtime target profile mapping;
-  - environment validation.
+  - checked environment validation metadata.
 - Observability:
   - structured runtime events;
   - workflow/audit/cost dashboards;
