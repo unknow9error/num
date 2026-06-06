@@ -507,12 +507,14 @@ fn run() -> Result<(), String> {
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
                 demo::default_permissions(),
                 connectors,
-            );
+            )
+            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()));
 
             println!("Serving one request for service {service_name} on http://{addr}");
             http::serve_once(&addr, |request| {
@@ -534,12 +536,14 @@ fn run() -> Result<(), String> {
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let connectors = connector_executor_for_path(&path)?;
+            let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
                 demo::default_permissions(),
                 connectors,
-            );
+            )
+            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()));
 
             println!("Serving service {service_name} on http://{}", options.addr);
             http::serve(&options.addr, options.max_requests, |request| {
@@ -683,6 +687,24 @@ fn persist_interpreter_audits(
     events: &[String],
 ) -> Result<(), String> {
     runtime_config::write_interpreter_audit_events(target, command, events)
+}
+
+fn service_audit_recorder(
+    target: runtime_config::InterpreterAuditTarget,
+    service_name: String,
+) -> impl Fn(&num_runtime::SecurityContext, &str, &str, &[String]) -> Result<(), num_runtime::RuntimeError>
+{
+    move |security, method, path, events| {
+        runtime_config::write_service_audit_events(
+            &target,
+            &service_name,
+            method,
+            path,
+            security,
+            events,
+        )
+        .map_err(num_runtime::RuntimeError::Storage)
+    }
 }
 
 fn apply_policy_mode(

@@ -1,5 +1,6 @@
 use crate::package::PackageManifest;
-use serde_json::json;
+use num_runtime::SecurityContext;
+use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -60,6 +61,53 @@ pub fn write_interpreter_audit_events(
     command: &str,
     events: &[String],
 ) -> Result<(), String> {
+    append_audit_jsonl(target, events, |event_batch, index, event| {
+        json!({
+            "event_id": format!("demo-{command}-{event_batch}-{}", index + 1),
+            "actor": "demo",
+            "tenant": "default",
+            "command": command,
+            "action": command,
+            "result": {
+                "kind": "Succeeded",
+            },
+            "demo_event": event,
+        })
+    })
+}
+
+pub fn write_service_audit_events(
+    target: &InterpreterAuditTarget,
+    service: &str,
+    method: &str,
+    path: &str,
+    security: &SecurityContext,
+    events: &[String],
+) -> Result<(), String> {
+    append_audit_jsonl(target, events, |event_batch, index, event| {
+        json!({
+            "event_id": format!("service-{event_batch}-{}", index + 1),
+            "actor": security.actor.clone(),
+            "tenant": security.tenant.clone(),
+            "correlation_id": security.correlation_id.clone(),
+            "request_id": security.request_id.clone(),
+            "service": service,
+            "method": method,
+            "path": path,
+            "action": format!("{service} {method} {path}"),
+            "result": {
+                "kind": "Succeeded",
+            },
+            "demo_event": event,
+        })
+    })
+}
+
+fn append_audit_jsonl(
+    target: &InterpreterAuditTarget,
+    events: &[String],
+    mut render: impl FnMut(u128, usize, &str) -> Value,
+) -> Result<(), String> {
     let InterpreterAuditTarget::File(path) = target else {
         return Ok(());
     };
@@ -80,18 +128,8 @@ pub fn write_interpreter_audit_events(
         .unwrap_or_default()
         .as_nanos();
     for (index, event) in events.iter().enumerate() {
-        let line = serde_json::to_string(&json!({
-            "event_id": format!("demo-{command}-{event_batch}-{}", index + 1),
-            "actor": "demo",
-            "tenant": "default",
-            "command": command,
-            "action": command,
-            "result": {
-                "kind": "Succeeded",
-            },
-            "demo_event": event,
-        }))
-        .map_err(|err| format!("failed to render demo audit event: {err}"))?;
+        let line = serde_json::to_string(&render(event_batch, index, event))
+            .map_err(|err| format!("failed to render audit event: {err}"))?;
         writeln!(file, "{line}")
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
@@ -174,8 +212,11 @@ fn resolve_manifest_relative_path(
 mod tests {
     use super::{
         resolve_interpreter_audit_target, resolve_workflow_runtime_paths,
-        write_interpreter_audit_events, InterpreterAuditTarget, RuntimePathSource,
+        write_interpreter_audit_events, write_service_audit_events, InterpreterAuditTarget,
+        RuntimePathSource,
     };
+    use num_runtime::SecurityContext;
+    use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -284,6 +325,38 @@ audit_store = "file:audit/demo.jsonl"
         assert!(source.contains("\"action\":\"run\""));
         assert!(source.contains("\"command\":\"run\""));
         assert!(source.contains("\\\"ok\\\""));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn writes_service_file_audit_store_with_request_security() {
+        let root = temp_dir("service_audit_store");
+        let target = InterpreterAuditTarget::File(root.join("audit/service.jsonl"));
+        let security = SecurityContext {
+            actor: "agent@example.com".to_string(),
+            tenant: "tenant_a".to_string(),
+            permissions: BTreeSet::new(),
+            correlation_id: "corr_1".to_string(),
+            request_id: "req_1".to_string(),
+        };
+
+        write_service_audit_events(
+            &target,
+            "BillingApi",
+            "POST",
+            "/refunds",
+            &security,
+            &["\"refund_1\"".to_string()],
+        )
+        .unwrap();
+
+        let source = fs::read_to_string(root.join("audit/service.jsonl")).unwrap();
+        assert!(source.contains("\"action\":\"BillingApi POST /refunds\""));
+        assert!(source.contains("\"actor\":\"agent@example.com\""));
+        assert!(source.contains("\"tenant\":\"tenant_a\""));
+        assert!(source.contains("\"service\":\"BillingApi\""));
+        assert!(source.contains("\"request_id\":\"req_1\""));
+        assert!(source.contains("\\\"refund_1\\\""));
         fs::remove_dir_all(root).unwrap();
     }
 }

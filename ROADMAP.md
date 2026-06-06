@@ -32,8 +32,7 @@ technical specification.
   - multi-worker coordination on top of the file-backed queue runner;
   - idempotent event processing;
   - clustered queue sharding beyond file-backed worker leases;
-  - tenant-aware state transitions;
-  - manifest runtime backend wiring for HTTP serve commands.
+  - tenant-aware state transitions.
 - Connector platform:
   - broader connector SDK language targets;
   - auth/secrets binding;

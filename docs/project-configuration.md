@@ -260,8 +260,10 @@ arguments still use the direct `<state-root>/events`, `<state-root>/workflows`,
 and `<state-root>/audit/events.jsonl` layout. Demo interpreter commands
 `num run`, `num test`, `num trace`, `num debug`, `num cost-report`, and
 `num route` append report-compatible demo audit JSONL when `audit_store` is a
-`file:` path. `num deploy` includes the same runtime values in the generated
-deployment plan.
+`file:` path. HTTP service commands `num serve` and `num serve-once` append
+request-scoped audit JSONL to the same manifest-relative audit path, preserving
+actor, tenant, request id, correlation id, service, method, and path metadata.
+`num deploy` includes the same runtime values in the generated deployment plan.
 
 ### `[environment]`
 
@@ -352,6 +354,4 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- manifest runtime backend selection for HTTP `serve` and `serve-once`
-  interpreter commands;
 - deployment execution against cloud/container platforms.
