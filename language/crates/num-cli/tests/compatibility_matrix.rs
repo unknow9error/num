@@ -57,6 +57,10 @@ fn stdout_json(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn stdout_json_unchecked(output: &Output) -> Value {
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).to_string()
 }
@@ -107,6 +111,12 @@ fn schema_zero_migrates_to_current_schema_and_then_passes_compat() {
     let before = run_num(&["compat", &project_arg, "--json"]);
     assert!(!before.status.success());
     assert!(stderr(&before).contains("declares invalid [language].manifest_schema 0"));
+    let before_report = stdout_json_unchecked(&before);
+    assert_eq!(before_report[0]["status"], "incompatible");
+    assert!(before_report[0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("declares invalid [language].manifest_schema 0"));
 
     let migration = run_num(&["migrate", &project_arg, "--write", "--json"]);
     let migration_report = stdout_json(&migration);
@@ -247,6 +257,12 @@ fn future_schema_is_rejected_by_compatibility_and_migration() {
     let compat = run_num(&["compat", &project_arg, "--json"]);
     assert!(!compat.status.success());
     assert!(stderr(&compat).contains("requires manifest schema 2"));
+    let compat_report = stdout_json_unchecked(&compat);
+    assert_eq!(compat_report[0]["status"], "incompatible");
+    assert!(compat_report[0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires manifest schema 2"));
 
     let migration = run_num(&["migrate", &project_arg, "--json"]);
     assert!(!migration.status.success());
@@ -261,6 +277,12 @@ fn future_language_is_rejected_and_not_downgraded_by_upgrade_version() {
     let compat = run_num(&["compat", &project_arg, "--json"]);
     assert!(!compat.status.success());
     assert!(stderr(&compat).contains("requires language 0.2.0"));
+    let compat_report = stdout_json_unchecked(&compat);
+    assert_eq!(compat_report[0]["status"], "incompatible");
+    assert!(compat_report[0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires language 0.2.0"));
 
     let upgrade = run_num(&["upgrade-version", &project_arg, "--json"]);
     assert!(!upgrade.status.success());

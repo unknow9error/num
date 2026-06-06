@@ -101,7 +101,6 @@ fn collect_package_manifests(
         return Ok(());
     }
 
-    compatibility::validate_manifest(manifest)?;
     manifests.push(manifest.clone());
 
     for dependency in dependency_manifests(manifest)? {
