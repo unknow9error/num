@@ -248,11 +248,17 @@ audit_store = "stdout"
 
 Current fields used in examples:
 
-- `workflow_store` - intended workflow state backend;
-- `audit_store` - intended audit sink backend.
+- `workflow_store` - workflow state backend, either `memory` for demo
+  interpreter commands or `file:<state-root>` for durable workflow commands;
+- `audit_store` - audit sink backend, either `stdout` or
+  `file:<events.jsonl>`.
 
-These fields are parsed as metadata but are not loaded by the demo interpreter
-in v0.1.0. `num deploy` includes them in the generated deployment plan.
+`num workflow enqueue`, `num workflow drain`, and `num workflow-report` resolve
+these fields when their first argument is a project directory or project file.
+Relative `file:` paths are resolved from the package root. Explicit state-root
+arguments still use the direct `<state-root>/events`, `<state-root>/workflows`,
+and `<state-root>/audit/events.jsonl` layout. `num deploy` includes the same
+runtime values in the generated deployment plan.
 
 ### `[environment]`
 
@@ -343,5 +349,5 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- runtime backend selection from manifest values;
+- manifest runtime backend selection for demo interpreter commands;
 - deployment execution against cloud/container platforms.

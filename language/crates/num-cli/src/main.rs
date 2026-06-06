@@ -10,6 +10,7 @@ mod package;
 mod project;
 mod registry;
 mod registry_cli;
+mod runtime_config;
 mod sql_schema;
 mod version_upgrade;
 mod version_upgrade_cli;
@@ -430,10 +431,9 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         "workflow-report" => {
-            let path = args
-                .next()
-                .map(PathBuf::from)
-                .ok_or_else(|| "usage: num workflow-report <state-root> [--json]".to_string())?;
+            let path = args.next().map(PathBuf::from).ok_or_else(|| {
+                "usage: num workflow-report <state-root|project-dir|file.num> [--json]".to_string()
+            })?;
             let format_json = match args.next().as_deref() {
                 Some("--json") => true,
                 Some(other) => {
@@ -444,7 +444,8 @@ fn run() -> Result<(), String> {
             if let Some(other) = args.next() {
                 return Err(format!("unexpected workflow-report argument '{other}'"));
             }
-            let store = FileStateStore::new(path);
+            let runtime_paths = runtime_config::resolve_workflow_runtime_paths(&path)?;
+            let store = FileStateStore::new(&runtime_paths.state_root);
             let report = workflow_report::summarize_workflow_store(&store)
                 .map_err(|err| format!("failed to summarize workflows: {err:?}"))?;
             if format_json {
@@ -944,7 +945,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root> [--json]    Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
