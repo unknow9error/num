@@ -189,17 +189,48 @@ where
     }
 
     pub fn apply_event(&mut self, event: WorkflowEvent) -> Result<WorkflowState, RuntimeError> {
+        let event_id = event.id.clone();
         match event.kind {
-            WorkflowEventKind::Start(start) => self.start_workflow(start),
-            WorkflowEventKind::Wait { workflow_id } => self.wait_workflow(&workflow_id),
-            WorkflowEventKind::Resume { workflow_id } => self.resume_workflow(&workflow_id),
-            WorkflowEventKind::Complete { workflow_id } => self.complete_workflow(&workflow_id),
+            WorkflowEventKind::Start(start) => self.start_workflow_for_event(&event_id, start),
+            WorkflowEventKind::Wait { workflow_id } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Waiting,
+                AuditResult::Waiting,
+                &event_id,
+            ),
+            WorkflowEventKind::Resume { workflow_id } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Running,
+                AuditResult::Resumed,
+                &event_id,
+            ),
+            WorkflowEventKind::Complete { workflow_id } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Completed,
+                AuditResult::Succeeded,
+                &event_id,
+            ),
             WorkflowEventKind::Fail {
                 workflow_id,
                 reason,
-            } => self.fail_workflow(&workflow_id, reason),
-            WorkflowEventKind::Compensate { workflow_id } => self.compensate_workflow(&workflow_id),
-            WorkflowEventKind::Cancel { workflow_id } => self.cancel_workflow(&workflow_id),
+            } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Failed,
+                AuditResult::Failed(reason),
+                &event_id,
+            ),
+            WorkflowEventKind::Compensate { workflow_id } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Compensated,
+                AuditResult::RolledBack,
+                &event_id,
+            ),
+            WorkflowEventKind::Cancel { workflow_id } => self.transition_workflow_for_event(
+                &workflow_id,
+                WorkflowStatus::Cancelled,
+                AuditResult::Cancelled,
+                &event_id,
+            ),
         }
     }
 
@@ -208,25 +239,56 @@ where
         context: &SecurityContext,
         event: WorkflowEvent,
     ) -> Result<WorkflowState, RuntimeError> {
+        let event_id = event.id.clone();
         match event.kind {
-            WorkflowEventKind::Start(start) => self.start_workflow_as(context, start),
-            WorkflowEventKind::Wait { workflow_id } => self.wait_workflow_as(context, &workflow_id),
-            WorkflowEventKind::Resume { workflow_id } => {
-                self.resume_workflow_as(context, &workflow_id)
+            WorkflowEventKind::Start(start) => {
+                self.start_workflow_for_event_as(context, &event_id, start)
             }
-            WorkflowEventKind::Complete { workflow_id } => {
-                self.complete_workflow_as(context, &workflow_id)
-            }
+            WorkflowEventKind::Wait { workflow_id } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Waiting,
+                AuditResult::Waiting,
+                &event_id,
+            ),
+            WorkflowEventKind::Resume { workflow_id } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Running,
+                AuditResult::Resumed,
+                &event_id,
+            ),
+            WorkflowEventKind::Complete { workflow_id } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Completed,
+                AuditResult::Succeeded,
+                &event_id,
+            ),
             WorkflowEventKind::Fail {
                 workflow_id,
                 reason,
-            } => self.fail_workflow_as(context, &workflow_id, reason),
-            WorkflowEventKind::Compensate { workflow_id } => {
-                self.compensate_workflow_as(context, &workflow_id)
-            }
-            WorkflowEventKind::Cancel { workflow_id } => {
-                self.cancel_workflow_as(context, &workflow_id)
-            }
+            } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Failed,
+                AuditResult::Failed(reason),
+                &event_id,
+            ),
+            WorkflowEventKind::Compensate { workflow_id } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Compensated,
+                AuditResult::RolledBack,
+                &event_id,
+            ),
+            WorkflowEventKind::Cancel { workflow_id } => self.transition_workflow_for_event_as(
+                context,
+                &workflow_id,
+                WorkflowStatus::Cancelled,
+                AuditResult::Cancelled,
+                &event_id,
+            ),
         }
     }
 
@@ -295,6 +357,76 @@ where
             .ensure_access(context, &state.security.tenant)?;
         self.transition_workflow(id, status, result)
     }
+
+    fn start_workflow_for_event(
+        &mut self,
+        event_id: &str,
+        mut start: WorkflowStart,
+    ) -> Result<WorkflowState, RuntimeError> {
+        if let Some(state) = self.state_store.load_workflow(&start.id)? {
+            if event_already_processed(&state, event_id) {
+                return Ok(state);
+            }
+            return Err(RuntimeError::Storage(format!(
+                "workflow '{}' already exists",
+                start.id
+            )));
+        }
+        mark_event_processed(&mut start.metadata, event_id);
+        self.start_workflow(start)
+    }
+
+    fn start_workflow_for_event_as(
+        &mut self,
+        context: &SecurityContext,
+        event_id: &str,
+        start: WorkflowStart,
+    ) -> Result<WorkflowState, RuntimeError> {
+        self.tenant_guard
+            .ensure_access(context, &start.security.tenant)?;
+        self.start_workflow_for_event(event_id, start)
+    }
+
+    fn transition_workflow_for_event(
+        &mut self,
+        id: &str,
+        status: WorkflowStatus,
+        result: AuditResult,
+        event_id: &str,
+    ) -> Result<WorkflowState, RuntimeError> {
+        let mut state = self
+            .state_store
+            .load_workflow(id)?
+            .ok_or_else(|| RuntimeError::Storage(format!("workflow '{id}' not found")))?;
+        if event_already_processed(&state, event_id) {
+            return Ok(state);
+        }
+        validate_transition(&state.status, &status)?;
+        state.status = status;
+        state.updated_at = SystemTime::now();
+        mark_event_processed(&mut state.metadata, event_id);
+        self.state_store.save_workflow(state.clone())?;
+        self.audit_sink
+            .append(workflow_audit_event(&state, result))?;
+        Ok(state)
+    }
+
+    fn transition_workflow_for_event_as(
+        &mut self,
+        context: &SecurityContext,
+        id: &str,
+        status: WorkflowStatus,
+        result: AuditResult,
+        event_id: &str,
+    ) -> Result<WorkflowState, RuntimeError> {
+        let state = self
+            .state_store
+            .load_workflow(id)?
+            .ok_or_else(|| RuntimeError::Storage(format!("workflow '{id}' not found")))?;
+        self.tenant_guard
+            .ensure_access(context, &state.security.tenant)?;
+        self.transition_workflow_for_event(id, status, result, event_id)
+    }
 }
 
 fn workflow_audit_event(state: &WorkflowState, result: AuditResult) -> AuditEvent {
@@ -347,6 +479,18 @@ fn validate_transition(
             "invalid workflow status transition {current:?} -> {next:?}"
         )))
     }
+}
+
+fn event_already_processed(state: &WorkflowState, event_id: &str) -> bool {
+    state.metadata.contains_key(&processed_event_key(event_id))
+}
+
+fn mark_event_processed(metadata: &mut BTreeMap<String, String>, event_id: &str) {
+    metadata.insert(processed_event_key(event_id), "true".to_string());
+}
+
+fn processed_event_key(event_id: &str) -> String {
+    format!("num.processed_event.{event_id}")
 }
 
 #[cfg(test)]
@@ -573,6 +717,89 @@ mod tests {
         assert!(events.contains("\"kind\":\"Waiting\""));
         assert!(events.contains("\"kind\":\"Resumed\""));
         assert!(events.contains("\"kind\":\"Succeeded\""));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn engine_replays_duplicate_start_event_without_duplicate_audit() {
+        let root = unique_test_dir("duplicate-start-event");
+        let state_store = FileStateStore::new(&root);
+        let audit_path = root.join("audit/events.jsonl");
+        let audit_sink = FileAuditSink::new(&audit_path);
+        let mut engine = WorkflowEngine::new(state_store, audit_sink);
+        let mut queue = FileWorkflowEventQueue::new(root.join("events"));
+
+        queue
+            .enqueue(WorkflowEvent::start(
+                "evt_start",
+                workflow_start("wf_replayed_start"),
+            ))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::start(
+                "evt_start",
+                workflow_start("wf_replayed_start"),
+            ))
+            .unwrap();
+
+        let first = engine.process_next_event(&mut queue).unwrap().unwrap();
+        let replay = engine.process_next_event(&mut queue).unwrap().unwrap();
+
+        assert_eq!(first.status, WorkflowStatus::Running);
+        assert_eq!(replay.status, WorkflowStatus::Running);
+        let loaded = engine
+            .load_workflow("wf_replayed_start")
+            .unwrap()
+            .unwrap();
+        assert!(loaded.metadata.contains_key("num.processed_event.evt_start"));
+        let events = fs::read_to_string(&audit_path).unwrap();
+        assert_eq!(events.matches("\"kind\":\"Started\"").count(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn engine_replays_duplicate_transition_event_without_reapplying_terminal_state() {
+        let root = unique_test_dir("duplicate-transition-event");
+        let state_store = FileStateStore::new(&root);
+        let audit_path = root.join("audit/events.jsonl");
+        let audit_sink = FileAuditSink::new(&audit_path);
+        let mut engine = WorkflowEngine::new(state_store, audit_sink);
+        let mut queue = FileWorkflowEventQueue::new(root.join("events"));
+
+        queue
+            .enqueue(WorkflowEvent::start(
+                "evt_start",
+                workflow_start("wf_replayed_transition"),
+            ))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::complete(
+                "evt_complete",
+                "wf_replayed_transition",
+            ))
+            .unwrap();
+        queue
+            .enqueue(WorkflowEvent::complete(
+                "evt_complete",
+                "wf_replayed_transition",
+            ))
+            .unwrap();
+
+        engine.process_next_event(&mut queue).unwrap().unwrap();
+        let completed = engine.process_next_event(&mut queue).unwrap().unwrap();
+        let replay = engine.process_next_event(&mut queue).unwrap().unwrap();
+
+        assert_eq!(completed.status, WorkflowStatus::Completed);
+        assert_eq!(replay.status, WorkflowStatus::Completed);
+        let loaded = engine
+            .load_workflow("wf_replayed_transition")
+            .unwrap()
+            .unwrap();
+        assert!(loaded
+            .metadata
+            .contains_key("num.processed_event.evt_complete"));
+        let events = fs::read_to_string(&audit_path).unwrap();
+        assert_eq!(events.matches("\"kind\":\"Succeeded\"").count(), 1);
         let _ = fs::remove_dir_all(root);
     }
 
