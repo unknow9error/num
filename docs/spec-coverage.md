@@ -174,6 +174,7 @@ Implemented:
 - `num workflow enqueue`
 - `num workflow drain`
 - `num workflow lease-heartbeat`
+- `num connector probe`
 - `num connector-sdk`
 - `num cost-report`
 - `num audit-report`
@@ -302,6 +303,8 @@ Implemented:
 - manifest-configured process connector execution for `num run`, `num test`,
   `num trace`, `num cost-report`, `num route`, `num serve`, and
   `num serve-once`;
+- direct process connector probing through `num connector probe`, without demo
+  connector fallback;
 - manifest-configured process connector timeout budgets with runtime
   process termination and deploy-plan metadata;
 - connector error taxonomy at the runtime executor boundary with stable

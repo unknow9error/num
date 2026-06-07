@@ -212,10 +212,14 @@ the command exceeds that wall-clock budget:
 "payments.find" = { command = "node", args = "find.js", cwd = "ops/payments", timeout_ms = "2000" }
 ```
 
-At runtime, `num run`, `num test`, `num trace`, `num cost-report`,
-`num route`, `num serve`, and `num serve-once` use configured process
-connectors before falling back to the built-in demo connector executor. The
-process receives JSON on stdin:
+Use `num connector probe <project-dir|file> <connector.method> --arg <json>` to
+validate a process binding directly. Probe calls do not fall back to demo
+connectors, so they are the intended smoke test for real connector processes.
+
+At runtime, `num run`, `num test`, `num trace`, `num cost-report`, `num route`,
+`num serve`, and `num serve-once` use configured process connectors before
+falling back to the built-in demo connector executor. The process receives JSON
+on stdin:
 
 ```json
 { "method": "payments.find", "args": ["pay_1"] }
