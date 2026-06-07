@@ -7,6 +7,7 @@
 - Workflow lease heartbeat refresh for file-backed durable workers through
   `num workflow lease-heartbeat`.
 - Validated local registry metadata indexes through `num registry index`.
+- Process connector probes through `num connector probe`.
 
 ## 0.1.1 - 2026-06-07
 

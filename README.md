@@ -119,7 +119,8 @@ This repository contains a working production-grade foundation for:
 - a lightweight interpreter for demo workflows, service route dry-runs, and a
   persistent HTTP service route listener with typed JSON body decoding;
 - connector execution interface, static registry, manifest-configured process
-  connector execution, and a demo connector executor for bundled examples;
+  connector execution, direct process connector probes, and a demo connector
+  executor for bundled examples;
 - TypeScript connector implementation SDK generation from checked `.num`
   connector schemas;
 - action execution wrapper and demo interpreter support for timeout/retry

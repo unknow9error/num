@@ -480,6 +480,25 @@ commands are local registry tooling for development and private package
 workflows; `index` is the current API-ready metadata surface, while remote
 download/publish service endpoints are still platform work.
 
+### `connector`
+
+Probe manifest-configured process connector bindings directly, without running
+a workflow or service route.
+
+```bash
+num connector probe my-service payments.find --arg '"pay_1"'
+num connector probe my-service payments.find --arg '"pay_1"' --json
+```
+
+`probe` loads the project manifest, validates the `.num` module graph, finds
+the exact `[connectors]` process binding for `<connector.method>`, converts each
+`--arg <json>` value into the runtime connector value model, and invokes the
+configured process. It does not fall back to demo connectors, so a successful
+probe proves that the real manifest binding can start, receive stdin, return
+valid JSON, and pass runtime value conversion. `--json` returns either
+`status = "ok"` with `result`, or `status = "error"` with the stable connector
+`code`, `message`, and `retryable` fields.
+
 ### `connector-sdk`
 
 Generate connector implementation SDKs from the checked `.num` module graph.

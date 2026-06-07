@@ -181,6 +181,8 @@ durable lifecycle processing.
 `connector_sdk.rs` owns connector implementation SDK rendering from checked
 `.num` schemas, while `connector_sdk_cli.rs` owns CLI argument parsing and file
 output for `num connector-sdk`.
+`connector_cli.rs` owns direct process connector probing for
+manifest-configured `[connectors]` bindings.
 `openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON.
 `sql_schema.rs` owns generation of `.num` table types and database connector
 contracts from SQL schema files.
