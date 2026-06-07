@@ -173,8 +173,9 @@ released compatibility behavior.
 `version_upgrade.rs` owns safe manifest language/project version upgrade
 planning/application, including dependency graph reporting for resolved
 path/local-registry manifests.
-`registry.rs` owns local filesystem registry resolution, publish/list/install
-operations, and package artifact file selection.
+`registry.rs` owns local filesystem registry resolution, publish, list, index,
+and install operations, package artifact file selection, and package metadata
+validation.
 `workflow_cli.rs` owns file-backed workflow event enqueue/drain operations for
 durable lifecycle processing.
 `connector_sdk.rs` owns connector implementation SDK rendering from checked

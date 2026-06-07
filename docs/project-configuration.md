@@ -161,7 +161,10 @@ resolved through the same project-local `.num-git` cache used by `num lock`.
 validated package into that layout and writes `.num-package.json` metadata with
 schema, package identity, language/manifest metadata, per-file hashes, and a
 package content hash. `num registry list --registry <registry-root>` prints
-available packages, and `num registry install <name> <version> --registry
+available packages. `num registry index --registry <registry-root> --json`
+validates package metadata and emits an API-ready package index containing
+package identity, language version, manifest schema, content hash, metadata
+path, and file counts. `num registry install <name> <version> --registry
 <registry-root> --to <install-root>` verifies registry metadata when present,
 then copies a package into a local vendor-style directory and writes the same
 metadata next to the installed package. Existing publish/install targets require
@@ -354,8 +357,8 @@ Implemented:
 - direct dependency declarations through `[dependencies]`;
 - direct path dependency source discovery for module imports;
 - local filesystem registry dependency source discovery for module imports;
-- local filesystem registry publish/list/install through `num registry`, with
-  package metadata and content-hash checks;
+- local filesystem registry publish/list/index/install through `num registry`,
+  with package metadata and content-hash checks;
 - deterministic `num.lock` generation through `num lock`;
 - transitive `num.lock` pinning for resolved path/local-registry dependency
   graphs, including content-hash pins for resolved local-registry packages;

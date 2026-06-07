@@ -457,6 +457,7 @@ Manage a local filesystem package registry.
 num registry publish examples/refund_workflow --registry /tmp/num-registry
 num registry publish examples/refund_workflow --registry /tmp/num-registry --dry-run --json
 num registry list --registry /tmp/num-registry
+num registry index --registry /tmp/num-registry --json
 num registry install refund-workflow 0.1.1 --registry /tmp/num-registry --to vendor/num
 ```
 
@@ -468,13 +469,16 @@ output directories such as `.git`, `target`, `node_modules`, `.num-state`, and
 `dist`. Existing package versions are protected by default; pass `--replace` to
 overwrite a published local version.
 
-`list` reads package/version directories that contain `num.toml`. `install`
-copies a published package from the registry into `<install-root>/<name>/<version>/`.
-When registry metadata exists, `install` verifies the content hash before
-copying and writes the metadata into the installed package too. The default
-install root is `.num/packages`. These commands are local registry tooling for
-development and private package workflows; they do not implement a remote
-package service yet.
+`list` reads package/version directories that contain `num.toml`. `index`
+validates each package metadata file and emits a stable machine-readable package
+index with name, version, language version, manifest schema, content hash,
+metadata path, and file count. `install` copies a published package from the
+registry into `<install-root>/<name>/<version>/`. When registry metadata exists,
+`install` verifies the content hash before copying and writes the metadata into
+the installed package too. The default install root is `.num/packages`. These
+commands are local registry tooling for development and private package
+workflows; `index` is the current API-ready metadata surface, while remote
+download/publish service endpoints are still platform work.
 
 ### `connector-sdk`
 
