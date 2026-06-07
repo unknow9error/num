@@ -91,6 +91,7 @@ pub struct PackageConnectorProcess {
     pub command: String,
     pub args: Vec<String>,
     pub cwd: Option<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -964,7 +965,7 @@ fn render_lock_entries(entries: &[LockPackage]) -> String {
 fn parse_connector_process(method: &str, value: &str) -> Option<PackageConnectorProcess> {
     if let Some(command_line) = parse_toml_string(value) {
         let command_parts = split_command_line(&command_line).ok()?;
-        return connector_from_parts(method, command_parts, None);
+        return connector_from_parts(method, command_parts, None, None);
     }
 
     let fields = parse_inline_table(value)?;
@@ -973,13 +974,17 @@ fn parse_connector_process(method: &str, value: &str) -> Option<PackageConnector
     if let Some(args) = fields.get("args") {
         parts.extend(split_command_line(args).ok()?);
     }
-    connector_from_parts(method, parts, fields.get("cwd").cloned())
+    let timeout_ms = fields
+        .get("timeout_ms")
+        .and_then(|value| value.parse::<u64>().ok());
+    connector_from_parts(method, parts, fields.get("cwd").cloned(), timeout_ms)
 }
 
 fn connector_from_parts(
     method: &str,
     mut parts: Vec<String>,
     cwd: Option<String>,
+    timeout_ms: Option<u64>,
 ) -> Option<PackageConnectorProcess> {
     if method.trim().is_empty() || parts.is_empty() {
         return None;
@@ -993,6 +998,7 @@ fn connector_from_parts(
         command,
         args: parts,
         cwd,
+        timeout_ms,
     })
 }
 
@@ -1374,7 +1380,7 @@ name = "app"
 version = "0.1.0"
 
 [connectors]
-"payments.find" = { command = "node", args = "connectors/payments-find.js --mode real", cwd = "ops" }
+"payments.find" = { command = "node", args = "connectors/payments-find.js --mode real", cwd = "ops", timeout_ms = "1500" }
 "mailer.send" = "node connectors/mailer-send.js"
 "#,
         );
@@ -1396,6 +1402,7 @@ version = "0.1.0"
             ]
         );
         assert_eq!(manifest.connectors[1].cwd, Some("ops".to_string()));
+        assert_eq!(manifest.connectors[1].timeout_ms, Some(1500));
     }
 
     #[test]

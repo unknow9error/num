@@ -681,6 +681,7 @@ fn connector_executor_for_path(path: &Path) -> Result<Arc<dyn ConnectorExecutor>
                     .map(|cwd| manifest.root.join(cwd))
                     .unwrap_or_else(|| manifest.root.clone()),
             ),
+            timeout_ms: connector.timeout_ms,
         })
         .collect::<Vec<_>>();
     let process = ProcessConnectorExecutor::new(configs);

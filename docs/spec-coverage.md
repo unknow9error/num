@@ -299,6 +299,8 @@ Implemented:
 - manifest-configured process connector execution for `num run`, `num test`,
   `num trace`, `num cost-report`, `num route`, `num serve`, and
   `num serve-once`;
+- manifest-configured process connector timeout budgets with runtime
+  process termination and deploy-plan metadata;
 - TypeScript connector implementation SDK generation from checked connector
   schemas;
 - runtime errors for declared connector methods without an implementation;
@@ -447,7 +449,8 @@ Not yet implemented:
 - connector SDK targets beyond TypeScript declarations;
 - connector authentication/secrets;
 - generated database clients;
-- preemptive async cancellation for timed-out connector calls;
+- managed/network connector cancellation beyond local process timeout
+  termination;
 - full OpenAPI coverage such as YAML input, security schemes, `allOf`/`oneOf`,
   callbacks, links, and generated runtime clients.
 - full SQL/database import coverage such as foreign-key relation typing,

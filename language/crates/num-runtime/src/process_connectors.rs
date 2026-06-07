@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessConnectorConfig {
@@ -12,6 +14,7 @@ pub struct ProcessConnectorConfig {
     pub command: String,
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -54,15 +57,13 @@ impl ProcessConnectorExecutor {
             "method": method,
             "args": args.iter().map(value_to_json).collect::<Vec<_>>(),
         });
-        if let Some(stdin) = child.stdin.as_mut() {
+        if let Some(mut stdin) = child.stdin.take() {
             stdin
                 .write_all(input.to_string().as_bytes())
                 .map_err(|err| format!("failed to write connector `{method}` stdin: {err}"))?;
         }
 
-        let output = child
-            .wait_with_output()
-            .map_err(|err| format!("failed to wait for connector `{method}`: {err}"))?;
+        let output = wait_with_optional_timeout(child, method, config.timeout_ms)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(if stderr.is_empty() {
@@ -84,6 +85,43 @@ impl ProcessConnectorExecutor {
         let json = serde_json::from_str(stdout)
             .map_err(|err| format!("connector `{method}` returned invalid JSON: {err}"))?;
         value_from_json(&json)
+    }
+}
+
+fn wait_with_optional_timeout(
+    mut child: std::process::Child,
+    method: &str,
+    timeout_ms: Option<u64>,
+) -> Result<std::process::Output, String> {
+    let Some(timeout_ms) = timeout_ms else {
+        return child
+            .wait_with_output()
+            .map_err(|err| format!("failed to wait for connector `{method}`: {err}"));
+    };
+    let timeout = Duration::from_millis(timeout_ms);
+    let started = Instant::now();
+
+    loop {
+        if child
+            .try_wait()
+            .map_err(|err| format!("failed to poll connector `{method}`: {err}"))?
+            .is_some()
+        {
+            return child
+                .wait_with_output()
+                .map_err(|err| format!("failed to collect connector `{method}` output: {err}"));
+        }
+
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "connector `{method}` exceeded timeout of {timeout_ms}ms"
+            ));
+        }
+
+        let remaining = timeout.saturating_sub(started.elapsed());
+        thread::sleep(remaining.min(Duration::from_millis(10)));
     }
 }
 
@@ -290,10 +328,27 @@ mod tests {
                 "cat >/dev/null; printf '%s' '\"ok\"'".to_string(),
             ],
             cwd: None,
+            timeout_ms: None,
         }]);
 
         let result = executor.call("echo.text", &[]).unwrap().unwrap();
 
         assert_eq!(result, Value::String("ok".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_connector_rejects_commands_that_exceed_timeout() {
+        let executor = ProcessConnectorExecutor::new(vec![ProcessConnectorConfig {
+            method: "slow.call".to_string(),
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 1; printf '\"late\"'".to_string()],
+            cwd: None,
+            timeout_ms: Some(10),
+        }]);
+
+        let err = executor.call("slow.call", &[]).unwrap().unwrap_err();
+
+        assert!(err.contains("exceeded timeout of 10ms"));
     }
 }

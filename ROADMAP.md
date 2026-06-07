@@ -37,7 +37,7 @@ technical specification.
   - broader connector SDK language targets;
   - auth/secrets binding;
   - generated runtime clients;
-  - process connector hardening.
+  - process connector hardening beyond timeout enforcement.
 - Deployment story:
   - checked deploy plans;
   - local/CI artifact generation;
