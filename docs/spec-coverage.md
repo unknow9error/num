@@ -169,6 +169,7 @@ Implemented:
 - `num version`
 - `num registry publish`
 - `num registry list`
+- `num registry index`
 - `num registry install`
 - `num workflow enqueue`
 - `num workflow drain`
@@ -211,9 +212,9 @@ Implemented:
   rejection, future language rejection, project-version upgrades, source
   module declaration rewrites, structured incompatible reports, and lockfile
   schema migrations;
-- local filesystem registry publish/list/install workflow for package
-  development and private package sharing, including package metadata and
-  content-hash verification;
+- local filesystem registry publish/list/index/install workflow for package
+  development and private package sharing, including package metadata,
+  API-ready package indexes, and content-hash verification;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, including content-hash pins for resolved local-registry
   packages;

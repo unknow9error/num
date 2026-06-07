@@ -47,9 +47,32 @@ pub struct RegistryListReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryIndexReport {
+    pub schema: u32,
+    pub registry_root: PathBuf,
+    pub packages: Vec<RegistryIndexPackage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryPackage {
     pub name: String,
     pub versions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryIndexPackage {
+    pub name: String,
+    pub versions: Vec<RegistryIndexVersion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryIndexVersion {
+    pub version: String,
+    pub language: String,
+    pub manifest_schema: u32,
+    pub content_hash: String,
+    pub file_count: usize,
+    pub metadata_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +322,63 @@ impl LocalRegistry {
             packages,
         })
     }
+
+    pub fn index(&self) -> Result<RegistryIndexReport, String> {
+        if !self.root.exists() {
+            return Ok(RegistryIndexReport {
+                schema: REGISTRY_METADATA_SCHEMA,
+                registry_root: self.root.clone(),
+                packages: Vec::new(),
+            });
+        }
+
+        let mut packages = Vec::new();
+        for entry in fs::read_dir(&self.root)
+            .map_err(|err| format!("failed to read registry {}: {err}", self.root.display()))?
+        {
+            let entry = entry.map_err(|err| format!("failed to read registry entry: {err}"))?;
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let mut versions = Vec::new();
+            for version_entry in fs::read_dir(entry.path())
+                .map_err(|err| format!("failed to read registry package `{name}`: {err}"))?
+            {
+                let version_entry =
+                    version_entry.map_err(|err| format!("failed to read version entry: {err}"))?;
+                let package_root = version_entry.path();
+                let manifest_path = package_root.join("num.toml");
+                if !manifest_path.is_file() {
+                    continue;
+                }
+                let source = fs::read_to_string(&manifest_path)
+                    .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+                let manifest = PackageManifest::parse(&package_root, &manifest_path, &source);
+                let metadata = validate_registry_metadata(&package_root, &manifest)?;
+                versions.push(RegistryIndexVersion {
+                    version: metadata.version,
+                    language: metadata.language,
+                    manifest_schema: metadata.manifest_schema,
+                    content_hash: metadata.content_hash,
+                    file_count: metadata.files.len(),
+                    metadata_path: package_root.join(REGISTRY_METADATA_FILE),
+                });
+            }
+            versions.sort_by(|left, right| left.version.cmp(&right.version));
+            if !versions.is_empty() {
+                packages.push(RegistryIndexPackage { name, versions });
+            }
+        }
+        packages.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(RegistryIndexReport {
+            schema: REGISTRY_METADATA_SCHEMA,
+            registry_root: self.root.clone(),
+            packages,
+        })
+    }
 }
 
 impl PublishReport {
@@ -408,6 +488,63 @@ impl RegistryPackage {
         json!({
             "name": self.name,
             "versions": self.versions,
+        })
+    }
+}
+
+impl RegistryIndexReport {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "schema": self.schema,
+            "registry_root": self.registry_root.display().to_string(),
+            "packages": self.packages.iter().map(RegistryIndexPackage::to_json).collect::<Vec<_>>(),
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Registry index schema: {}\n", self.schema));
+        out.push_str(&format!("Registry: {}\n", self.registry_root.display()));
+        if self.packages.is_empty() {
+            out.push_str("Packages: none\n");
+            return out;
+        }
+        out.push_str("Packages:\n");
+        for package in &self.packages {
+            out.push_str(&format!("  - {}\n", package.name));
+            for version in &package.versions {
+                out.push_str(&format!(
+                    "      {} language={} manifest_schema={} hash={} files={}\n",
+                    version.version,
+                    version.language,
+                    version.manifest_schema,
+                    version.content_hash,
+                    version.file_count
+                ));
+            }
+        }
+        out
+    }
+}
+
+impl RegistryIndexPackage {
+    fn to_json(&self) -> Value {
+        json!({
+            "name": self.name,
+            "versions": self.versions.iter().map(RegistryIndexVersion::to_json).collect::<Vec<_>>(),
+        })
+    }
+}
+
+impl RegistryIndexVersion {
+    fn to_json(&self) -> Value {
+        json!({
+            "version": self.version,
+            "language": self.language,
+            "manifest_schema": self.manifest_schema,
+            "content_hash": self.content_hash,
+            "file_count": self.file_count,
+            "metadata_path": self.metadata_path.display().to_string(),
         })
     }
 }
@@ -852,6 +989,36 @@ entry = "src/lib.num"
         assert_eq!(report.packages[1].versions, vec!["1.2.3", "1.3.0"]);
         assert_eq!(report.to_json()["packages"][0]["name"], "core");
         assert!(report.render_text().contains("shared: 1.2.3, 1.3.0"));
+        fs::remove_dir_all(registry_root).unwrap();
+    }
+
+    #[test]
+    fn indexes_registry_package_metadata() {
+        let package_root = temp_registry_dir("index_package");
+        let registry_root = temp_registry_dir("index_registry");
+        write_package(&package_root, "shared", "1.2.3");
+        let manifest = PackageManifest::discover(&package_root).unwrap().unwrap();
+        let registry = LocalRegistry::new(&registry_root);
+        registry.publish(&manifest, false, false).unwrap();
+
+        let report = registry.index().unwrap();
+
+        assert_eq!(report.schema, 1);
+        assert_eq!(report.packages[0].name, "shared");
+        assert_eq!(report.packages[0].versions[0].version, "1.2.3");
+        assert_eq!(report.packages[0].versions[0].language, "0.1.0");
+        assert_eq!(report.packages[0].versions[0].manifest_schema, 1);
+        assert!(report.packages[0].versions[0]
+            .content_hash
+            .starts_with("sha256:"));
+        assert_eq!(
+            report.to_json()["packages"][0]["versions"][0]["version"],
+            "1.2.3"
+        );
+        assert!(report.render_text().contains("shared"));
+        assert!(report.render_text().contains("hash=sha256:"));
+
+        fs::remove_dir_all(package_root).unwrap();
         fs::remove_dir_all(registry_root).unwrap();
     }
 

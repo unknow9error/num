@@ -6,11 +6,12 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     match args.next().as_deref() {
         Some("publish") => publish(args),
         Some("list") => list(args),
+        Some("index") => index(args),
         Some("install") => install(args),
         Some(other) => Err(format!(
-            "unknown registry command `{other}`\n\nSupported registry commands:\n  publish\n  list\n  install"
+            "unknown registry command `{other}`\n\nSupported registry commands:\n  publish\n  list\n  index\n  install"
         )),
-        None => Err("usage: num registry <publish|list|install> [options]".to_string()),
+        None => Err("usage: num registry <publish|list|index|install> [options]".to_string()),
     }
 }
 
@@ -59,6 +60,20 @@ fn list(args: impl Iterator<Item = String>) -> Result<(), String> {
     if options.format_json {
         let json = serde_json::to_string_pretty(&report.to_json())
             .map_err(|err| format!("failed to render registry JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        print!("{}", report.render_text());
+    }
+    Ok(())
+}
+
+fn index(args: impl Iterator<Item = String>) -> Result<(), String> {
+    let options = parse_list_args(args)?;
+    let registry = registry::registry_from_arg(options.registry_root.clone())?;
+    let report = registry.index()?;
+    if options.format_json {
+        let json = serde_json::to_string_pretty(&report.to_json())
+            .map_err(|err| format!("failed to render registry index JSON: {err}"))?;
         println!("{json}");
     } else {
         print!("{}", report.render_text());
@@ -221,6 +236,25 @@ mod tests {
 
     #[test]
     fn list_args_parse_registry_and_json() {
+        let options = parse_list_args(
+            [
+                "--registry".to_string(),
+                "/tmp/num-registry".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            options.registry_root,
+            Some(PathBuf::from("/tmp/num-registry"))
+        );
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn index_args_parse_registry_and_json() {
         let options = parse_list_args(
             [
                 "--registry".to_string(),
