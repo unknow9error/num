@@ -28,6 +28,7 @@ pub struct DeploymentPlan {
     pub services: Vec<ServiceDeployment>,
     pub connectors: Vec<String>,
     pub process_connectors: Vec<String>,
+    pub process_connector_bindings: Vec<ProcessConnectorDeployment>,
     pub dependencies: Vec<DependencyDeployment>,
 }
 
@@ -92,6 +93,15 @@ pub struct DependencyDeployment {
     pub name: String,
     pub version: String,
     pub source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessConnectorDeployment {
+    pub method: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +182,17 @@ pub fn build_deployment_plan(
             .iter()
             .map(|connector| connector.method.clone())
             .collect(),
+        process_connector_bindings: manifest
+            .connectors
+            .iter()
+            .map(|connector| ProcessConnectorDeployment {
+                method: connector.method.clone(),
+                command: connector.command.clone(),
+                args: connector.args.clone(),
+                cwd: connector.cwd.clone(),
+                timeout_ms: connector.timeout_ms,
+            })
+            .collect(),
         dependencies: manifest
             .dependencies
             .iter()
@@ -242,6 +263,7 @@ impl DeploymentPlan {
             "services": self.services.iter().map(ServiceDeployment::to_json).collect::<Vec<_>>(),
             "connectors": self.connectors,
             "process_connectors": self.process_connectors,
+            "process_connector_bindings": self.process_connector_bindings.iter().map(ProcessConnectorDeployment::to_json).collect::<Vec<_>>(),
             "dependencies": self.dependencies.iter().map(DependencyDeployment::to_json).collect::<Vec<_>>(),
         })
     }
@@ -641,6 +663,18 @@ impl ServiceDeployment {
     }
 }
 
+impl ProcessConnectorDeployment {
+    fn to_json(&self) -> Value {
+        json!({
+            "method": self.method,
+            "command": self.command,
+            "args": self.args,
+            "cwd": self.cwd,
+            "timeout_ms": self.timeout_ms,
+        })
+    }
+}
+
 impl DependencyDeployment {
     fn to_json(&self) -> Value {
         json!({
@@ -838,6 +872,9 @@ target = "container"
 service = "BillingApi"
 region = "eu-west-1"
 
+[connectors]
+"payments.find" = { command = "node", args = "connectors/payments-find.js", cwd = "ops", timeout_ms = "2000" }
+
 [dependencies]
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0", rev = "abc123" }
 "#,
@@ -885,6 +922,8 @@ service BillingApi {
         assert_eq!(plan.workflows, vec!["main".to_string()]);
         assert_eq!(plan.actions[0].risk, "high");
         assert_eq!(plan.services[0].routes, vec!["POST /refunds".to_string()]);
+        assert_eq!(plan.process_connectors, vec!["payments.find".to_string()]);
+        assert_eq!(plan.process_connector_bindings[0].timeout_ms, Some(2000));
         assert_eq!(
             plan.to_json()["compatibility"]["language"]["version"],
             "0.1.0"
@@ -894,6 +933,10 @@ service BillingApi {
         assert_eq!(
             plan.to_json()["deployment"]["profile"]["class"],
             "container"
+        );
+        assert_eq!(
+            plan.to_json()["process_connector_bindings"][0]["timeout_ms"],
+            2000
         );
         assert!(plan
             .render_text()

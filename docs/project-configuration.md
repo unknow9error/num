@@ -200,6 +200,15 @@ directory:
 "mailer.send" = { command = "node", args = "send.js", cwd = "ops/mailer" }
 ```
 
+Inline process connector tables can also set `timeout_ms` as a string value.
+When present, the runtime kills the process and reports a connector error if
+the command exceeds that wall-clock budget:
+
+```toml
+[connectors]
+"payments.find" = { command = "node", args = "find.js", cwd = "ops/payments", timeout_ms = "2000" }
+```
+
 At runtime, `num run`, `num test`, `num trace`, `num cost-report`,
 `num route`, `num serve`, and `num serve-once` use configured process
 connectors before falling back to the built-in demo connector executor. The
@@ -353,6 +362,8 @@ Implemented:
   through `num deploy --apply`;
 - deployment target profile classification and deploy-time warnings;
 - deployment environment validation metadata through `[environment]`.
+- process connector timeout metadata in manifests, runtime execution, and
+  deploy plans.
 - idempotent durable workflow event replay through persisted event id metadata
   in workflow state.
 

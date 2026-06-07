@@ -484,8 +484,10 @@ The TypeScript generator emits:
   returning a `Promise`.
 
 This gives backend authors a generated implementation contract for process or
-host-language connector code. It is not managed connector hosting, auth/secrets
-binding, or a generated network client runtime yet.
+host-language connector code. Manifest-configured process connectors can set a
+`timeout_ms` string in `[connectors]` inline tables; runtime commands kill and
+report connector processes that exceed that budget. It is not managed connector
+hosting, auth/secrets binding, or a generated network client runtime yet.
 
 ### `deploy`
 
@@ -505,7 +507,9 @@ target profile with execution class, required artifacts, and deployment
 warnings, environment validation status from `[environment]`, runtime store
 metadata, security mode, compiled module count, workflows, actions, service
 routes, connectors, process connector bindings, and direct dependencies. It
-also embeds the manifest language/schema compatibility contract.
+also embeds the manifest language/schema compatibility contract. Process
+connector bindings include method, command, args, cwd, and timeout metadata for
+future deployment runners.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
