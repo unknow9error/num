@@ -231,6 +231,134 @@ pub enum RuntimeError {
     Storage(String),
 }
 
+impl RuntimeError {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            RuntimeError::PermissionDenied { .. } => "permission_denied",
+            RuntimeError::CostLimitExceeded { .. } => "cost_limit_exceeded",
+            RuntimeError::RateLimitExceeded { .. } => "rate_limit_exceeded",
+            RuntimeError::Timeout { .. } => "timeout",
+            RuntimeError::ActionFailed { .. } => "action_failed",
+            RuntimeError::ConnectorFailed { .. } => "connector_failed",
+            RuntimeError::SanitizationFailed { .. } => "sanitization_failed",
+            RuntimeError::TenantIsolationViolation { .. } => "tenant_isolation_violation",
+            RuntimeError::SecretNotFound { .. } => "secret_not_found",
+            RuntimeError::Storage(_) => "storage",
+        }
+    }
+
+    pub fn message(&self) -> String {
+        match self {
+            RuntimeError::PermissionDenied { permission } => {
+                format!("Security Violation: Missing required permission '{permission}'")
+            }
+            RuntimeError::CostLimitExceeded { limit, actual } => format!(
+                "Cost limit exceeded: actual {} {}, limit {} {}",
+                actual.minor_units, actual.currency, limit.minor_units, limit.currency
+            ),
+            RuntimeError::RateLimitExceeded { scope, limit } => {
+                format!("Rate limit exceeded for '{scope}': limit {limit}")
+            }
+            RuntimeError::Timeout { action } => {
+                format!("Timeout while executing action '{action}'")
+            }
+            RuntimeError::ActionFailed { reason, .. } => reason.clone(),
+            RuntimeError::ConnectorFailed {
+                method,
+                code,
+                message,
+                retryable,
+            } => format!(
+                "Connector '{method}' failed [{code}, retryable={retryable}]: {message}"
+            ),
+            RuntimeError::SanitizationFailed { reason } => {
+                format!("Sanitization failed: {reason}")
+            }
+            RuntimeError::TenantIsolationViolation { expected, actual } => {
+                format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
+            }
+            RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
+            RuntimeError::Storage(message) => format!("Storage error: {message}"),
+        }
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        let base = serde_json::json!({
+            "kind": self.kind(),
+            "message": self.message(),
+        });
+        match self {
+            RuntimeError::PermissionDenied { permission } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "permission": permission,
+            }),
+            RuntimeError::CostLimitExceeded { limit, actual } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "limit": money_to_json(limit),
+                "actual": money_to_json(actual),
+            }),
+            RuntimeError::RateLimitExceeded { scope, limit } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "scope": scope,
+                "limit": limit,
+            }),
+            RuntimeError::Timeout { action } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "action": action,
+            }),
+            RuntimeError::ActionFailed { action, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "action": action,
+                "reason": reason,
+            }),
+            RuntimeError::ConnectorFailed {
+                method,
+                code,
+                message,
+                retryable,
+            } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "connector": {
+                    "method": method,
+                    "code": code,
+                    "message": message,
+                    "retryable": retryable,
+                },
+            }),
+            RuntimeError::SanitizationFailed { reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "reason": reason,
+            }),
+            RuntimeError::TenantIsolationViolation { expected, actual } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "expected": expected,
+                "actual": actual,
+            }),
+            RuntimeError::SecretNotFound { name } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "name": name,
+            }),
+            RuntimeError::Storage(_) => base,
+        }
+    }
+}
+
+fn money_to_json(money: &Money) -> serde_json::Value {
+    serde_json::json!({
+        "minor_units": money.minor_units,
+        "currency": money.currency,
+    })
+}
+
 pub fn require_permission(ctx: &SecurityContext, permission: &str) -> Result<(), RuntimeError> {
     if ctx.has_permission(permission) {
         Ok(())
@@ -1142,6 +1270,10 @@ workflow main() {
         assert!(res
             .unwrap_err()
             .contains("Connector implementation missing"));
+        let error = runtime.last_error().unwrap();
+        assert_eq!(error.kind(), "connector_failed");
+        assert_eq!(error.to_json()["connector"]["code"], "missing_implementation");
+        assert_eq!(error.to_json()["connector"]["retryable"], false);
     }
 
     #[test]

@@ -303,6 +303,8 @@ Implemented:
   process termination and deploy-plan metadata;
 - connector error taxonomy at the runtime executor boundary with stable
   `code`, `message`, and `retryable` fields;
+- machine-readable connector failure reports in `num run --json` and
+  `num debug --json` through `runtime_error.connector`;
 - TypeScript connector implementation SDK generation from checked connector
   schemas;
 - runtime errors for declared connector methods without an implementation;
@@ -450,7 +452,7 @@ Not yet implemented:
 - generated network-native runtime clients;
 - connector SDK targets beyond TypeScript declarations;
 - connector authentication/secrets;
-- machine-readable connector failure reports in CLI JSON output;
+- silent JSON-only execution mode for runtime commands;
 - generated database clients;
 - managed/network connector cancellation beyond local process timeout
   termination;
