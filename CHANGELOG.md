@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Workflow lease heartbeat refresh for file-backed durable workers through
+  `num workflow lease-heartbeat`.
+
 ## 0.1.1 - 2026-06-07
 
 ### Added

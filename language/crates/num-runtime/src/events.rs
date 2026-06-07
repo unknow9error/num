@@ -140,6 +140,27 @@ pub struct WorkflowEventLease {
     path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowLeaseHeartbeat {
+    pub event_id: String,
+    pub worker_id: String,
+    pub attempt: u32,
+    pub previous_leased_at_ms: u64,
+    pub leased_at_ms: u64,
+}
+
+impl WorkflowLeaseHeartbeat {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "event_id": self.event_id,
+            "worker_id": self.worker_id,
+            "attempt": self.attempt,
+            "previous_leased_at_ms": self.previous_leased_at_ms,
+            "leased_at_ms": self.leased_at_ms,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowLeaseDisposition {
     Requeued,
@@ -275,6 +296,50 @@ impl FileWorkflowEventQueue {
             fs::remove_file(&lease.path).map_storage()?;
         }
         Ok(WorkflowLeaseDisposition::Requeued)
+    }
+
+    pub fn heartbeat_lease(
+        &mut self,
+        event_id: &str,
+        worker_id: &str,
+    ) -> Result<WorkflowLeaseHeartbeat, RuntimeError> {
+        let leases_dir = self.leases_dir();
+        if !leases_dir.exists() {
+            return Err(storage_error(format!(
+                "no active lease found for workflow event '{event_id}'"
+            )));
+        }
+
+        for entry in fs::read_dir(&leases_dir).map_storage()? {
+            let path = entry.map_storage()?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let (item, lease) = read_leased_queue_item(&path)?;
+            if item.event.id != event_id {
+                continue;
+            }
+            if lease.worker_id != worker_id {
+                return Err(storage_error(format!(
+                    "workflow event '{event_id}' is leased by '{}' not '{worker_id}'",
+                    lease.worker_id
+                )));
+            }
+
+            let now = SystemTime::now();
+            write_leased_item(&path, &item, worker_id, now)?;
+            return Ok(WorkflowLeaseHeartbeat {
+                event_id: item.event.id,
+                worker_id: worker_id.to_string(),
+                attempt: item.attempt,
+                previous_leased_at_ms: system_time_ms(lease.leased_at),
+                leased_at_ms: system_time_ms(now),
+            });
+        }
+
+        Err(storage_error(format!(
+            "no active lease found for workflow event '{event_id}'"
+        )))
     }
 
     fn recover_expired_leases(
@@ -793,6 +858,52 @@ mod tests {
         assert_eq!(json_file_count(&queue.leases_dir()), 0);
         assert!(queue.claim(&lease_options("worker_a", 3)).unwrap().is_none());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_workflow_event_queue_heartbeats_owned_leases() {
+        let root = unique_test_dir("lease-heartbeat");
+        let mut queue = FileWorkflowEventQueue::new(root.join("queue"));
+
+        queue
+            .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
+            .unwrap();
+
+        let lease = queue
+            .claim(&lease_options("worker_a", 3))
+            .unwrap()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(2));
+
+        let heartbeat = queue.heartbeat_lease("evt_wait", "worker_a").unwrap();
+
+        assert_eq!(heartbeat.event_id, "evt_wait");
+        assert_eq!(heartbeat.worker_id, "worker_a");
+        assert_eq!(heartbeat.attempt, 1);
+        assert!(heartbeat.leased_at_ms >= heartbeat.previous_leased_at_ms);
+        assert_eq!(heartbeat.to_json()["worker_id"], "worker_a");
+        queue.ack(&lease).unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_workflow_event_queue_rejects_foreign_lease_heartbeat() {
+        let root = unique_test_dir("lease-heartbeat-owner");
+        let mut queue = FileWorkflowEventQueue::new(root.join("queue"));
+
+        queue
+            .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
+            .unwrap();
+        queue
+            .claim(&lease_options("worker_a", 3))
+            .unwrap()
+            .unwrap();
+
+        let err = queue.heartbeat_lease("evt_wait", "worker_b").unwrap_err();
+
+        assert!(format!("{err:?}").contains("leased by 'worker_a' not 'worker_b'"));
         let _ = fs::remove_dir_all(root);
     }
 

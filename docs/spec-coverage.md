@@ -172,6 +172,7 @@ Implemented:
 - `num registry install`
 - `num workflow enqueue`
 - `num workflow drain`
+- `num workflow lease-heartbeat`
 - `num connector-sdk`
 - `num cost-report`
 - `num audit-report`
@@ -261,7 +262,8 @@ Implemented:
   status/name/actor/tenant;
 - project manifest `[runtime].workflow_store = "file:<state-root>"` and
   `[runtime].audit_store = "file:<events.jsonl>"` resolution for `num workflow
-  enqueue`, `num workflow drain`, and `num workflow-report`;
+  enqueue`, `num workflow drain`, `num workflow lease-heartbeat`, and
+  `num workflow-report`;
 - project manifest `[runtime].audit_store = "file:<events.jsonl>"` resolution
   for demo interpreter commands `num run`, `num test`, `num trace`,
   `num debug`, `num cost-report`, and `num route`, with report-compatible demo
@@ -277,8 +279,8 @@ Implemented:
   reapplication for already processed queue events;
 - memory and file-backed secret stores with redacted secret value debug output;
 - memory and file-backed workflow event queues;
-- file-backed worker ownership leases, retry attempts, stale lease recovery,
-  and dead-letter event handling;
+- file-backed worker ownership leases, lease heartbeat refresh, retry attempts,
+  stale lease recovery, and dead-letter event handling;
 - queued workflow event processing for start/wait/resume/complete/fail/
   compensate/cancel transitions;
 - `require_permission` helper;
@@ -498,8 +500,8 @@ Implemented foundation:
 - persisted workflow start, wait, resume, completion, failure, compensation,
   and cancellation transitions with audit events;
 - memory and file-backed workflow event queues;
-- file-backed worker leases, retries, stale lease recovery, and dead-letter
-  handling for queued workflow events;
+- file-backed worker leases, lease heartbeat refresh, retries, stale lease
+  recovery, and dead-letter handling for queued workflow events;
 - queued workflow event processing through the lifecycle engine;
 - state transition validation for terminal and compensation states.
 
@@ -560,7 +562,7 @@ Major full-spec areas not implemented in v0.1.1:
 - structured concurrency;
 - actor model;
 - clustered/networked queue coordination beyond the local file-backed worker
-  lease model;
+  lease and heartbeat model;
 - external secrets manager integration such as Vault/KMS/cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;

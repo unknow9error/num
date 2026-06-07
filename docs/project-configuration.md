@@ -267,12 +267,13 @@ Current fields used in examples:
 - `audit_store` - audit sink backend, either `stdout` or
   `file:<events.jsonl>`.
 
-`num workflow enqueue`, `num workflow drain`, and `num workflow-report` resolve
-these fields when their first argument is a project directory or project file.
-Relative `file:` paths are resolved from the package root. Explicit state-root
-arguments still use the direct `<state-root>/events`, `<state-root>/workflows`,
-and `<state-root>/audit/events.jsonl` layout. Demo interpreter commands
-`num run`, `num test`, `num trace`, `num debug`, `num cost-report`, and
+`num workflow enqueue`, `num workflow drain`, `num workflow lease-heartbeat`,
+and `num workflow-report` resolve these fields when their first argument is a
+project directory or project file. Relative `file:` paths are resolved from the
+package root. Explicit state-root arguments still use the direct
+`<state-root>/events`, `<state-root>/workflows`, and
+`<state-root>/audit/events.jsonl` layout. Demo interpreter commands `num run`,
+`num test`, `num trace`, `num debug`, `num cost-report`, and
 `num route` append report-compatible demo audit JSONL when `audit_store` is a
 `file:` path. HTTP service commands `num serve` and `num serve-once` append
 request-scoped audit JSONL to the same manifest-relative audit path, preserving
