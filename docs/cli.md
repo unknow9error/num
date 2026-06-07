@@ -486,8 +486,11 @@ The TypeScript generator emits:
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
 `timeout_ms` string in `[connectors]` inline tables; runtime commands kill and
-report connector processes that exceed that budget. It is not managed connector
-hosting, auth/secrets binding, or a generated network client runtime yet.
+report connector processes that exceed that budget. Runtime connector failures
+are classified internally with `code`, `message`, and `retryable` fields so
+process, database, and missing-implementation failures share the same boundary.
+It is not managed connector hosting, auth/secrets binding, machine-readable
+connector failure JSON output, or a generated network client runtime yet.
 
 ### `deploy`
 

@@ -301,6 +301,8 @@ Implemented:
   `num serve-once`;
 - manifest-configured process connector timeout budgets with runtime
   process termination and deploy-plan metadata;
+- connector error taxonomy at the runtime executor boundary with stable
+  `code`, `message`, and `retryable` fields;
 - TypeScript connector implementation SDK generation from checked connector
   schemas;
 - runtime errors for declared connector methods without an implementation;
@@ -448,6 +450,7 @@ Not yet implemented:
 - generated network-native runtime clients;
 - connector SDK targets beyond TypeScript declarations;
 - connector authentication/secrets;
+- machine-readable connector failure reports in CLI JSON output;
 - generated database clients;
 - managed/network connector cancellation beyond local process timeout
   termination;

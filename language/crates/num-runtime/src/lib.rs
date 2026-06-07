@@ -212,6 +212,12 @@ pub enum RuntimeError {
         action: String,
         reason: String,
     },
+    ConnectorFailed {
+        method: String,
+        code: String,
+        message: String,
+        retryable: bool,
+    },
     SanitizationFailed {
         reason: String,
     },

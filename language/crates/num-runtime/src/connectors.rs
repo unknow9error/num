@@ -2,10 +2,51 @@ use crate::interpreter::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub type ConnectorHandler = Box<dyn Fn(&[Value]) -> Result<Value, String>>;
+pub type ConnectorHandler = Box<dyn Fn(&[Value]) -> Result<Value, ConnectorError>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorError {
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+impl ConnectorError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable,
+        }
+    }
+
+    pub fn execution(message: impl Into<String>) -> Self {
+        Self::new("execution_failed", message, false)
+    }
+
+    pub fn missing_implementation(method: &str) -> Self {
+        Self::new(
+            "missing_implementation",
+            format!("Connector implementation missing for declared connector method '{method}'"),
+            false,
+        )
+    }
+}
+
+impl From<String> for ConnectorError {
+    fn from(message: String) -> Self {
+        Self::execution(message)
+    }
+}
+
+impl From<&str> for ConnectorError {
+    fn from(message: &str) -> Self {
+        Self::execution(message)
+    }
+}
 
 pub trait ConnectorExecutor {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>>;
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>>;
 }
 
 pub struct ChainedConnectorExecutor {
@@ -19,7 +60,7 @@ impl ChainedConnectorExecutor {
 }
 
 impl ConnectorExecutor for ChainedConnectorExecutor {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.executors
             .iter()
             .find_map(|executor| executor.call(name, args))
@@ -27,7 +68,7 @@ impl ConnectorExecutor for ChainedConnectorExecutor {
 }
 
 impl<T: ConnectorExecutor + ?Sized> ConnectorExecutor for Arc<T> {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.as_ref().call(name, args)
     }
 }
@@ -46,12 +87,15 @@ impl StaticConnectorRegistry {
     where
         F: Fn(&[Value]) -> Result<Value, String> + 'static,
     {
-        self.handlers.insert(name.into(), Box::new(handler));
+        self.handlers.insert(
+            name.into(),
+            Box::new(move |args| handler(args).map_err(ConnectorError::execution)),
+        );
     }
 }
 
 impl ConnectorExecutor for StaticConnectorRegistry {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.handlers.get(name).map(|handler| handler(args))
     }
 }
@@ -60,7 +104,7 @@ impl ConnectorExecutor for StaticConnectorRegistry {
 pub struct DemoConnectorExecutor;
 
 impl ConnectorExecutor for DemoConnectorExecutor {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         match name {
             "payments.find" => Some(Ok(find_payment(args))),
             "ai.assess_refund_risk" => Some(Ok(assess_refund_risk())),

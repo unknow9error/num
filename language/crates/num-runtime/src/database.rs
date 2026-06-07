@@ -1,4 +1,4 @@
-use crate::connectors::ConnectorExecutor;
+use crate::connectors::{ConnectorError, ConnectorExecutor};
 use crate::interpreter::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -69,30 +69,41 @@ impl InMemoryDatabaseConnector {
 }
 
 impl ConnectorExecutor for InMemoryDatabaseConnector {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         let ("database", method) = name.split_once('.')? else {
             return None;
         };
         if let Some(table) = method.strip_prefix("list_") {
             if !args.is_empty() {
-                return Some(Err(format!("database.{method} expects no arguments")));
+                return Some(Err(ConnectorError::execution(format!(
+                    "database.{method} expects no arguments"
+                ))));
             }
-            return Some(self.list(table));
+            return Some(self.list(table).map_err(ConnectorError::execution));
         }
         if let Some(table) = method.strip_prefix("insert_") {
             let Some(row) = args.first().cloned() else {
-                return Some(Err(format!("database.{method} expects one row argument")));
+                return Some(Err(ConnectorError::execution(format!(
+                    "database.{method} expects one row argument"
+                ))));
             };
-            return Some(self.insert(table, row));
+            return Some(self.insert(table, row).map_err(ConnectorError::execution));
         }
         if let Some(rest) = method.strip_prefix("find_") {
             let Some((table, column)) = rest.rsplit_once("_by_") else {
-                return Some(Err(format!("invalid database finder method '{method}'")));
+                return Some(Err(ConnectorError::execution(format!(
+                    "invalid database finder method '{method}'"
+                ))));
             };
             let Some(key) = args.first() else {
-                return Some(Err(format!("database.{method} expects one key argument")));
+                return Some(Err(ConnectorError::execution(format!(
+                    "database.{method} expects one key argument"
+                ))));
             };
-            return Some(self.find_by(table, column, key));
+            return Some(
+                self.find_by(table, column, key)
+                    .map_err(ConnectorError::execution),
+            );
         }
         None
     }
@@ -164,7 +175,8 @@ mod tests {
             .unwrap()
             .unwrap_err();
 
-        assert!(error.contains("unknown database table"));
+        assert_eq!(error.code, "execution_failed");
+        assert!(error.message.contains("unknown database table"));
     }
 
     fn user_row(id: &str, name: &str) -> Value {
