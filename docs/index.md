@@ -1,6 +1,6 @@
 # num Documentation
 
-This directory documents the current v0.1.0 implementation of `num`.
+This directory documents the current v0.1.1 implementation of `num`.
 
 This directory documents the language, compiler, runtime, and tools. The current
 codebase is a production slice toward the full Num specification, so the

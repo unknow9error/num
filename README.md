@@ -9,7 +9,7 @@ The language file extension is `.num`.
 
 ## Status
 
-This repository implements the v0.1.0 production slice of the larger Num
+This repository implements the v0.1.1 production slice of the larger Num
 language specification. It is a working compiler/runtime/editor foundation, not
 the full industrial language described in the full technical specification.
 

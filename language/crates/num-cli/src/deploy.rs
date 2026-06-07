@@ -926,7 +926,7 @@ service BillingApi {
         assert_eq!(plan.process_connector_bindings[0].timeout_ms, Some(2000));
         assert_eq!(
             plan.to_json()["compatibility"]["language"]["version"],
-            "0.1.0"
+            crate::compatibility::CURRENT_LANGUAGE_VERSION
         );
         assert_eq!(plan.to_json()["compatibility"]["manifest"]["schema"], 1);
         assert_eq!(plan.to_json()["deployment"]["service"], "BillingApi");

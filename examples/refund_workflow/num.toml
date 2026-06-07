@@ -1,11 +1,11 @@
 [language]
-version = "0.1.0"
+version = "0.1.1"
 compatibility = "minor"
 manifest_schema = 1
 
 [project]
 name = "refund-workflow"
-version = "0.1.0"
+version = "0.1.1"
 source = "src"
 entry = "src/main.num"
 
