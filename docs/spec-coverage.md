@@ -200,7 +200,7 @@ Implemented:
 - `num upgrade-version --include-dependencies` graph reports for resolved
   path/local-registry dependency manifests, with explicit
   `--write-dependencies` application;
-- `num version` CLI/language/schema version reporting;
+- `num version` CLI/language/manifest-schema/lockfile-schema version reporting;
 - `num lock --check` lockfile schema validation, and deploy-time validation
   plus inclusion of `num.lock` in materialized bundles when present;
 - `num lock --migrate` dry-run/write lockfile schema migration for legacy
