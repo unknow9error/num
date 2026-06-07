@@ -130,9 +130,9 @@ This repository contains a working production-grade foundation for:
   demo interpreter budget scopes;
 - workflow and service `rate limit` metadata enforced by the demo interpreter
   rate limiter;
-- file-backed workflow event enqueue/drain tooling with worker leases, retries,
-  dead-letter handling, and a batch worker report for durable workflow
-  lifecycle processing;
+- file-backed workflow event enqueue/drain tooling with worker leases, lease
+  heartbeat refresh, retries, dead-letter handling, and a batch worker report
+  for durable workflow lifecycle processing;
 - scripted CLI debugger over runtime trace events;
 - deployment plan artifact generation and local/CI deployment bundle
   materialization from checked projects;

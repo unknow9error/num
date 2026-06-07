@@ -16,10 +16,11 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     match args.next().as_deref() {
         Some("enqueue") => enqueue(args),
         Some("drain") => drain(args),
+        Some("lease-heartbeat") => lease_heartbeat(args),
         Some(other) => Err(format!(
-            "unknown workflow command `{other}`\n\nSupported workflow commands:\n  enqueue\n  drain"
+            "unknown workflow command `{other}`\n\nSupported workflow commands:\n  enqueue\n  drain\n  lease-heartbeat"
         )),
-        None => Err("usage: num workflow <enqueue|drain> ...".to_string()),
+        None => Err("usage: num workflow <enqueue|drain|lease-heartbeat> ...".to_string()),
     }
 }
 
@@ -121,6 +122,48 @@ fn drain(args: impl Iterator<Item = String>) -> Result<(), String> {
     Ok(())
 }
 
+fn lease_heartbeat(args: impl Iterator<Item = String>) -> Result<(), String> {
+    let mut args = args;
+    let runtime_paths = args
+        .next()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "usage: num workflow lease-heartbeat <state-root|project-dir|file.num> <event-id> --worker-id <id> [--json]".to_string()
+        })?;
+    let runtime_paths = runtime_config::resolve_workflow_runtime_paths(&runtime_paths)?;
+    let event_id = args.next().ok_or_else(|| {
+        "usage: num workflow lease-heartbeat <state-root|project-dir|file.num> <event-id> --worker-id <id> [--json]".to_string()
+    })?;
+    let options = parse_lease_heartbeat_options(args)?;
+
+    let mut queue = FileWorkflowEventQueue::new(&runtime_paths.queue_dir);
+    let heartbeat = queue
+        .heartbeat_lease(&event_id, &options.worker_id)
+        .map_err(|err| format!("failed to heartbeat workflow lease: {err:?}"))?;
+
+    if options.format_json {
+        let payload = json!({
+            "heartbeat": heartbeat.to_json(),
+            "state_root": runtime_paths.state_root.display().to_string(),
+            "audit_path": runtime_paths.audit_path.display().to_string(),
+            "queue_dir": queue.dir().display().to_string(),
+        });
+        let json = serde_json::to_string_pretty(&payload)
+            .map_err(|err| format!("failed to render workflow lease heartbeat JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        println!(
+            "heartbeat workflow lease event={} worker={} attempt={} queue={}",
+            heartbeat.event_id,
+            heartbeat.worker_id,
+            heartbeat.attempt,
+            queue.dir().display()
+        );
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 enum WorkflowTransition {
     Wait,
@@ -164,6 +207,12 @@ struct DrainCliOptions {
     worker_id: String,
     lease_timeout_ms: u64,
     max_attempts: u32,
+    format_json: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LeaseHeartbeatCliOptions {
+    worker_id: String,
     format_json: bool,
 }
 
@@ -365,6 +414,37 @@ fn parse_drain_options(args: impl Iterator<Item = String>) -> Result<DrainCliOpt
     Ok(options)
 }
 
+fn parse_lease_heartbeat_options(
+    args: impl Iterator<Item = String>,
+) -> Result<LeaseHeartbeatCliOptions, String> {
+    let mut worker_id = None;
+    let mut format_json = false;
+    let mut args = args.peekable();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--worker-id" => {
+                worker_id = Some(
+                    args.next()
+                        .ok_or_else(|| "usage: --worker-id <id>".to_string())?,
+                );
+            }
+            "--json" => format_json = true,
+            other => {
+                return Err(format!(
+                    "unexpected workflow lease-heartbeat argument '{other}'"
+                ))
+            }
+        }
+    }
+    let worker_id = worker_id.ok_or_else(|| {
+        "usage: num workflow lease-heartbeat <state-root|project-dir|file.num> <event-id> --worker-id <id> [--json]".to_string()
+    })?;
+    Ok(LeaseHeartbeatCliOptions {
+        worker_id,
+        format_json,
+    })
+}
+
 impl WorkflowTransition {
     fn cli_name(self) -> &'static str {
         match self {
@@ -391,10 +471,14 @@ fn event_kind_label(kind: &WorkflowEventKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_drain_options, parse_event_options, parse_start_event, run};
+    use super::{
+        parse_drain_options, parse_event_options, parse_lease_heartbeat_options, parse_start_event,
+        run,
+    };
+    use num_runtime::events::{FileWorkflowEventQueue, WorkflowLeaseOptions};
     use num_runtime::storage::FileStateStore;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn event_options_parse_actor_permissions_metadata_and_json() {
@@ -474,6 +558,23 @@ mod tests {
     }
 
     #[test]
+    fn lease_heartbeat_options_require_worker_id_and_parse_json() {
+        let options = parse_lease_heartbeat_options(
+            [
+                "--worker-id".to_string(),
+                "worker_a".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(options.worker_id, "worker_a");
+        assert!(options.format_json);
+        assert!(parse_lease_heartbeat_options([].into_iter()).is_err());
+    }
+
+    #[test]
     fn workflow_cli_enqueues_and_drains_file_events() {
         let root = unique_test_dir("cli-drain");
         run([
@@ -503,6 +604,45 @@ mod tests {
 
         let store = FileStateStore::new(&root);
         assert_eq!(store.list_workflows().unwrap()[0].id, "wf_1");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workflow_cli_heartbeats_claimed_file_leases() {
+        let root = unique_test_dir("cli-heartbeat");
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "wait",
+            "wf_1",
+            "--event-id",
+            "evt_1",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+
+        let mut queue = FileWorkflowEventQueue::new(root.join("events"));
+        queue
+            .claim(&WorkflowLeaseOptions {
+                worker_id: "worker_a".to_string(),
+                lease_timeout: Duration::from_secs(30),
+                max_attempts: 3,
+            })
+            .unwrap()
+            .unwrap();
+
+        run([
+            "lease-heartbeat",
+            root.to_str().unwrap(),
+            "evt_1",
+            "--worker-id",
+            "worker_a",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+
         fs::remove_dir_all(root).unwrap();
     }
 

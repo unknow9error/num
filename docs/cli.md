@@ -259,6 +259,8 @@ num workflow enqueue .num-state complete wf_1
 num workflow drain .num-state --max-events 10
 num workflow drain .num-state --worker-id worker_a --max-attempts 5
 num workflow drain .num-state --json
+num workflow lease-heartbeat .num-state evt_1 --worker-id worker_a
+num workflow lease-heartbeat .num-state evt_1 --worker-id worker_a --json
 num workflow enqueue durable-refund start wf_project process_refund --json
 num workflow drain durable-refund --max-events 10 --json
 ```
@@ -287,11 +289,14 @@ batch after failures. File-backed draining claims events with a worker lease,
 acks successful events, requeues failed events until `--max-attempts`, and moves
 exhausted events into the dead-letter directory. `--worker-id` controls the
 lease owner label, `--lease-ms` controls stale lease recovery, and
-`--max-attempts` controls retry exhaustion. Successfully applied lifecycle
-events are recorded in workflow metadata by event id, so replayed duplicate
-event files are acknowledged without reapplying terminal transitions or writing
-duplicate lifecycle audit events. This is a durable local/CI worker foundation,
-not a networked cluster scheduler.
+`--max-attempts` controls retry exhaustion. Long-running workers can call
+`workflow lease-heartbeat <target> <event-id> --worker-id <id>` to refresh a
+claimed lease before `--lease-ms` expires; the heartbeat is accepted only from
+the worker that owns the active lease. Successfully applied lifecycle events are
+recorded in workflow metadata by event id, so replayed duplicate event files are
+acknowledged without reapplying terminal transitions or writing duplicate
+lifecycle audit events. This is a durable local/CI worker foundation with
+multi-worker lease coordination, not a networked cluster scheduler.
 
 ### `route`
 
