@@ -113,7 +113,8 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         "run" => {
-            let path = required_path(args.next(), "run")?;
+            let options = parse_run_options(args)?;
+            let path = options.path;
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
@@ -130,6 +131,17 @@ fn run() -> Result<(), String> {
 
             let result = runtime.run_workflow(&workflow_name, workflow_args);
             persist_interpreter_audits(&audit_target, "run", runtime.audit_events())?;
+            if options.format_json {
+                let payload = workflow_run_json(
+                    &workflow_name,
+                    &result,
+                    runtime.last_error(),
+                    runtime.trace_events(),
+                );
+                let json = serde_json::to_string_pretty(&payload)
+                    .map_err(|err| format!("failed to render run JSON: {err}"))?;
+                println!("{json}");
+            }
             result?;
             Ok(())
         }
@@ -240,6 +252,7 @@ fn run() -> Result<(), String> {
             let report = DebugReport::from_trace(
                 workflow_name,
                 result.clone(),
+                runtime.last_error().cloned(),
                 options.breakpoints,
                 runtime.trace_events(),
             );
@@ -769,6 +782,11 @@ struct DebugOptions {
     format_json: bool,
 }
 
+struct RunOptions {
+    path: PathBuf,
+    format_json: bool,
+}
+
 struct DeployOptions {
     out_path: Option<PathBuf>,
     artifact_dir: Option<PathBuf>,
@@ -922,6 +940,27 @@ fn parse_debug_options(args: impl Iterator<Item = String>) -> Result<DebugOption
     })
 }
 
+fn parse_run_options(args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
+    let mut path = None;
+    let mut format_json = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--json" => format_json = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected run argument '{other}'"));
+            }
+            _ if path.is_none() => path = Some(PathBuf::from(arg)),
+            _ => return Err(format!("unexpected run argument '{arg}'")),
+        }
+    }
+
+    Ok(RunOptions {
+        path: path.ok_or_else(|| "usage: num run <file.num|dir> [--json]".to_string())?,
+        format_json,
+    })
+}
+
 fn serve_target(
     args: impl Iterator<Item = String>,
     command: &str,
@@ -964,6 +1003,21 @@ fn parse_serve_options(args: impl Iterator<Item = String>) -> Result<ServeOption
     })
 }
 
+fn workflow_run_json(
+    workflow: &str,
+    result: &Result<(), String>,
+    runtime_error: Option<&num_runtime::RuntimeError>,
+    trace: &[num_runtime::observability::RuntimeTraceEvent],
+) -> serde_json::Value {
+    serde_json::json!({
+        "workflow": workflow,
+        "status": if result.is_ok() { "completed" } else { "failed" },
+        "error": result.as_ref().err(),
+        "runtime_error": runtime_error.map(num_runtime::RuntimeError::to_json),
+        "trace": trace.iter().map(|event| event.to_json()).collect::<Vec<_>>(),
+    })
+}
+
 fn print_diagnostics(diagnostics: &[num_compiler::diagnostic::Diagnostic]) {
     for diagnostic in diagnostics {
         eprint!("{diagnostic}");
@@ -1002,7 +1056,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir>                       Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|install>          Manage local package registries\n  num workflow <enqueue|drain>                 Queue/drain durable workflow events\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1219,6 +1273,37 @@ service Api {
         assert!(options.format_json);
         assert_eq!(options.breakpoints.len(), 1);
         assert_eq!(options.breakpoints[0].target, "issue_refund");
+    }
+
+    #[test]
+    fn run_options_parse_path_and_json_flag() {
+        let options = parse_run_options(
+            ["examples/refund_workflow".to_string(), "--json".to_string()].into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
+        assert!(options.format_json);
+    }
+
+    #[test]
+    fn run_json_includes_structured_connector_error() {
+        let error = num_runtime::RuntimeError::ConnectorFailed {
+            method: "payments.find".to_string(),
+            code: "timeout".to_string(),
+            message: "deadline exceeded".to_string(),
+            retryable: true,
+        };
+        let result = Err(error.message());
+        let payload = workflow_run_json("main", &result, Some(&error), &[]);
+
+        assert_eq!(payload["status"], "failed");
+        assert_eq!(payload["runtime_error"]["kind"], "connector_failed");
+        assert_eq!(
+            payload["runtime_error"]["connector"]["method"],
+            "payments.find"
+        );
+        assert_eq!(payload["runtime_error"]["connector"]["retryable"], true);
     }
 
     #[test]

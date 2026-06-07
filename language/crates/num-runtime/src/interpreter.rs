@@ -192,34 +192,7 @@ fn value_to_idempotency_key(value: Value) -> String {
 }
 
 fn runtime_error_to_string(error: RuntimeError) -> String {
-    match error {
-        RuntimeError::PermissionDenied { permission } => {
-            format!("Security Violation: Missing required permission '{permission}'")
-        }
-        RuntimeError::CostLimitExceeded { limit, actual } => format!(
-            "Cost limit exceeded: actual {} {}, limit {} {}",
-            actual.minor_units, actual.currency, limit.minor_units, limit.currency
-        ),
-        RuntimeError::RateLimitExceeded { scope, limit } => {
-            format!("Rate limit exceeded for '{scope}': limit {limit}")
-        }
-        RuntimeError::Timeout { action } => format!("Timeout while executing action '{action}'"),
-        RuntimeError::ActionFailed { reason, .. } => reason,
-        RuntimeError::ConnectorFailed {
-            method,
-            code,
-            message,
-            retryable,
-        } => format!(
-            "Connector '{method}' failed [{code}, retryable={retryable}]: {message}"
-        ),
-        RuntimeError::SanitizationFailed { reason } => format!("Sanitization failed: {reason}"),
-        RuntimeError::TenantIsolationViolation { expected, actual } => {
-            format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
-        }
-        RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
-        RuntimeError::Storage(message) => format!("Storage error: {message}"),
-    }
+    error.message()
 }
 
 fn connector_error_to_runtime_error(method: &str, error: ConnectorError) -> RuntimeError {
@@ -277,6 +250,7 @@ pub struct Runtime<'a> {
     idempotency: MemoryIdempotencyStore,
     costs: CostLedger,
     rate_limits: RateLimiter,
+    last_error: Option<RuntimeError>,
 }
 
 impl<'a> Runtime<'a> {
@@ -319,6 +293,7 @@ impl<'a> Runtime<'a> {
             idempotency: MemoryIdempotencyStore::new(),
             costs: CostLedger::new(),
             rate_limits: RateLimiter::new(),
+            last_error: None,
         }
     }
 
@@ -344,6 +319,10 @@ impl<'a> Runtime<'a> {
 
     pub fn trace_events(&self) -> &[RuntimeTraceEvent] {
         &self.traces
+    }
+
+    pub fn last_error(&self) -> Option<&RuntimeError> {
+        self.last_error.as_ref()
     }
 
     fn trace(&mut self, kind: RuntimeTraceKind, target: impl Into<String>, detail: Option<String>) {
@@ -1264,14 +1243,16 @@ impl<'a> Runtime<'a> {
                         error.code, error.retryable
                     )),
                 );
-                runtime_error_to_string(connector_error_to_runtime_error(name, error))
+                let runtime_error = connector_error_to_runtime_error(name, error);
+                self.last_error = Some(runtime_error.clone());
+                runtime_error_to_string(runtime_error)
             });
         }
         if self.is_declared_connector_call(name) {
-            return Err(runtime_error_to_string(connector_error_to_runtime_error(
-                name,
-                ConnectorError::missing_implementation(name),
-            )));
+            let runtime_error =
+                connector_error_to_runtime_error(name, ConnectorError::missing_implementation(name));
+            self.last_error = Some(runtime_error.clone());
+            return Err(runtime_error_to_string(runtime_error));
         }
 
         // Look up declared actions/functions in module

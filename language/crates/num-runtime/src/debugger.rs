@@ -1,4 +1,5 @@
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
+use crate::RuntimeError;
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +18,7 @@ pub struct BreakpointHit {
 pub struct DebugReport {
     pub workflow: String,
     pub result: Result<(), String>,
+    pub runtime_error: Option<RuntimeError>,
     pub breakpoints: Vec<BreakpointSpec>,
     pub hits: Vec<BreakpointHit>,
     pub trace: Vec<RuntimeTraceEvent>,
@@ -59,6 +61,7 @@ impl DebugReport {
     pub fn from_trace(
         workflow: impl Into<String>,
         result: Result<(), String>,
+        runtime_error: Option<RuntimeError>,
         breakpoints: Vec<BreakpointSpec>,
         trace: &[RuntimeTraceEvent],
     ) -> Self {
@@ -77,6 +80,7 @@ impl DebugReport {
         Self {
             workflow: workflow.into(),
             result,
+            runtime_error,
             breakpoints,
             hits,
             trace: trace.to_vec(),
@@ -88,6 +92,7 @@ impl DebugReport {
             "workflow": self.workflow,
             "status": if self.result.is_ok() { "completed" } else { "failed" },
             "error": self.result.as_ref().err(),
+            "runtime_error": self.runtime_error.as_ref().map(RuntimeError::to_json),
             "breakpoints": self.breakpoints.iter().map(BreakpointSpec::to_json).collect::<Vec<_>>(),
             "hits": self.hits.iter().map(BreakpointHit::to_json).collect::<Vec<_>>(),
             "trace": self.trace.iter().map(RuntimeTraceEvent::to_json).collect::<Vec<_>>(),
@@ -161,6 +166,7 @@ fn normalize_target(raw: &str) -> String {
 mod tests {
     use super::{BreakpointSpec, DebugReport};
     use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
+    use crate::RuntimeError;
 
     #[test]
     fn parses_breakpoint_aliases() {
@@ -178,7 +184,7 @@ mod tests {
             RuntimeTraceEvent::new(2, RuntimeTraceKind::ConnectorCalled, "payments.find", None),
         ];
 
-        let report = DebugReport::from_trace("main", Ok(()), vec![breakpoint], &trace);
+        let report = DebugReport::from_trace("main", Ok(()), None, vec![breakpoint], &trace);
 
         assert_eq!(report.hits.len(), 1);
         assert_eq!(report.hits[0].event.sequence, 2);
@@ -189,5 +195,33 @@ mod tests {
         assert!(report
             .render_text()
             .contains("breakpoint=ConnectorCalled:payments.find"));
+    }
+
+    #[test]
+    fn debug_report_includes_structured_connector_error() {
+        let error = RuntimeError::ConnectorFailed {
+            method: "payments.find".to_string(),
+            code: "timeout".to_string(),
+            message: "deadline exceeded".to_string(),
+            retryable: true,
+        };
+
+        let report = DebugReport::from_trace(
+            "main",
+            Err(error.message()),
+            Some(error),
+            vec![],
+            &[],
+        );
+
+        assert_eq!(report.to_json()["runtime_error"]["kind"], "connector_failed");
+        assert_eq!(
+            report.to_json()["runtime_error"]["connector"]["code"],
+            "timeout"
+        );
+        assert_eq!(
+            report.to_json()["runtime_error"]["connector"]["retryable"],
+            true
+        );
     }
 }

@@ -91,7 +91,15 @@ The command accepts either an entry `.num` file or a source directory.
 ```bash
 num run examples/refund_workflow/src/main.num
 num run examples/refund_workflow/src
+num run examples/refund_workflow --json
 ```
+
+With `--json`, the command emits a structured run report containing the
+selected workflow, final status, trace events, the legacy text `error`, and a
+typed `runtime_error` object when the failure comes from the runtime. Connector
+failures include `runtime_error.kind = "connector_failed"` and a nested
+`connector` object with `method`, stable `code`, human `message`, and
+`retryable`.
 
 Current limitations:
 
@@ -101,6 +109,8 @@ Current limitations:
 - arguments are hardcoded for the included demo workflows;
 - configured `[connectors]` process commands run before the demo connector
   fallback;
+- runtime demo logs are still printed by the interpreter before the JSON
+  payload;
 - this is not durable workflow execution.
 
 ### `test`
@@ -489,8 +499,10 @@ host-language connector code. Manifest-configured process connectors can set a
 report connector processes that exceed that budget. Runtime connector failures
 are classified internally with `code`, `message`, and `retryable` fields so
 process, database, and missing-implementation failures share the same boundary.
-It is not managed connector hosting, auth/secrets binding, machine-readable
-connector failure JSON output, or a generated network client runtime yet.
+`num run --json` and `num debug --json` expose connector failures in the
+structured `runtime_error.connector` payload. This is not managed connector
+hosting, auth/secrets binding, a silent JSON-only execution mode, or a generated
+network client runtime yet.
 
 ### `deploy`
 
