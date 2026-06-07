@@ -621,13 +621,16 @@ workspace package, even in dependency graph mode.
 
 ### `version`
 
-Print the CLI, language, and manifest schema versions.
+Print the CLI, language, manifest schema, and lockfile schema versions.
 
 ```bash
 num version
 num version --json
 num --version
 ```
+
+The JSON form is intended for CI and release tooling; it includes `cli`,
+`language`, `manifest_schema`, and `lockfile_schema`.
 
 ### `import openapi`
 

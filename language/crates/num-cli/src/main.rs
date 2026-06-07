@@ -1050,11 +1050,7 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
         return Err(format!("unexpected version argument '{other}'"));
     }
     if format_json {
-        let payload = serde_json::json!({
-            "cli": env!("CARGO_PKG_VERSION"),
-            "language": compatibility::CURRENT_LANGUAGE_VERSION,
-            "manifest_schema": compatibility::CURRENT_MANIFEST_SCHEMA,
-        });
+        let payload = version_json();
         let json = serde_json::to_string_pretty(&payload)
             .map_err(|err| format!("failed to render version JSON: {err}"))?;
         println!("{json}");
@@ -1062,8 +1058,18 @@ fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
         println!("num {}", env!("CARGO_PKG_VERSION"));
         println!("language {}", compatibility::CURRENT_LANGUAGE_VERSION);
         println!("manifest_schema {}", compatibility::CURRENT_MANIFEST_SCHEMA);
+        println!("lockfile_schema {}", package::CURRENT_LOCKFILE_SCHEMA);
     }
     Ok(())
+}
+
+fn version_json() -> serde_json::Value {
+    serde_json::json!({
+        "cli": env!("CARGO_PKG_VERSION"),
+        "language": compatibility::CURRENT_LANGUAGE_VERSION,
+        "manifest_schema": compatibility::CURRENT_MANIFEST_SCHEMA,
+        "lockfile_schema": package::CURRENT_LOCKFILE_SCHEMA,
+    })
 }
 
 fn help_text() -> String {
@@ -1316,6 +1322,19 @@ service Api {
             "payments.find"
         );
         assert_eq!(payload["runtime_error"]["connector"]["retryable"], true);
+    }
+
+    #[test]
+    fn version_json_includes_all_schema_versions() {
+        let payload = version_json();
+
+        assert_eq!(payload["cli"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(payload["language"], compatibility::CURRENT_LANGUAGE_VERSION);
+        assert_eq!(
+            payload["manifest_schema"],
+            compatibility::CURRENT_MANIFEST_SCHEMA
+        );
+        assert_eq!(payload["lockfile_schema"], package::CURRENT_LOCKFILE_SCHEMA);
     }
 
     #[test]
