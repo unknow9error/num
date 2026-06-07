@@ -9,6 +9,27 @@ use num_compiler::expr::{self, BinaryOp, Expr};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
+macro_rules! runtime_println {
+    ($runtime:expr) => {
+        if $runtime.output_enabled {
+            println!();
+        }
+    };
+    ($runtime:expr, $($arg:tt)*) => {
+        if $runtime.output_enabled {
+            println!($($arg)*);
+        }
+    };
+}
+
+macro_rules! runtime_print {
+    ($runtime:expr, $($arg:tt)*) => {
+        if $runtime.output_enabled {
+            print!($($arg)*);
+        }
+    };
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
@@ -251,15 +272,16 @@ pub struct Runtime<'a> {
     costs: CostLedger,
     rate_limits: RateLimiter,
     last_error: Option<RuntimeError>,
+    output_enabled: bool,
 }
 
 impl<'a> Runtime<'a> {
     pub fn new(module: &'a Module, permissions: Vec<String>) -> Self {
-        Self::with_connectors(module, permissions, Box::new(DemoConnectorExecutor))
+        Self::with_connectors(module, permissions, Box::new(DemoConnectorExecutor::new()))
     }
 
     pub fn with_security(module: &'a Module, security: SecurityContext) -> Self {
-        Self::with_connectors_and_security(module, security, Box::new(DemoConnectorExecutor))
+        Self::with_connectors_and_security(module, security, Box::new(DemoConnectorExecutor::new()))
     }
 
     pub fn with_connectors(
@@ -294,6 +316,7 @@ impl<'a> Runtime<'a> {
             costs: CostLedger::new(),
             rate_limits: RateLimiter::new(),
             last_error: None,
+            output_enabled: true,
         }
     }
 
@@ -325,6 +348,10 @@ impl<'a> Runtime<'a> {
         self.last_error.as_ref()
     }
 
+    pub fn set_output_enabled(&mut self, enabled: bool) {
+        self.output_enabled = enabled;
+    }
+
     fn trace(&mut self, kind: RuntimeTraceKind, target: impl Into<String>, detail: Option<String>) {
         let sequence = self.next_trace_sequence;
         self.next_trace_sequence = self.next_trace_sequence.saturating_add(1);
@@ -335,7 +362,7 @@ impl<'a> Runtime<'a> {
     fn enter_budget_scope(&mut self, scope: impl Into<String>, raw: Option<&str>) -> bool {
         if let Some(budget) = parse_money_limit(raw) {
             let scope = scope.into();
-            println!(
+            runtime_println!(self,
                 "  [BUDGET] {} limit set to {}.{:02} {}",
                 scope,
                 budget.minor_units / 100,
@@ -360,7 +387,7 @@ impl<'a> Runtime<'a> {
                 self.rate_limits
                     .check(scope.to_string(), limit)
                     .map_err(runtime_error_to_string)?;
-                println!(
+                runtime_println!(self,
                     "  [RATE LIMIT] {} allows {} per {:?}",
                     scope, limit.max_requests, limit.window
                 );
@@ -403,7 +430,7 @@ impl<'a> Runtime<'a> {
     }
 
     pub fn run_workflow(&mut self, name: &str, args: HashMap<String, Value>) -> Result<(), String> {
-        println!("\n=== Starting Workflow: {} ===", name);
+        runtime_println!(self, "\n=== Starting Workflow: {} ===", name);
         self.trace(
             RuntimeTraceKind::WorkflowStarted,
             name,
@@ -431,7 +458,7 @@ impl<'a> Runtime<'a> {
         self.push_scope();
         for param in &params {
             if let Some(val) = args.get(&param.name) {
-                println!("  [PARAM] {} = {}", param.name, val);
+                runtime_println!(self, "  [PARAM] {} = {}", param.name, val);
                 self.set_var(param.name.clone(), val.clone());
             } else {
                 self.pop_scope();
@@ -444,16 +471,16 @@ impl<'a> Runtime<'a> {
             Ok(_) => {}
             Err(err) => {
                 self.trace(RuntimeTraceKind::WorkflowFailed, name, Some(err.clone()));
-                println!("  [ERROR] Workflow failed: {}", err);
+                runtime_println!(self, "  [ERROR] Workflow failed: {}", err);
                 if !self.saga_rollbacks.is_empty() {
-                    println!("\n=== Initiating Saga Compensations (Rollbacks) ===");
+                    runtime_println!(self, "\n=== Initiating Saga Compensations (Rollbacks) ===");
                     for rollback_expr in self.saga_rollbacks.clone().iter().rev() {
-                        println!(
+                        runtime_println!(self,
                             "  [ROLLBACK] Executing compensation: {}",
                             rollback_expr.text
                         );
                         if let Err(rollback_err) = self.eval_expr(rollback_expr) {
-                            println!("    [WARNING] Compensation failed: {}", rollback_err);
+                            runtime_println!(self, "    [WARNING] Compensation failed: {}", rollback_err);
                         }
                     }
                 }
@@ -465,12 +492,12 @@ impl<'a> Runtime<'a> {
 
         self.pop_scope();
         self.exit_budget_scope(budget_scope);
-        println!("=== Workflow Completed Successfully ===\n");
+        runtime_println!(self, "=== Workflow Completed Successfully ===\n");
         self.trace(RuntimeTraceKind::WorkflowCompleted, name, None);
         if !self.audits.is_empty() {
-            println!("Audit Trail:");
+            runtime_println!(self, "Audit Trail:");
             for audit in &self.audits {
-                println!("  - {}", audit);
+                runtime_println!(self, "  - {}", audit);
             }
         }
         Ok(())
@@ -483,7 +510,7 @@ impl<'a> Runtime<'a> {
         path: &str,
         input: Option<Value>,
     ) -> Result<(), String> {
-        println!(
+        runtime_println!(self,
             "\n=== Starting Service Route: {} {} {} ===",
             service_name, method, path
         );
@@ -529,7 +556,7 @@ impl<'a> Runtime<'a> {
             service_budget.as_deref(),
         );
         for permission in &route.requires {
-            println!("  [ROUTE REQUIRE] Permission: {}", permission);
+            runtime_println!(self, "  [ROUTE REQUIRE] Permission: {}", permission);
             if !self.security.has_permission(permission) {
                 self.exit_budget_scope(budget_scope);
                 return Err(format!(
@@ -549,7 +576,7 @@ impl<'a> Runtime<'a> {
                     route_input.name, method, path
                 ));
             };
-            println!("  [INPUT] {} = {}", route_input.name, value);
+            runtime_println!(self, "  [INPUT] {} = {}", route_input.name, value);
             self.set_var(route_input.name.clone(), value);
         }
 
@@ -566,23 +593,23 @@ impl<'a> Runtime<'a> {
         self.pop_scope();
         self.exit_budget_scope(budget_scope);
 
-        println!("=== Service Route Completed Successfully ===\n");
+        runtime_println!(self, "=== Service Route Completed Successfully ===\n");
         self.trace(
             RuntimeTraceKind::ServiceRouteCompleted,
             format!("{service_name}:{method}:{path}"),
             None,
         );
         if !self.audits.is_empty() {
-            println!("Audit Trail:");
+            runtime_println!(self, "Audit Trail:");
             for audit in &self.audits {
-                println!("  - {}", audit);
+                runtime_println!(self, "  - {}", audit);
             }
         }
         Ok(())
     }
 
     pub fn run_test(&mut self, name: &str) -> Result<(), String> {
-        println!("\n=== Starting Test: {} ===", name);
+        runtime_println!(self, "\n=== Starting Test: {} ===", name);
         let decl = self
             .module
             .declarations
@@ -599,7 +626,7 @@ impl<'a> Runtime<'a> {
         self.pop_scope();
         match result {
             Ok(_) => {
-                println!("=== Test Passed: {} ===\n", name);
+                runtime_println!(self, "=== Test Passed: {} ===\n", name);
                 Ok(())
             }
             Err(err) => Err(format!("Test '{name}' failed: {err}")),
@@ -642,13 +669,13 @@ impl<'a> Runtime<'a> {
                 } else {
                     Value::Null
                 };
-                println!("  [LET] {} = {}", let_stmt.name, val);
+                runtime_println!(self, "  [LET] {} = {}", let_stmt.name, val);
                 self.set_var(let_stmt.name.clone(), val);
                 Ok(ExecSignal::Continue)
             }
             Stmt::Assign(assign_stmt) => {
                 let val = self.eval_expr(&assign_stmt.expr)?;
-                println!("  [ASSIGN] {} = {}", assign_stmt.name, val);
+                runtime_println!(self, "  [ASSIGN] {} = {}", assign_stmt.name, val);
                 if self.assign_var(&assign_stmt.name, val) {
                     Ok(ExecSignal::Continue)
                 } else {
@@ -659,7 +686,7 @@ impl<'a> Runtime<'a> {
                 let value = self.eval_expr(&assert_stmt.expr)?;
                 match value {
                     Value::Bool(true) => {
-                        println!("  [ASSERT] {} passed", assert_stmt.expr.text.trim());
+                        runtime_println!(self, "  [ASSERT] {} passed", assert_stmt.expr.text.trim());
                         Ok(ExecSignal::Continue)
                     }
                     Value::Bool(false) => Err(format!(
@@ -670,7 +697,7 @@ impl<'a> Runtime<'a> {
                 }
             }
             Stmt::ExpectPolicy(expect_stmt) => {
-                println!(
+                runtime_println!(self,
                     "  [POLICY EXPECTATION] {} verified by compiler",
                     match expect_stmt.outcome {
                         num_compiler::ast::PolicyExpectation::Allow => "allow",
@@ -684,7 +711,7 @@ impl<'a> Runtime<'a> {
                 let result = self.eval_expr(&expect_stmt.call);
                 match (expect_stmt.outcome, result) {
                     (num_compiler::ast::WorkflowExpectation::Success, Ok(_)) => {
-                        println!("  [WORKFLOW EXPECTATION] {label} succeeded");
+                        runtime_println!(self, "  [WORKFLOW EXPECTATION] {label} succeeded");
                         Ok(ExecSignal::Continue)
                     }
                     (num_compiler::ast::WorkflowExpectation::Success, Err(err)) => Err(format!(
@@ -694,7 +721,7 @@ impl<'a> Runtime<'a> {
                         "expected workflow failure for `{label}`, but it succeeded"
                     )),
                     (num_compiler::ast::WorkflowExpectation::Failure, Err(err)) => {
-                        println!("  [WORKFLOW EXPECTATION] {label} failed as expected: {err}");
+                        runtime_println!(self, "  [WORKFLOW EXPECTATION] {label} failed as expected: {err}");
                         Ok(ExecSignal::Continue)
                     }
                 }
@@ -702,7 +729,7 @@ impl<'a> Runtime<'a> {
             Stmt::ExpectAudit(expect_stmt) => {
                 let expected = self.eval_expr(&expect_stmt.event)?.to_string();
                 if self.audits.contains(&expected) {
-                    println!("  [AUDIT EXPECTATION] {expected} observed");
+                    runtime_println!(self, "  [AUDIT EXPECTATION] {expected} observed");
                     Ok(ExecSignal::Continue)
                 } else {
                     Err(format!(
@@ -725,20 +752,20 @@ impl<'a> Runtime<'a> {
                     }
                 };
                 let mocked = Value::Uncertain(Box::new(value), confidence);
-                println!("  [AI MOCK] {target} => {mocked}");
+                runtime_println!(self, "  [AI MOCK] {target} => {mocked}");
                 self.ai_mocks.insert(target, mocked);
                 Ok(ExecSignal::Continue)
             }
             Stmt::MockConnector(mock_stmt) => {
                 let target = connector_mock_target(&mock_stmt.call.text)?;
                 let value = self.eval_expr(&mock_stmt.value)?;
-                println!("  [CONNECTOR MOCK] {target} => {value}");
+                runtime_println!(self, "  [CONNECTOR MOCK] {target} => {value}");
                 self.connector_mocks.insert(target, value);
                 Ok(ExecSignal::Continue)
             }
             Stmt::Require(req_stmt) => {
                 let required = &req_stmt.permission;
-                println!("  [REQUIRE] Permission: {}", required);
+                runtime_println!(self, "  [REQUIRE] Permission: {}", required);
                 if self.security.has_permission(required) {
                     Ok(ExecSignal::Continue)
                 } else {
@@ -753,7 +780,7 @@ impl<'a> Runtime<'a> {
                 let pre_rollbacks_len = self.saga_rollbacks.len();
                 if tx_stmt.saga {
                     self.in_saga = true;
-                    println!("  [SAGA] Started transaction saga block");
+                    runtime_println!(self, "  [SAGA] Started transaction saga block");
                 }
                 self.push_scope();
                 let res = self.exec_block(&tx_stmt.body);
@@ -762,16 +789,16 @@ impl<'a> Runtime<'a> {
                     self.in_saga = was_saga;
                     match res {
                         Ok(signal) => {
-                            println!("  [SAGA] Completed transaction saga block successfully");
+                            runtime_println!(self, "  [SAGA] Completed transaction saga block successfully");
                             Ok(signal)
                         }
                         Err(err) => {
-                            println!("  [SAGA] Transaction saga block failed: {}. Initiating rollbacks.", err);
+                            runtime_println!(self, "  [SAGA] Transaction saga block failed: {}. Initiating rollbacks.", err);
                             let rollbacks_to_run: Vec<RawExpr> = self.saga_rollbacks.drain(pre_rollbacks_len..).collect();
                             for rollback_expr in rollbacks_to_run.into_iter().rev() {
-                                println!("  [SAGA] Rolling back: {}", rollback_expr.text);
+                                runtime_println!(self, "  [SAGA] Rolling back: {}", rollback_expr.text);
                                 if let Err(rollback_err) = self.eval_expr(&rollback_expr) {
-                                    println!("  [SAGA] Rollback execution failed: {}", rollback_err);
+                                    runtime_println!(self, "  [SAGA] Rollback execution failed: {}", rollback_err);
                                 }
                             }
                             Err(err)
@@ -782,7 +809,7 @@ impl<'a> Runtime<'a> {
                 }
             }
             Stmt::Scope(scope_stmt) => {
-                println!("  [SCOPE] Entering structured concurrency scope");
+                runtime_println!(self, "  [SCOPE] Entering structured concurrency scope");
                 self.push_scope();
                 let res = self.exec_block(&scope_stmt.body);
                 self.pop_scope();
@@ -799,7 +826,7 @@ impl<'a> Runtime<'a> {
                         ))
                     }
                 };
-                println!(
+                runtime_println!(self,
                     "  [IF] Condition '{}' evaluated to {}",
                     if_stmt.condition.text.trim(),
                     truth
@@ -844,7 +871,7 @@ impl<'a> Runtime<'a> {
                         }
                     }
 
-                    println!("  [MATCH] {} matched", match_stmt.expr.text.trim());
+                    runtime_println!(self, "  [MATCH] {} matched", match_stmt.expr.text.trim());
                     let signal = self.exec_block(&arm.body)?;
                     self.pop_scope();
                     return Ok(signal);
@@ -853,7 +880,7 @@ impl<'a> Runtime<'a> {
             }
             Stmt::Return(expr) => {
                 let val = self.eval_expr(expr)?;
-                println!("  [RETURN] {}", val);
+                runtime_println!(self, "  [RETURN] {}", val);
                 Ok(ExecSignal::Return(val))
             }
             Stmt::Expr(expr) => {
@@ -1048,7 +1075,7 @@ impl<'a> Runtime<'a> {
             return Ok(None);
         };
 
-        println!(
+        runtime_println!(self,
             "  [METHOD CALL] Executing method {} on {}",
             method_name, type_name
         );
@@ -1167,7 +1194,7 @@ impl<'a> Runtime<'a> {
         match name {
             "require_human_approval" | "require_human_review" => {
                 let action = args.first().cloned().unwrap_or(Value::Null);
-                println!(
+                runtime_println!(self,
                     "    [HUMAN REVIEW] Requested approval for action: {}",
                     action
                 );
@@ -1197,9 +1224,9 @@ impl<'a> Runtime<'a> {
                 let event = args.first().cloned().unwrap_or(Value::Null).to_string();
                 let context = args.get(1).map(ToString::to_string);
                 if let Some(context) = &context {
-                    println!("    [AUDIT] Logged audit event: {} {}", event, context);
+                    runtime_println!(self, "    [AUDIT] Logged audit event: {} {}", event, context);
                 } else {
-                    println!("    [AUDIT] Logged audit event: {}", event);
+                    runtime_println!(self, "    [AUDIT] Logged audit event: {}", event);
                 }
                 self.audits.push(event.clone());
                 self.trace(RuntimeTraceKind::AuditLogged, event, context);
@@ -1209,7 +1236,7 @@ impl<'a> Runtime<'a> {
         }
 
         if let Some(value) = self.ai_mocks.get(name).cloned() {
-            println!("    [AI MOCK] {name} -> {value}");
+            runtime_println!(self, "    [AI MOCK] {name} -> {value}");
             self.trace(
                 RuntimeTraceKind::ConnectorCalled,
                 name,
@@ -1219,7 +1246,7 @@ impl<'a> Runtime<'a> {
         }
 
         if let Some(value) = self.connector_mocks.get(name).cloned() {
-            println!("    [CONNECTOR MOCK] {name} -> {value}");
+            runtime_println!(self, "    [CONNECTOR MOCK] {name} -> {value}");
             self.trace(
                 RuntimeTraceKind::ConnectorCalled,
                 name,
@@ -1259,17 +1286,17 @@ impl<'a> Runtime<'a> {
         let decl = match self.module.declarations.iter().find(|d| d.name() == name) {
             Some(d) => d,
             None => {
-                print!(
+                runtime_print!(self,
                     "    [MOCK CALL] Calling external function/action '{}' with args: [",
                     name
                 );
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
-                        print!(", ");
+                        runtime_print!(self, ", ");
                     }
-                    print!("{}", arg);
+                    runtime_print!(self, "{}", arg);
                 }
-                println!("]");
+                runtime_println!(self, "]");
                 return Ok(Value::Null);
             }
         };
@@ -1290,11 +1317,11 @@ impl<'a> Runtime<'a> {
                         ));
                     }
                 }
-                println!("  [ACTION CALL] Executing action: {}", name);
+                runtime_println!(self, "  [ACTION CALL] Executing action: {}", name);
 
                 // Check audit for high-risk action
                 if action.risk >= num_compiler::ast::Risk::High {
-                    println!("    [TRACE] High-risk action checks for audit logs...");
+                    runtime_println!(self, "    [TRACE] High-risk action checks for audit logs...");
                 }
 
                 // Bind parameters
@@ -1320,7 +1347,7 @@ impl<'a> Runtime<'a> {
                 let execution = executor
                     .execute(&action_spec, retry, None, |attempt| {
                         if attempt > 1 {
-                            println!("    [RETRY] Attempt {attempt} for action: {}", action.name);
+                            runtime_println!(self, "    [RETRY] Attempt {attempt} for action: {}", action.name);
                         }
                         if let Some(cost) = &action_spec.max_cost {
                             self.costs.authorize(cost)?;
@@ -1337,7 +1364,7 @@ impl<'a> Runtime<'a> {
                 let execution_res: Result<(), String> = (|| {
                     let execution = execution?;
                     if execution.replayed {
-                        println!(
+                        runtime_println!(self,
                             "    [IDEMPOTENCY] Replayed action result for {}",
                             action.name
                         );
@@ -1346,7 +1373,7 @@ impl<'a> Runtime<'a> {
                             .charge(action.name.clone(), cost.clone())
                             .map_err(runtime_error_to_string)?;
                         let total = self.costs.spent(&cost.currency);
-                        println!(
+                        runtime_println!(self,
                             "    [COST] Charged {}.{} {}; total {}.{} {}",
                             cost.minor_units / 100,
                             format!("{:02}", cost.minor_units.abs() % 100),
@@ -1360,11 +1387,11 @@ impl<'a> Runtime<'a> {
                     // If inside a saga, register rollback compensation
                     if self.in_saga {
                         if let Some(rollback_str) = &action.rollback {
-                            println!("    [SAGA] Registered compensation template: {}", rollback_str);
+                            runtime_println!(self, "    [SAGA] Registered compensation template: {}", rollback_str);
                             let parsed = expr::parse(rollback_str).map_err(|err| {
                                 format!("Could not parse rollback expression '{}': {}", rollback_str, err.message)
                             })?;
-                            
+
                             let evaluated_rollback_str = match &parsed {
                                 Expr::Call { callee, args } => {
                                     let mut evaluated_args = Vec::new();
@@ -1377,8 +1404,8 @@ impl<'a> Runtime<'a> {
                                 }
                                 _ => rollback_str.clone(),
                             };
-                            println!("    [SAGA] Registered evaluated compensation: {}", evaluated_rollback_str);
-                            
+                            runtime_println!(self, "    [SAGA] Registered evaluated compensation: {}", evaluated_rollback_str);
+
                             self.saga_rollbacks.push(RawExpr {
                                 text: evaluated_rollback_str,
                                 span: action.span.clone(),
@@ -1397,7 +1424,7 @@ impl<'a> Runtime<'a> {
                     name,
                     Some(format!("{} args", args.len())),
                 );
-                println!("  [FUNCTION CALL] Executing fn: {}", name);
+                runtime_println!(self, "  [FUNCTION CALL] Executing fn: {}", name);
                 let budget_scope =
                     self.enter_budget_scope(format!("function:{name}"), function.budget.as_deref());
                 self.push_scope();
@@ -1414,7 +1441,7 @@ impl<'a> Runtime<'a> {
                 }
             }
             Declaration::Workflow(workflow) => {
-                println!("  [WORKFLOW CALL] Executing workflow: {}", name);
+                runtime_println!(self, "  [WORKFLOW CALL] Executing workflow: {}", name);
                 self.apply_rate_limit(&format!("workflow:{name}"), workflow.rate_limit.as_deref())?;
                 let budget_scope =
                     self.enter_budget_scope(format!("workflow:{name}"), workflow.budget.as_deref());

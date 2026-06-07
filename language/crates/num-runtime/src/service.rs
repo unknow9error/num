@@ -28,7 +28,7 @@ impl<'a> ServiceRuntime<'a> {
             module,
             service_name: service_name.into(),
             permissions,
-            connectors: Arc::new(DemoConnectorExecutor),
+            connectors: Arc::new(DemoConnectorExecutor::new()),
             audit_recorder: None,
         }
     }
