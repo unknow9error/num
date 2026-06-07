@@ -73,7 +73,7 @@ fn current_manifest_is_compatible() {
 
     assert_eq!(report[0]["status"], "compatible");
     assert_eq!(report[0]["language"]["version"], "0.1.0");
-    assert_eq!(report[0]["language"]["current"], "0.1.0");
+    assert_eq!(report[0]["language"]["current"], "0.1.1");
     assert_eq!(report[0]["manifest"]["schema"], 1);
     assert_eq!(report[0]["manifest"]["current_schema"], 1);
 }

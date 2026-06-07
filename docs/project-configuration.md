@@ -11,7 +11,7 @@ runtime metadata, security policy mode, connectors, and deployment planning.
 
 ```toml
 [language]
-version = "0.1.0"
+version = "0.1.1"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -39,7 +39,7 @@ Current fields:
 
 ```toml
 [language]
-version = "0.1.0"
+version = "0.1.1"
 compatibility = "minor"
 manifest_schema = 1
 ```
@@ -85,7 +85,7 @@ Current fields:
 ```toml
 [project]
 name = "refund-workflow"
-version = "0.1.0"
+version = "0.1.1"
 source = "src"
 entry = "src/main.num"
 ```
@@ -106,7 +106,7 @@ Example:
 
 ```toml
 [dependencies]
-std = "0.1.0"
+std = "0.1.1"
 shared = { path = "../shared", version = "0.2.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
 ```

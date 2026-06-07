@@ -5,7 +5,7 @@ support for `.num` files.
 
 ## Features
 
-Implemented in v0.1.0:
+Implemented in v0.1.1:
 
 - `.num` language registration;
 - TextMate syntax highlighting;

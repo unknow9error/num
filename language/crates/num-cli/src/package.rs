@@ -269,7 +269,8 @@ impl PackageManifest {
             root: root.to_path_buf(),
             path: path.to_path_buf(),
             language: PackageLanguage {
-                version: language_version.unwrap_or_else(|| "0.1.0".to_string()),
+                version: language_version
+                    .unwrap_or_else(|| compatibility::CURRENT_LANGUAGE_VERSION.to_string()),
                 compatibility: language_compatibility.unwrap_or_else(|| "minor".to_string()),
                 manifest_schema: manifest_schema.unwrap_or(1),
             },
@@ -1297,7 +1298,10 @@ version = "0.1.0"
 
         assert_eq!(manifest.source_dir(), root.join("src"));
         assert_eq!(manifest.entry_path(), root.join("src/main.num"));
-        assert_eq!(manifest.language.version, "0.1.0");
+        assert_eq!(
+            manifest.language.version,
+            compatibility::CURRENT_LANGUAGE_VERSION
+        );
         assert_eq!(manifest.language.compatibility, "minor");
         assert_eq!(manifest.language.manifest_schema, 1);
     }
@@ -1523,7 +1527,10 @@ alpha = { path = "../alpha", version = "1.0.0" }
         let lockfile = render_lockfile(&manifest);
 
         assert!(lockfile.contains("name = \"app\""));
-        assert!(lockfile.contains("language = \"0.1.0\""));
+        assert!(lockfile.contains(&format!(
+            "language = \"{}\"",
+            compatibility::CURRENT_LANGUAGE_VERSION
+        )));
         assert!(lockfile.contains("manifest_schema = 1"));
         assert!(lockfile.find("name = \"alpha\"") < lockfile.find("name = \"zeta\""));
         assert!(lockfile.contains("source = \"path:../alpha\""));
@@ -1901,7 +1908,10 @@ shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
         assert!(lockfile.contains("name = \"app\""));
         assert!(lockfile.contains("name = \"shared\""));
         assert!(lockfile.contains(&format!("source = \"git:{}#rev:{rev}\"", shared.display())));
-        assert!(lockfile.contains("language = \"0.1.0\""));
+        assert!(lockfile.contains(&format!(
+            "language = \"{}\"",
+            compatibility::CURRENT_LANGUAGE_VERSION
+        )));
         assert!(root.join(".num-git").is_dir());
 
         fs::remove_dir_all(root).unwrap();
