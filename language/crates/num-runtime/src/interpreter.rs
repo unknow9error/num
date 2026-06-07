@@ -1,4 +1,4 @@
-use crate::connectors::{ConnectorExecutor, DemoConnectorExecutor};
+use crate::connectors::{ConnectorError, ConnectorExecutor, DemoConnectorExecutor};
 use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
@@ -205,12 +205,29 @@ fn runtime_error_to_string(error: RuntimeError) -> String {
         }
         RuntimeError::Timeout { action } => format!("Timeout while executing action '{action}'"),
         RuntimeError::ActionFailed { reason, .. } => reason,
+        RuntimeError::ConnectorFailed {
+            method,
+            code,
+            message,
+            retryable,
+        } => format!(
+            "Connector '{method}' failed [{code}, retryable={retryable}]: {message}"
+        ),
         RuntimeError::SanitizationFailed { reason } => format!("Sanitization failed: {reason}"),
         RuntimeError::TenantIsolationViolation { expected, actual } => {
             format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
         }
         RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
         RuntimeError::Storage(message) => format!("Storage error: {message}"),
+    }
+}
+
+fn connector_error_to_runtime_error(method: &str, error: ConnectorError) -> RuntimeError {
+    RuntimeError::ConnectorFailed {
+        method: method.to_string(),
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
     }
 }
 
@@ -1238,13 +1255,23 @@ impl<'a> Runtime<'a> {
                 name,
                 Some(format!("{} args", args.len())),
             );
-            return result;
+            return result.map_err(|error| {
+                self.trace(
+                    RuntimeTraceKind::ConnectorCalled,
+                    name,
+                    Some(format!(
+                        "error code={} retryable={}",
+                        error.code, error.retryable
+                    )),
+                );
+                runtime_error_to_string(connector_error_to_runtime_error(name, error))
+            });
         }
         if self.is_declared_connector_call(name) {
-            return Err(format!(
-                "Connector implementation missing for declared connector method '{}'",
-                name
-            ));
+            return Err(runtime_error_to_string(connector_error_to_runtime_error(
+                name,
+                ConnectorError::missing_implementation(name),
+            )));
         }
 
         // Look up declared actions/functions in module

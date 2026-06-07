@@ -228,10 +228,11 @@ fn enforce_cost(action: &ActionSpec, actual_cost: Option<Money>) -> Result<(), R
 }
 
 fn is_retryable(error: &RuntimeError) -> bool {
-    matches!(
-        error,
-        RuntimeError::ActionFailed { .. } | RuntimeError::Timeout { .. } | RuntimeError::Storage(_)
-    )
+    match error {
+        RuntimeError::ConnectorFailed { retryable, .. } => *retryable,
+        RuntimeError::ActionFailed { .. } | RuntimeError::Timeout { .. } | RuntimeError::Storage(_) => true,
+        _ => false,
+    }
 }
 
 fn error_message(error: &RuntimeError) -> String {
@@ -250,6 +251,12 @@ fn error_message(error: &RuntimeError) -> String {
         RuntimeError::ActionFailed { action, reason } => {
             format!("action failed: {action}: {reason}")
         }
+        RuntimeError::ConnectorFailed {
+            method,
+            code,
+            message,
+            retryable,
+        } => format!("connector failed: {method}: {code}: retryable={retryable}: {message}"),
         RuntimeError::SanitizationFailed { reason } => format!("sanitization failed: {reason}"),
         RuntimeError::TenantIsolationViolation { expected, actual } => {
             format!("tenant isolation violation: expected {expected}, actual {actual}")

@@ -1,4 +1,4 @@
-use crate::connectors::ConnectorExecutor;
+use crate::connectors::{ConnectorError, ConnectorExecutor};
 use crate::interpreter::Value;
 use serde_json::{json, Map, Value as JsonValue};
 use std::collections::HashMap;
@@ -36,7 +36,11 @@ impl ProcessConnectorExecutor {
         self.configs.is_empty()
     }
 
-    fn run(config: &ProcessConnectorConfig, method: &str, args: &[Value]) -> Result<Value, String> {
+    fn run(
+        config: &ProcessConnectorConfig,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Value, ConnectorError> {
         let mut command = Command::new(&config.command);
         command.args(&config.args);
         if let Some(cwd) = &config.cwd {
@@ -47,9 +51,13 @@ impl ProcessConnectorExecutor {
         command.stderr(Stdio::piped());
 
         let mut child = command.spawn().map_err(|err| {
-            format!(
-                "failed to start connector `{method}` command `{}`: {err}",
-                config.command
+            ConnectorError::new(
+                "start_failed",
+                format!(
+                    "failed to start connector `{method}` command `{}`: {err}",
+                    config.command
+                ),
+                false,
             )
         })?;
 
@@ -60,31 +68,53 @@ impl ProcessConnectorExecutor {
         if let Some(mut stdin) = child.stdin.take() {
             stdin
                 .write_all(input.to_string().as_bytes())
-                .map_err(|err| format!("failed to write connector `{method}` stdin: {err}"))?;
+                .map_err(|err| {
+                    ConnectorError::new(
+                        "stdin_write_failed",
+                        format!("failed to write connector `{method}` stdin: {err}"),
+                        true,
+                    )
+                })?;
         }
 
         let output = wait_with_optional_timeout(child, method, config.timeout_ms)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(if stderr.is_empty() {
-                format!("connector `{method}` exited with {}", output.status)
-            } else {
-                format!(
-                    "connector `{method}` exited with {}: {stderr}",
-                    output.status
-                )
-            });
+            return Err(ConnectorError::new(
+                "nonzero_exit",
+                if stderr.is_empty() {
+                    format!("connector `{method}` exited with {}", output.status)
+                } else {
+                    format!(
+                        "connector `{method}` exited with {}: {stderr}",
+                        output.status
+                    )
+                },
+                true,
+            ));
         }
 
         let stdout = String::from_utf8(output.stdout)
-            .map_err(|err| format!("connector `{method}` wrote non-UTF8 stdout: {err}"))?;
+            .map_err(|err| {
+                ConnectorError::new(
+                    "invalid_stdout",
+                    format!("connector `{method}` wrote non-UTF8 stdout: {err}"),
+                    false,
+                )
+            })?;
         let stdout = stdout.trim();
         if stdout.is_empty() {
             return Ok(Value::Null);
         }
         let json = serde_json::from_str(stdout)
-            .map_err(|err| format!("connector `{method}` returned invalid JSON: {err}"))?;
-        value_from_json(&json)
+            .map_err(|err| {
+                ConnectorError::new(
+                    "invalid_json",
+                    format!("connector `{method}` returned invalid JSON: {err}"),
+                    false,
+                )
+            })?;
+        value_from_json(&json).map_err(|message| ConnectorError::new("invalid_json", message, false))
     }
 }
 
@@ -92,11 +122,17 @@ fn wait_with_optional_timeout(
     mut child: std::process::Child,
     method: &str,
     timeout_ms: Option<u64>,
-) -> Result<std::process::Output, String> {
+) -> Result<std::process::Output, ConnectorError> {
     let Some(timeout_ms) = timeout_ms else {
         return child
             .wait_with_output()
-            .map_err(|err| format!("failed to wait for connector `{method}`: {err}"));
+            .map_err(|err| {
+                ConnectorError::new(
+                    "wait_failed",
+                    format!("failed to wait for connector `{method}`: {err}"),
+                    true,
+                )
+            });
     };
     let timeout = Duration::from_millis(timeout_ms);
     let started = Instant::now();
@@ -104,19 +140,33 @@ fn wait_with_optional_timeout(
     loop {
         if child
             .try_wait()
-            .map_err(|err| format!("failed to poll connector `{method}`: {err}"))?
+            .map_err(|err| {
+                ConnectorError::new(
+                    "poll_failed",
+                    format!("failed to poll connector `{method}`: {err}"),
+                    true,
+                )
+            })?
             .is_some()
         {
             return child
                 .wait_with_output()
-                .map_err(|err| format!("failed to collect connector `{method}` output: {err}"));
+                .map_err(|err| {
+                    ConnectorError::new(
+                        "wait_failed",
+                        format!("failed to collect connector `{method}` output: {err}"),
+                        true,
+                    )
+                });
         }
 
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!(
-                "connector `{method}` exceeded timeout of {timeout_ms}ms"
+            return Err(ConnectorError::new(
+                "timeout",
+                format!("connector `{method}` exceeded timeout of {timeout_ms}ms"),
+                true,
             ));
         }
 
@@ -126,7 +176,7 @@ fn wait_with_optional_timeout(
 }
 
 impl ConnectorExecutor for ProcessConnectorExecutor {
-    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.configs
             .get(name)
             .map(|config| Self::run(config, name, args))
@@ -349,6 +399,8 @@ mod tests {
 
         let err = executor.call("slow.call", &[]).unwrap().unwrap_err();
 
-        assert!(err.contains("exceeded timeout of 10ms"));
+        assert_eq!(err.code, "timeout");
+        assert!(err.retryable);
+        assert!(err.message.contains("exceeded timeout of 10ms"));
     }
 }
