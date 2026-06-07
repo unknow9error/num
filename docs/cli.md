@@ -99,7 +99,8 @@ selected workflow, final status, trace events, the legacy text `error`, and a
 typed `runtime_error` object when the failure comes from the runtime. Connector
 failures include `runtime_error.kind = "connector_failed"` and a nested
 `connector` object with `method`, stable `code`, human `message`, and
-`retryable`.
+`retryable`. Runtime execution logs are suppressed in JSON mode so stdout is a
+single machine-readable payload.
 
 Current limitations:
 
@@ -109,8 +110,6 @@ Current limitations:
 - arguments are hardcoded for the included demo workflows;
 - configured `[connectors]` process commands run before the demo connector
   fallback;
-- runtime demo logs are still printed by the interpreter before the JSON
-  payload;
 - this is not durable workflow execution.
 
 ### `test`
@@ -500,9 +499,9 @@ report connector processes that exceed that budget. Runtime connector failures
 are classified internally with `code`, `message`, and `retryable` fields so
 process, database, and missing-implementation failures share the same boundary.
 `num run --json` and `num debug --json` expose connector failures in the
-structured `runtime_error.connector` payload. This is not managed connector
-hosting, auth/secrets binding, a silent JSON-only execution mode, or a generated
-network client runtime yet.
+structured `runtime_error.connector` payload, and JSON runtime commands suppress
+demo execution logs on stdout. This is not managed connector hosting,
+auth/secrets binding, or a generated network client runtime yet.
 
 ### `deploy`
 

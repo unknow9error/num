@@ -116,7 +116,7 @@ fn run() -> Result<(), String> {
             let options = parse_run_options(args)?;
             let path = options.path;
             let compilation = compile_checked(&path)?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, !options.format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
 
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
@@ -124,6 +124,7 @@ fn run() -> Result<(), String> {
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
             );
+            runtime.set_output_enabled(!options.format_json);
 
             let workflow_name = demo::first_workflow_name(&compilation.module)
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
@@ -148,7 +149,7 @@ fn run() -> Result<(), String> {
         "test" => {
             let path = required_path(args.next(), "test")?;
             let compilation = compile_checked(&path)?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tests = compilation
                 .module
@@ -206,13 +207,14 @@ fn run() -> Result<(), String> {
         "trace" => {
             let path = required_path(args.next(), "trace")?;
             let compilation = compile_checked(&path)?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, false)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
             );
+            runtime.set_output_enabled(false);
             let workflow_name = demo::first_workflow_name(&compilation.module)
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
             let workflow_args = demo::workflow_args(&workflow_name);
@@ -234,13 +236,14 @@ fn run() -> Result<(), String> {
             let path = required_path(args.next(), "debug")?;
             let options = parse_debug_options(args)?;
             let compilation = compile_checked(&path)?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, !options.format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
             );
+            runtime.set_output_enabled(!options.format_json);
             let workflow_name = options
                 .workflow_name
                 .or_else(|| demo::first_workflow_name(&compilation.module))
@@ -416,13 +419,14 @@ fn run() -> Result<(), String> {
                 return Err(format!("unexpected cost-report argument '{other}'"));
             }
             let compilation = compile_checked(&path)?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, !format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
             );
+            runtime.set_output_enabled(!format_json);
             let workflow_name = demo::first_workflow_name(&compilation.module)
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
             let workflow_args = demo::workflow_args(&workflow_name);
@@ -508,7 +512,7 @@ fn run() -> Result<(), String> {
                 .or_else(|| demo::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let input = demo::route_input(&compilation.module, &service_name, &method, &route_path);
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
 
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
@@ -528,7 +532,7 @@ fn run() -> Result<(), String> {
             let service_name = service_name
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
@@ -557,7 +561,7 @@ fn run() -> Result<(), String> {
                 .service_name
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
-            let connectors = connector_executor_for_path(&path)?;
+            let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
@@ -672,12 +676,20 @@ fn compile_checked(path: &Path) -> Result<Compilation, String> {
     }
 }
 
-fn connector_executor_for_path(path: &Path) -> Result<Arc<dyn ConnectorExecutor>, String> {
+fn connector_executor_for_path(
+    path: &Path,
+    demo_output_enabled: bool,
+) -> Result<Arc<dyn ConnectorExecutor>, String> {
+    let demo = if demo_output_enabled {
+        DemoConnectorExecutor::new()
+    } else {
+        DemoConnectorExecutor::silent()
+    };
     let Some(manifest) = package::PackageManifest::discover(path)? else {
-        return Ok(Arc::new(DemoConnectorExecutor));
+        return Ok(Arc::new(demo));
     };
     if manifest.connectors.is_empty() {
-        return Ok(Arc::new(DemoConnectorExecutor));
+        return Ok(Arc::new(demo));
     }
 
     let configs = manifest
@@ -700,7 +712,7 @@ fn connector_executor_for_path(path: &Path) -> Result<Arc<dyn ConnectorExecutor>
     let process = ProcessConnectorExecutor::new(configs);
     Ok(Arc::new(ChainedConnectorExecutor::new(vec![
         Box::new(process),
-        Box::new(DemoConnectorExecutor),
+        Box::new(demo),
     ])))
 }
 
@@ -1447,7 +1459,7 @@ version = "0.1.0"
         )
         .unwrap();
 
-        let executor = connector_executor_for_path(&root).unwrap();
+        let executor = connector_executor_for_path(&root, true).unwrap();
         let result = executor.call("echo.bool", &[]).unwrap().unwrap();
 
         assert_eq!(result, Value::Bool(true));
