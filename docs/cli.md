@@ -671,6 +671,22 @@ num --version
 The JSON form is intended for CI and release tooling; it includes `cli`,
 `language`, `manifest_schema`, and `lockfile_schema`.
 
+### `release-plan`
+
+Compute the next SemVer release bump from `CHANGELOG.md`.
+
+```bash
+num release-plan
+num release-plan --json
+num release-plan path/to/CHANGELOG.md --json
+```
+
+The command reads the `## Unreleased` section and requires entries under
+SemVer headings: `Major`, `Minor`, or `Patch`. It reports the highest current
+bump and the next version from the current CLI package version. Use it in every
+PR that changes user-visible behavior so the changelog and SemVer impact stay
+aligned before merge.
+
 ### `import openapi`
 
 Generate `.num` type and connector declarations from an OpenAPI JSON document.
