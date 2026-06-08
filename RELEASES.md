@@ -26,6 +26,20 @@ Each package contains:
 
 Use `vMAJOR.MINOR.PATCH` Git tags for public releases.
 
+Every PR with user-visible behavior must classify its unreleased changelog entry
+under `Major`, `Minor`, or `Patch`. `CHANGELOG.md` is the source of truth for
+the next SemVer bump:
+
+- `Major` - incompatible language/runtime/schema behavior or migration-required
+  public contract changes.
+- `Minor` - backward-compatible language, runtime, CLI, registry, deployment, or
+  editor capabilities.
+- `Patch` - bug fixes, diagnostics, docs, CI, packaging, and polish that do not
+  add a new public capability.
+
+Use `num release-plan --json` before merging a PR to verify the current
+unreleased SemVer bump and next version.
+
 The CLI version is read from `language/crates/num-cli/Cargo.toml`. A release
 must keep these public contracts aligned:
 
@@ -52,6 +66,7 @@ cargo build -p num
 export PATH="$PWD/target/debug:$PATH"
 
 num version
+num release-plan
 num check examples/refund_workflow
 num lint examples/refund_workflow
 num test examples/refund_workflow

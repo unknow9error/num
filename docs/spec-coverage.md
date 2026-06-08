@@ -166,6 +166,7 @@ Implemented:
 - `num compat`
 - `num migrate`
 - `num upgrade-version`
+- `num release-plan`
 - `num version`
 - `num registry publish`
 - `num registry list`
@@ -204,6 +205,8 @@ Implemented:
   path/local-registry dependency manifests, with explicit
   `--write-dependencies` application;
 - `num version` CLI/language/manifest-schema/lockfile-schema version reporting;
+- `num release-plan` SemVer bump planning from changelog `Major`/`Minor`/
+  `Patch` sections;
 - `num lock --check` lockfile schema validation, and deploy-time validation
   plus inclusion of `num.lock` in materialized bundles when present;
 - `num lock --migrate` dry-run/write lockfile schema migration for legacy

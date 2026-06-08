@@ -2,13 +2,17 @@
 
 ## Unreleased
 
-### Added
+### Minor
 
 - Workflow lease heartbeat refresh for file-backed durable workers through
   `num workflow lease-heartbeat`.
 - Validated local registry metadata indexes through `num registry index`.
 - Process connector probes through `num connector probe`.
 - Runnable deploy artifact scaffolds for container and Kubernetes targets.
+- SemVer release planning from changelog sections through `num release-plan`.
+
+### Patch
+
 - GitHub-facing project polish: professional README, CI workflow, release
   process guide, improved PR template, and changelog-backed GitHub release
   notes.

@@ -148,6 +148,7 @@ num deploy [project-dir|file] [--apply]
 num compat [project-dir|file] [--json]
 num migrate [project-dir|file] [--write] [--json]
 num upgrade-version [project-dir|file]
+num release-plan [CHANGELOG.md] [--json]
 num lock [project-dir|file] [--check|--migrate]
 num registry <publish|list|index|install>
 num workflow <enqueue|drain|lease-heartbeat>
@@ -194,7 +195,9 @@ Windows packages.
 
 The project uses `CHANGELOG.md` as the source of truth for release notes and
 keeps language, manifest, and lockfile compatibility visible through
-`num version`.
+`num version`. Every user-visible PR should classify its changelog entry under
+`Major`, `Minor`, or `Patch`; `num release-plan --json` computes the current
+unreleased SemVer bump from those sections.
 
 For maintainer steps and compatibility rules, see [RELEASES.md](RELEASES.md).
 

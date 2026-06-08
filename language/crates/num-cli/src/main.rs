@@ -11,6 +11,7 @@ mod package;
 mod project;
 mod registry;
 mod registry_cli;
+mod release_plan;
 mod runtime_config;
 mod sql_schema;
 mod version_upgrade;
@@ -408,6 +409,7 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         "upgrade-version" => version_upgrade_cli::run(args),
+        "release-plan" => print_release_plan(args),
         "version" => print_version(args),
         "cost-report" => {
             let path = required_path(args.next(), "cost-report")?;
@@ -1042,6 +1044,40 @@ fn print_help() {
     println!("{}", help_text());
 }
 
+fn print_release_plan(args: impl Iterator<Item = String>) -> Result<(), String> {
+    let (path, format_json) = parse_release_plan_options(args)?;
+    let plan = release_plan::plan_from_changelog(&path, env!("CARGO_PKG_VERSION"))?;
+    if format_json {
+        let json = serde_json::to_string_pretty(&plan.to_json())
+            .map_err(|err| format!("failed to render release plan JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        print!("{}", plan.render_text());
+    }
+    Ok(())
+}
+
+fn parse_release_plan_options(
+    args: impl Iterator<Item = String>,
+) -> Result<(PathBuf, bool), String> {
+    let mut path = None;
+    let mut format_json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => format_json = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected release-plan argument '{other}'"));
+            }
+            _ if path.is_none() => path = Some(PathBuf::from(arg)),
+            _ => return Err(format!("unexpected release-plan argument '{arg}'")),
+        }
+    }
+    Ok((
+        path.unwrap_or_else(|| PathBuf::from("CHANGELOG.md")),
+        format_json,
+    ))
+}
+
 fn print_version(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     let format_json = match args.next().as_deref() {
         Some("--json") => true,
@@ -1076,7 +1112,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1130,6 +1166,7 @@ _num() {
     'compat:check language/schema compatibility'
     'migrate:plan manifest or source migrations'
     'upgrade-version:plan or apply manifest version upgrades'
+    'release-plan:compute SemVer release bump'
     'version:print CLI/language/schema versions'
     'registry:manage local package registries'
     'workflow:queue and drain durable workflow events'
@@ -1155,7 +1192,7 @@ _num() {
   fi
 
   case "$words[2]" in
-    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|upgrade-version|connector-sdk|cost-report|route|serve|serve-once|lock)
+    check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|upgrade-version|release-plan|connector-sdk|cost-report|route|serve|serve-once|lock)
       _num_num_files
       ;;
     audit-report)
@@ -1341,6 +1378,17 @@ service Api {
             compatibility::CURRENT_MANIFEST_SCHEMA
         );
         assert_eq!(payload["lockfile_schema"], package::CURRENT_LOCKFILE_SCHEMA);
+    }
+
+    #[test]
+    fn release_plan_options_parse_path_and_json_flag() {
+        let (path, format_json) = parse_release_plan_options(
+            ["CHANGELOG.md".to_string(), "--json".to_string()].into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("CHANGELOG.md"));
+        assert!(format_json);
     }
 
     #[test]
