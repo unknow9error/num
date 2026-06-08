@@ -560,15 +560,26 @@ bundle. The bundle includes:
 - `num.toml` - source package manifest;
 - `num.lock` - validated package lockfile, when present;
 - `modules/` - source module snapshot used for compilation;
+- the manifest `[project].source` tree snapshot, so the artifact can be run by
+  the `num` CLI without depending on the original workspace checkout;
 - `manifest.json` - artifact metadata, target profile, environment status, and
   module map;
 - `RUNBOOK.md` - operations boundary, environment status, and handoff notes.
 
+For `[deployment].target = "container"` or compatible targets such as `docker`
+and `oci`, the bundle also includes `deploy/Dockerfile` and
+`deploy/compose.yaml`. The Dockerfile builds from the artifact root and starts
+`num serve . 0.0.0.0:4000 <service>` when `[deployment].service` is set, or
+`num run . --json` for workflow-only artifacts. For `kubernetes`/`k8s` targets,
+the bundle includes `deploy/Dockerfile` and `deploy/kubernetes.yaml` with a
+deployment/service scaffold.
+
 The default bundle directory is derived from `[deployment].artifact` by removing
 the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
-`--replace` to overwrite them. This is deployment artifact materialization, not
-cloud/container execution.
+`--replace` to overwrite them. This is deployment artifact materialization plus
+runtime scaffolding; image publishing, cluster credentials, and cloud rollout
+execution remain external deployment steps.
 
 ### `compat`
 

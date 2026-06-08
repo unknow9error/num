@@ -136,7 +136,8 @@ This repository contains a working production-grade foundation for:
   for durable workflow lifecycle processing;
 - scripted CLI debugger over runtime trace events;
 - deployment plan artifact generation and local/CI deployment bundle
-  materialization from checked projects;
+  materialization from checked projects, with source snapshots and generated
+  container/Kubernetes runtime scaffolds;
 - manifest language/schema version compatibility checks, manifest migration
   planning/application, source migration planning/application with explicit
   module declaration rewrites, manifest version upgrade planning/application,
@@ -160,4 +161,5 @@ include a complete expression type checker, clustered/distributed workflow
 scheduling, managed/network-native connector hosting, remote package registry
 APIs, production git auth/cache hardening, dashboard, interactive debugger,
 full standard library, broader OpenAPI/database imports, async runtime, broader
-automatic source rewrite rules, and cloud/container deployment execution.
+automatic source rewrite rules, and managed image publishing/cluster rollout
+execution.

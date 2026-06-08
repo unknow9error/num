@@ -113,6 +113,7 @@ pub struct DeploymentArtifactReport {
     pub modules_dir: PathBuf,
     pub runbook_path: PathBuf,
     pub metadata_path: PathBuf,
+    pub runtime_artifacts: Vec<String>,
     pub files: Vec<String>,
 }
 
@@ -364,7 +365,15 @@ impl DeploymentTargetProfile {
                 (
                     "container",
                     "external-container-runner",
-                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                    vec![
+                        "num-deploy.json",
+                        "num.toml",
+                        "modules/",
+                        "src/",
+                        "RUNBOOK.md",
+                        "deploy/Dockerfile",
+                        "deploy/compose.yaml",
+                    ],
                 )
             }
             "kubernetes" | "k8s" => {
@@ -383,7 +392,15 @@ impl DeploymentTargetProfile {
                 (
                     "orchestrator",
                     "external-kubernetes-applier",
-                    vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                    vec![
+                        "num-deploy.json",
+                        "num.toml",
+                        "modules/",
+                        "src/",
+                        "RUNBOOK.md",
+                        "deploy/Dockerfile",
+                        "deploy/kubernetes.yaml",
+                    ],
                 )
             }
             "cloud" | "aws" | "gcp" | "azure" => {
@@ -503,6 +520,7 @@ impl DeploymentArtifactReport {
             "modules_dir": self.modules_dir.display().to_string(),
             "runbook_path": self.runbook_path.display().to_string(),
             "metadata_path": self.metadata_path.display().to_string(),
+            "runtime_artifacts": self.runtime_artifacts,
             "files": self.files,
         })
     }
@@ -520,6 +538,12 @@ impl DeploymentArtifactReport {
         }
         out.push_str(&format!("Modules: {}\n", self.modules_dir.display()));
         out.push_str(&format!("Runbook: {}\n", self.runbook_path.display()));
+        if !self.runtime_artifacts.is_empty() {
+            out.push_str(&format!(
+                "Runtime artifacts: {}\n",
+                self.runtime_artifacts.join(", ")
+            ));
+        }
         out.push_str(&format!("Files: {}\n", self.files.len()));
         out
     }
@@ -559,6 +583,7 @@ pub fn materialize_deployment_artifact(
     let lock_path = artifact_root.join("num.lock");
     let metadata_path = artifact_root.join("manifest.json");
     let runbook_path = artifact_root.join("RUNBOOK.md");
+    let mut runtime_artifacts = Vec::new();
 
     write_text(
         &plan_path,
@@ -579,6 +604,7 @@ pub fn materialize_deployment_artifact(
     };
 
     let mut module_entries = Vec::new();
+    let mut source_entries = Vec::new();
     for (index, source_file) in source_files.iter().enumerate() {
         let module_path = modules_dir.join(module_artifact_name(index, &source_file.name));
         write_text(&module_path, &source_file.source, artifact_root, &mut files)?;
@@ -586,7 +612,20 @@ pub fn materialize_deployment_artifact(
             "source": source_file.name,
             "artifact": relative_to(&module_path, artifact_root)?,
         }));
+        if let Some(source_path) = source_artifact_path(manifest, source_file, artifact_root) {
+            write_text(&source_path, &source_file.source, artifact_root, &mut files)?;
+            source_entries.push(json!({
+                "source": source_file.name,
+                "artifact": relative_to(&source_path, artifact_root)?,
+            }));
+        }
     }
+
+    runtime_artifacts.extend(materialize_runtime_artifacts(
+        plan,
+        artifact_root,
+        &mut files,
+    )?);
 
     write_text(
         &metadata_path,
@@ -602,6 +641,8 @@ pub fn materialize_deployment_artifact(
                 "target_profile": plan.target_profile.to_json(),
                 "environment": plan.environment.to_json(),
                 "modules": module_entries,
+                "sources": source_entries,
+                "runtime_artifacts": runtime_artifacts,
                 "plan": relative_to(&plan_path, artifact_root)?,
                 "manifest": relative_to(&manifest_path, artifact_root)?,
                 "lockfile": copied_lock_path
@@ -630,6 +671,7 @@ pub fn materialize_deployment_artifact(
         modules_dir,
         runbook_path,
         metadata_path,
+        runtime_artifacts,
         files,
     })
 }
@@ -759,6 +801,147 @@ fn module_artifact_name(index: usize, source_name: &str) -> String {
     format!("{index:04}-{sanitized}")
 }
 
+fn source_artifact_path(
+    manifest: &PackageManifest,
+    source_file: &SourceFile,
+    artifact_root: &Path,
+) -> Option<PathBuf> {
+    let source_path = Path::new(&source_file.name);
+    let relative = source_path.strip_prefix(&manifest.root).ok()?;
+    Some(artifact_root.join(relative))
+}
+
+fn materialize_runtime_artifacts(
+    plan: &DeploymentPlan,
+    artifact_root: &Path,
+    files: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut artifacts = Vec::new();
+    match plan.target_profile.class.as_str() {
+        "container" => {
+            let dockerfile = artifact_root.join("deploy/Dockerfile");
+            write_text(&dockerfile, &render_dockerfile(plan), artifact_root, files)?;
+            artifacts.push(relative_to(&dockerfile, artifact_root)?);
+
+            let compose = artifact_root.join("deploy/compose.yaml");
+            write_text(&compose, &render_compose(plan), artifact_root, files)?;
+            artifacts.push(relative_to(&compose, artifact_root)?);
+        }
+        "orchestrator" => {
+            let dockerfile = artifact_root.join("deploy/Dockerfile");
+            write_text(&dockerfile, &render_dockerfile(plan), artifact_root, files)?;
+            artifacts.push(relative_to(&dockerfile, artifact_root)?);
+
+            let kubernetes = artifact_root.join("deploy/kubernetes.yaml");
+            write_text(
+                &kubernetes,
+                &render_kubernetes_manifest(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&kubernetes, artifact_root)?);
+        }
+        _ => {}
+    }
+    Ok(artifacts)
+}
+
+fn render_dockerfile(plan: &DeploymentPlan) -> String {
+    let command = runtime_command(plan);
+    format!(
+        "# Generated by num deploy. Build from the deployment artifact root.\n\
+ARG NUM_IMAGE=ghcr.io/unknow9error/num:{}\n\
+FROM $NUM_IMAGE\n\
+WORKDIR /app\n\
+COPY . /app\n\
+ENV NUM_DEPLOY_PLAN=/app/num-deploy.json\n\
+EXPOSE 4000\n\
+CMD [{}]\n",
+        env!("CARGO_PKG_VERSION"),
+        json_string_array(&command)
+    )
+}
+
+fn render_compose(plan: &DeploymentPlan) -> String {
+    let image = runtime_image_name(plan);
+    format!(
+        "services:\n  num:\n    build:\n      context: ..\n      dockerfile: deploy/Dockerfile\n    image: {image}:local\n    ports:\n      - \"4000:4000\"\n    environment:\n      NUM_DEPLOY_PLAN: /app/num-deploy.json\n"
+    )
+}
+
+fn render_kubernetes_manifest(plan: &DeploymentPlan) -> String {
+    let name = kubernetes_name(&plan.package_name);
+    let image = runtime_image_name(plan);
+    let args = runtime_command(plan)
+        .into_iter()
+        .map(|arg| format!("            - {}", yaml_string(&arg)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\n  labels:\n    app.kubernetes.io/name: {name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: {name}\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: {name}\n    spec:\n      containers:\n        - name: num\n          image: {image}:local\n          args:\n{args}\n          ports:\n            - containerPort: 4000\n          env:\n            - name: NUM_DEPLOY_PLAN\n              value: /app/num-deploy.json\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {name}\nspec:\n  selector:\n    app.kubernetes.io/name: {name}\n  ports:\n    - name: http\n      port: 4000\n      targetPort: 4000\n"
+    )
+}
+
+fn runtime_command(plan: &DeploymentPlan) -> Vec<String> {
+    if let Some(service) = &plan.service {
+        vec![
+            "num".to_string(),
+            "serve".to_string(),
+            ".".to_string(),
+            "0.0.0.0:4000".to_string(),
+            service.clone(),
+        ]
+    } else {
+        vec![
+            "num".to_string(),
+            "run".to_string(),
+            ".".to_string(),
+            "--json".to_string(),
+        ]
+    }
+}
+
+fn runtime_image_name(plan: &DeploymentPlan) -> String {
+    format!("num-{}", kubernetes_name(&plan.package_name))
+}
+
+fn kubernetes_name(name: &str) -> String {
+    let mut out = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while out.contains("--") {
+        out = out.replace("--", "-");
+    }
+    out = out.trim_matches('-').to_string();
+    if out.is_empty() {
+        "num-app".to_string()
+    } else {
+        out
+    }
+}
+
+fn json_string_array(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| {
+            serde_json::to_string(item)
+                .unwrap_or_else(|_| format!("\"{}\"", item.replace('"', "\\\"")))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn yaml_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| format!("\"{}\"", value.replace('"', "\\\"")))
+}
+
 fn render_runbook(plan: &DeploymentPlan) -> String {
     let mut out = String::new();
     out.push_str("# num Deployment Runbook\n\n");
@@ -824,11 +1007,27 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
     out.push_str("- `num.toml` source package manifest\n");
     out.push_str("- `num.lock` validated package lockfile, when present\n");
     out.push_str("- `modules/` compiled source module snapshot\n");
+    out.push_str("- source tree snapshot at the manifest `[project].source` path\n");
     out.push_str("- `manifest.json` artifact metadata and module map\n\n");
+    match plan.target_profile.class.as_str() {
+        "container" => {
+            out.push_str("## Container Runtime\n\n");
+            out.push_str(
+                "- `deploy/Dockerfile` builds a runnable Num service image from this artifact\n",
+            );
+            out.push_str("- `deploy/compose.yaml` runs the image locally on port `4000`\n\n");
+        }
+        "orchestrator" => {
+            out.push_str("## Kubernetes Runtime\n\n");
+            out.push_str("- `deploy/Dockerfile` builds the image expected by the manifest\n");
+            out.push_str(
+                "- `deploy/kubernetes.yaml` provides a deployment and service scaffold\n\n",
+            );
+        }
+        _ => {}
+    }
     out.push_str("## Operations Boundary\n\n");
-    out.push_str(
-        "This bundle is a reproducible local/CI deployment artifact. Cloud, container, or Kubernetes execution is intentionally handled by a later deployment executor.\n",
-    );
+    out.push_str("This bundle is a reproducible local/CI deployment artifact with generated runtime scaffolding for supported targets. Production image publishing, cluster credentials, and cloud rollout execution stay outside the artifact boundary.\n");
     out
 }
 
@@ -913,6 +1112,14 @@ service BillingApi {
         assert_eq!(plan.target, "container");
         assert_eq!(plan.target_profile.class, "container");
         assert_eq!(plan.target_profile.execution, "external-container-runner");
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/Dockerfile".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/compose.yaml".to_string()));
         assert!(plan.target_profile.warnings.is_empty());
         assert_eq!(plan.runtime.workflow_store, "file:.num-state");
         assert_eq!(
@@ -1064,7 +1271,20 @@ artifact = "dist/num-deploy.json"
         assert!(report.manifest_path.is_file());
         assert!(report.runbook_path.is_file());
         assert!(report.metadata_path.is_file());
-        assert_eq!(report.files.len(), 5);
+        assert!(artifact_root.join("src/main.num").is_file());
+        assert!(artifact_root.join("deploy/Dockerfile").is_file());
+        assert!(artifact_root.join("deploy/compose.yaml").is_file());
+        assert_eq!(
+            report.runtime_artifacts,
+            vec![
+                "deploy/Dockerfile".to_string(),
+                "deploy/compose.yaml".to_string()
+            ]
+        );
+        assert_eq!(report.files.len(), 8);
+        let compose = fs::read_to_string(artifact_root.join("deploy/compose.yaml")).unwrap();
+        assert!(compose.contains("services:\n  num:\n    build:"));
+        assert!(compose.contains("    environment:\n      NUM_DEPLOY_PLAN: /app/num-deploy.json"));
         assert!(artifact_root
             .join("modules")
             .read_dir()
@@ -1086,6 +1306,12 @@ artifact = "dist/num-deploy.json"
         assert!(fs::read_to_string(&report.metadata_path)
             .unwrap()
             .contains("\"environment\""));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"runtime_artifacts\""));
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("## Container Runtime"));
         assert!(materialize_deployment_artifact(
             &plan,
             &manifest,
@@ -1099,7 +1325,7 @@ artifact = "dist/num-deploy.json"
         let replaced =
             materialize_deployment_artifact(&plan, &manifest, &[source], &artifact_root, true)
                 .unwrap();
-        assert_eq!(replaced.files.len(), 5);
+        assert_eq!(replaced.files.len(), 8);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1148,7 +1374,9 @@ entry = "src/main.num"
             report.to_json()["lock_path"],
             artifact_root.join("num.lock").display().to_string()
         );
-        assert_eq!(report.files.len(), 6);
+        assert!(artifact_root.join("src/main.num").is_file());
+        assert!(report.runtime_artifacts.is_empty());
+        assert_eq!(report.files.len(), 7);
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 &fs::read_to_string(&report.metadata_path).unwrap()
@@ -1156,6 +1384,82 @@ entry = "src/main.num"
             .unwrap()["lockfile"],
             "num.lock"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materializes_kubernetes_runtime_scaffold() {
+        let root = temp_dir("bundle_kubernetes_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.1.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing-api"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+
+[deployment]
+target = "kubernetes"
+service = "BillingApi"
+region = "local"
+"#,
+        )
+        .unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: r#"module app.main
+
+permission IssueRefund
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit("refund")
+    }
+}
+"#
+            .to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/kubernetes.yaml".to_string()));
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.runtime_artifacts,
+            vec![
+                "deploy/Dockerfile".to_string(),
+                "deploy/kubernetes.yaml".to_string()
+            ]
+        );
+        let kubernetes = fs::read_to_string(artifact_root.join("deploy/kubernetes.yaml")).unwrap();
+        assert!(kubernetes.contains("kind: Deployment"));
+        assert!(kubernetes.contains("name: billing-api"));
+        assert!(kubernetes.contains("          args:\n            - \"num\""));
+        assert!(kubernetes.contains("\"BillingApi\""));
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("## Kubernetes Runtime"));
 
         fs::remove_dir_all(root).unwrap();
     }

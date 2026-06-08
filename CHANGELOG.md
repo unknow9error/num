@@ -8,6 +8,7 @@
   `num workflow lease-heartbeat`.
 - Validated local registry metadata indexes through `num registry index`.
 - Process connector probes through `num connector probe`.
+- Runnable deploy artifact scaffolds for container and Kubernetes targets.
 
 ## 0.1.1 - 2026-06-07
 

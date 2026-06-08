@@ -368,6 +368,8 @@ Implemented:
   graphs, including content-hash pins for resolved local-registry packages;
 - deployment plan generation and local/CI deployment bundle materialization
   through `num deploy --apply`;
+- container and Kubernetes deploy scaffolds generated inside deployment bundles
+  for compatible `[deployment].target` values;
 - deployment target profile classification and deploy-time warnings;
 - deployment environment validation metadata through `[environment]`.
 - process connector timeout metadata in manifests, runtime execution, and
@@ -380,4 +382,4 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- deployment execution against cloud/container platforms.
+- image publishing, cluster credential management, and cloud rollout execution.
