@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  rust:
+    name: Rust toolchain
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test
+        run: cargo test
+
+      - name: Build num CLI
+        run: cargo build -p num
+
+      - name: num example smoke checks
+        shell: bash
+        run: |
+          export PATH="$PWD/target/debug:$PATH"
+          num version
+          num check examples/refund_workflow
+          num lint examples/refund_workflow
+          num test examples/refund_workflow
+          num check examples/ai_agent
+          num check examples/policy_guard
+          num check examples/contract_driven_refund
+
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix vscode-extension ci
+
+      - name: Compile extension
+        run: npm --prefix vscode-extension run compile

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/unknow9error/num/tree/main/docs
+    about: Read the language, CLI, architecture, diagnostics, and examples docs.
+  - name: Releases
+    url: https://github.com/unknow9error/num/releases
+    about: Download the latest CLI, VS Code extension, and installer packages.
+  - name: Roadmap
+    url: https://github.com/unknow9error/num/blob/main/ROADMAP.md
+    about: Check the current platform direction before opening a large feature request.

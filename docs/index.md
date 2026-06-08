@@ -1,10 +1,10 @@
 # num Documentation
 
-This directory documents the current v0.1.1 implementation of `num`.
-
-This directory documents the language, compiler, runtime, and tools. The current
-codebase is a production slice toward the full Num specification, so the
-documentation separates implemented behavior from planned language features.
+This directory documents the current v0.1.1 implementation of `num`: language,
+compiler, runtime, CLI, editor tooling, examples, compatibility, and release
+process. The current codebase is a production slice toward the full Num
+specification, so the documentation separates implemented behavior from planned
+language features.
 
 ## Start Here
 
@@ -22,6 +22,8 @@ documentation separates implemented behavior from planned language features.
   language features.
 - [Specification coverage](spec-coverage.md) - implementation status against the
   full Num technical specification.
+- [Release process](../RELEASES.md) - package artifacts, release checklist, and
+  compatibility rules.
 
 ## Supported Local Checks
 

@@ -25,11 +25,15 @@ Run the full local gate before opening a pull request:
 ```bash
 cargo test
 npm --prefix vscode-extension run compile
+
+cargo build -p num
+export PATH="$PWD/target/debug:$PATH"
+
 for dir in examples/*; do
-  cargo run -q --manifest-path language/Cargo.toml -p num -- check "$dir"
-  cargo run -q --manifest-path language/Cargo.toml -p num -- lint "$dir"
-  cargo run -q --manifest-path language/Cargo.toml -p num -- test "$dir"
-  cargo run -q --manifest-path language/Cargo.toml -p num -- compat "$dir"
+  num check "$dir"
+  num lint "$dir"
+  num test "$dir"
+  num compat "$dir"
 done
 ```
 
@@ -42,6 +46,8 @@ Use focused tests while iterating, but keep the full gate green before pushing.
 - Add tests for new syntax, semantic checks, runtime behavior, and CLI behavior.
 - Document the implemented boundary honestly in `docs/spec-coverage.md`.
 - Update `docs/diagnostics.md` when adding or changing diagnostic codes.
+- Update `CHANGELOG.md` for user-visible behavior, tooling, docs, packaging, or
+  compatibility changes.
 - Avoid committing build artifacts, generated release archives, local editor
   paths, or dependency folders.
 
@@ -54,3 +60,8 @@ Each PR should explain:
 - what verification was run;
 - known remaining limitations.
 
+## Releases
+
+Release changes should follow [RELEASES.md](RELEASES.md). Keep the CLI version,
+`num version`, changelog, docs, examples, package contents, and GitHub release
+notes aligned.

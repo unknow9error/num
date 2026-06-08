@@ -1,39 +1,164 @@
 # num
 
-`num` is a Rust-built programming language foundation for safe AI automations,
-backend services, workflows, policies, auditability, permissions, data
-provenance, privacy labels, cost-aware execution, and reversible external
-actions.
+[![CI](https://github.com/unknow9error/num/actions/workflows/ci.yml/badge.svg)](https://github.com/unknow9error/num/actions/workflows/ci.yml)
+[![Release](https://github.com/unknow9error/num/actions/workflows/release.yml/badge.svg)](https://github.com/unknow9error/num/actions/workflows/release.yml)
+[![GitHub release](https://img.shields.io/github/v/release/unknow9error/num?include_prereleases)](https://github.com/unknow9error/num/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](vscode-extension/LICENSE)
+
+`num` is a Rust-built programming language and toolchain for safe AI
+automations, auditable backend workflows, permissioned services, policy-aware
+data movement, cost-aware execution, and reversible external actions.
 
 The language file extension is `.num`.
+
+```num
+module examples.refund_workflow
+
+workflow process_refund(request: RefundRequest) budget 100 KZT rate limit 60 per 1m {
+    require Permission.ViewBilling for current_user
+
+    let payment = payments.find(request.payment_id)
+
+    if request.amount > payment.amount {
+        reject("Refund amount is greater than payment amount")
+        return
+    }
+
+    let risk: Uncertain<RiskLevel> = ai.assess_refund_risk(request)
+
+    if risk.confidence < 0.85 {
+        require_human_approval(
+            action: "issue_refund",
+            reason: "Low AI confidence"
+        )
+        return
+    }
+
+    complete_refund(payment, request)
+}
+```
 
 ## Status
 
 This repository implements the v0.1.1 production slice of the larger Num
-language specification. It is a working compiler/runtime/editor foundation, not
-the full industrial language described in the full technical specification.
+language specification. It includes a working compiler, CLI, runtime foundation,
+language server, VS Code extension, package/deploy tooling, and example
+projects.
 
-For the precise implementation boundary, see
+It is not yet the full industrial platform described in the complete technical
+specification. The exact implemented boundary is tracked in
 [docs/spec-coverage.md](docs/spec-coverage.md).
 
-## Repository Layout
+## Install
 
-- `language/` - Rust implementation of the language toolchain:
-  `num-compiler`, `num-runtime`, `num-lsp`, and the `num` CLI.
-- `vscode-extension/` - VS Code extension for `.num` files.
-- `examples/` - Standalone example projects written in `num`.
-- `docs/` - Language and architecture documentation.
+Download the latest package for your platform from
+[GitHub Releases](https://github.com/unknow9error/num/releases). Each release
+contains:
+
+- the `num` CLI and language server;
+- a VS Code extension package;
+- macOS/Linux and Windows installer scripts;
+- shell completion support for zsh on macOS/Linux.
+
+macOS and Linux:
+
+```bash
+tar -xzf num-<version>-<platform>.tar.gz
+cd num-<version>-<platform>
+./install.sh
+```
+
+Windows PowerShell:
+
+```powershell
+Expand-Archive .\num-<version>-windows-x64.zip
+cd .\num-<version>-windows-x64
+.\install.ps1
+```
+
+From source:
+
+```bash
+cargo build -p num
+export PATH="$PWD/target/debug:$PATH"
+num version
+```
 
 ## Quick Start
 
+Check, lint, test, inspect, run, and route the bundled refund workflow:
+
 ```bash
-num check examples/refund_workflow/src/main.num
-num check examples/refund_workflow/src
-num fmt examples/refund_workflow/src/main.num
+num check examples/refund_workflow
+num lint examples/refund_workflow
+num test examples/refund_workflow
 num ir examples/refund_workflow/src/main.num
-num run examples/refund_workflow/src/main.num
-num route examples/refund_workflow/src POST /refunds
+num run examples/refund_workflow
+num route examples/refund_workflow POST /refunds
 ```
+
+Create a new project:
+
+```bash
+num new hello-num
+cd hello-num
+num check .
+num test .
+```
+
+Materialize a deploy bundle from a project manifest:
+
+```bash
+num deploy examples/refund_workflow --apply
+```
+
+## What num Provides Today
+
+- Parser, AST, formatter, IR lowering, diagnostics, and semantic checks for the
+  implemented `.num` language surface.
+- Multi-file module checks with `use <module.path>` resolution.
+- Permissions, roles, policies, privacy labels, provenance labels, audit
+  requirements, high-risk action checks, and AI uncertainty checks.
+- Typed connectors, services, routes, functions, workflows, actions, enums,
+  branded aliases, `Option<T>`, `Result<T,E>`, and selected expression typing.
+- Lightweight runtime execution for demo workflows, service route dry-runs,
+  tests, traces, scripted debugging, audit reports, workflow reports, and cost
+  reports.
+- File-backed workflow state, event queue draining, worker leases, retries,
+  dead-letter handling, and lease heartbeat refresh.
+- Manifest compatibility, migration, version upgrade, lockfile, local registry,
+  package integrity, connector SDK, OpenAPI import, SQL import, and deployment
+  artifact commands.
+- VS Code syntax, snippets, diagnostics, completion, hover, formatting, and
+  document symbols through the bundled language server.
+
+## Commands
+
+The `num` CLI is the main public surface:
+
+```bash
+num check <file.num|dir>
+num lint <file.num|dir>
+num fmt <file.num>
+num test <file.num|dir>
+num run <file.num|dir> [--json]
+num route <file.num|dir> <METHOD> <PATH>
+num serve <file.num|dir> [addr] [service]
+num deploy [project-dir|file] [--apply]
+num compat [project-dir|file] [--json]
+num migrate [project-dir|file] [--write] [--json]
+num upgrade-version [project-dir|file]
+num lock [project-dir|file] [--check|--migrate]
+num registry <publish|list|index|install>
+num workflow <enqueue|drain|lease-heartbeat>
+num connector <probe>
+num connector-sdk [project-dir|file]
+num import openapi <json> [module]
+num import sql <schema.sql> [module]
+num lsp
+```
+
+See [docs/cli.md](docs/cli.md) for the complete command reference.
 
 ## Documentation
 
@@ -44,122 +169,66 @@ num route examples/refund_workflow/src POST /refunds
 - [Diagnostics](docs/diagnostics.md)
 - [Examples](docs/examples.md)
 - [Project configuration](docs/project-configuration.md)
+- [Migration guides](docs/migration-guides.md)
 - [VS Code extension](docs/vscode-extension.md)
 - [Specification coverage](docs/spec-coverage.md)
+- [Release process](RELEASES.md)
 
-## Contributing and Roadmap
+## Repository Layout
 
-- [Roadmap](ROADMAP.md)
-- [Contributing guide](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
+- `language/` - Rust workspace for `num-compiler`, `num-runtime`, `num-lsp`,
+  and the `num` CLI.
+- `vscode-extension/` - VS Code extension for `.num` files.
+- `examples/` - Standalone `.num` projects used as executable documentation.
+- `docs/` - Language, CLI, architecture, diagnostics, and compatibility docs.
+- `scripts/release/` - Installer scripts and release package documentation.
+- `.github/` - CI, release workflow, issue templates, PR template, and
+  ownership metadata.
 
-## Packaging
+## Releases
 
-Build an installer archive for the current platform:
+Release artifacts are published through
+[GitHub Releases](https://github.com/unknow9error/num/releases) from `v*` tags.
+Each release is expected to include Linux, macOS Intel, macOS Apple Silicon, and
+Windows packages.
+
+The project uses `CHANGELOG.md` as the source of truth for release notes and
+keeps language, manifest, and lockfile compatibility visible through
+`num version`.
+
+For maintainer steps and compatibility rules, see [RELEASES.md](RELEASES.md).
+
+## Contributing
+
+Contributions should keep the language surface, runtime behavior, CLI,
+diagnostics, docs, examples, and release notes aligned.
+
+Start with:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [ROADMAP.md](ROADMAP.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+
+Run the local gate before opening a pull request:
 
 ```bash
-bash scripts/package-current-platform.sh
+cargo test
+npm --prefix vscode-extension ci
+npm --prefix vscode-extension run compile
+
+cargo build -p num
+export PATH="$PWD/target/debug:$PATH"
+
+num check examples/refund_workflow
+num lint examples/refund_workflow
+num test examples/refund_workflow
+num check examples/ai_agent
+num check examples/policy_guard
+num check examples/contract_driven_refund
 ```
 
-The archive is written to `dist/releases/` and includes the `num` CLI, the VS Code
-extension VSIX, and platform installer scripts. Cross-platform release artifacts
-are produced by `.github/workflows/release.yml` for Linux, macOS, and Windows.
+## License
 
-## Current Production Slice
-
-This repository contains a working production-grade foundation for:
-
-- lexer with spans and diagnostics;
-- parser and AST for modules, imports, permissions, roles, policies, types,
-  enums, functions, workflows, actions, connectors, and services;
-- structured and generic type declarations, structural aliases, union aliases,
-  and nominal `Brand<T,"Tag">` aliases;
-- semantic checker for duplicate declarations, unknown permissions/types,
-  privacy leaks, secrets logging, AI uncertainty, required permissions, and
-  high-risk action audit;
-- multi-file program checks that resolve `use <module.path>` against checked
-  `.num` files;
-- linked multi-file entry modules for demo `run`, `route`, `serve`, and
-  `serve-once` commands;
-- `num.toml` project manifests with `source` and `entry` fields used by CLI
-  project commands;
-- typed connector method schemas with call arity/type/result checks;
-- typed service route schemas with input, route permission, and body checks;
-- expression AST/parser for literals, calls, member access, arithmetic,
-  ordering comparisons, equality comparisons, and boolean operators;
-- expression type checks for connector results, struct fields, arithmetic,
-  `Money<C>` rules, ordering, equality, and boolean operands;
-- guarded `Option<T>.value` access through `if option.is_some` and
-  `if option.is_none { ... } else { ... }` flow checks;
-- `Some(...)` inference and `Some(...)` / `None` constructors in typed
-  `Option<T>` contexts;
-- guarded `Result<T,E>.value` and `.error` access through `is_ok` / `is_err`
-  flow checks;
-- `Ok(...)` and `Err(...)` constructors in typed `Result<T,E>` contexts;
-- `Result<T,E>?` unwrap and compatible error propagation checks;
-- non-generic branded alias constructors such as `PaymentId("pay_1")`;
-- `var` assignment statements with mutability and type checks;
-- enum payload variants, unique enum variant constructor inference,
-  context-typed enum variant constructors, and payload match bindings;
-- enum and union alias `match` statements with arm validation,
-  exhaustiveness checks, simple binding narrowing for union arms, and
-  structured union member destructuring;
-- typed direct `fn`/`workflow`/`action` call arity, argument, and result checks;
-- typed `return` checks against declared callable result types;
-- exhaustive return-path analysis for typed callables;
-- IR lowering;
-- CLI commands: `check`, `fmt`, `ir`, `run`, `route`, `serve`, `serve-once`,
-  `deploy`, `compat`, `migrate`, `upgrade-version`, `version`, `registry`,
-  `workflow`, `connector-sdk`, `new`, `completions`, and `lsp`;
-- runtime contracts for workflow/action/audit/cost state;
-- file-backed workflow state store and audit JSONL sink;
-- workflow lifecycle engine with persisted start/wait/resume/complete/fail/
-  compensate/cancel transitions;
-- a lightweight interpreter for demo workflows, service route dry-runs, and a
-  persistent HTTP service route listener with typed JSON body decoding;
-- connector execution interface, static registry, manifest-configured process
-  connector execution, direct process connector probes, and a demo connector
-  executor for bundled examples;
-- TypeScript connector implementation SDK generation from checked `.num`
-  connector schemas;
-- action execution wrapper and demo interpreter support for timeout/retry
-  metadata, idempotency replay, and cost-limit checks;
-- runtime cost ledger with demo interpreter pre-authorization and charging of
-  successful action `cost` metadata;
-- workflow, function, and service `budget` metadata enforced by hierarchical
-  demo interpreter budget scopes;
-- workflow and service `rate limit` metadata enforced by the demo interpreter
-  rate limiter;
-- file-backed workflow event enqueue/drain tooling with worker leases, lease
-  heartbeat refresh, retries, dead-letter handling, and a batch worker report
-  for durable workflow lifecycle processing;
-- scripted CLI debugger over runtime trace events;
-- deployment plan artifact generation and local/CI deployment bundle
-  materialization from checked projects, with source snapshots and generated
-  container/Kubernetes runtime scaffolds;
-- manifest language/schema version compatibility checks, manifest migration
-  planning/application, source migration planning/application with explicit
-  module declaration rewrites, manifest version upgrade planning/application,
-  graph-aware dependency version upgrade reports, and fixture-backed
-  compatibility matrix coverage;
-- released migration guide coverage for manifest metadata and source module
-  declaration rewrites;
-- local filesystem registry publish/list/index/install workflow for package
-  ecosystem development, with generated package metadata, API-ready indexes,
-  and integrity hashes;
-- deterministic transitive `num.lock` pinning for resolved path/local-registry
-  dependency graphs, with explicit lockfile schema validation, migration, and
-  compatibility matrix coverage, plus git dependency commit pinning in
-  lockfiles and git package source discovery;
-- LSP diagnostics, completions, hover, formatting, and document symbols;
-- VS Code syntax, snippets, commands, and language configuration;
-- separate example projects.
-
-Major features from the full Num specification that are not implemented yet
-include a complete expression type checker, clustered/distributed workflow
-scheduling, managed/network-native connector hosting, remote package registry
-APIs, production git auth/cache hardening, dashboard, interactive debugger,
-full standard library, broader OpenAPI/database imports, async runtime, broader
-automatic source rewrite rules, and managed image publishing/cluster rollout
-execution.
+The repository is MIT licensed. The VS Code extension package includes the
+license file at [vscode-extension/LICENSE](vscode-extension/LICENSE).
