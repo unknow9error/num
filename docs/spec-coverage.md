@@ -307,6 +307,8 @@ Implemented:
   connector fallback;
 - manifest-configured process connector timeout budgets with runtime
   process termination and deploy-plan metadata;
+- deploy artifact source-tree snapshots plus generated Docker Compose and
+  Kubernetes runtime scaffolds for container/orchestrator targets;
 - connector error taxonomy at the runtime executor boundary with stable
   `code`, `message`, and `retryable` fields;
 - machine-readable connector failure reports in `num run --json` and
