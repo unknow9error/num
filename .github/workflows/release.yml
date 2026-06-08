@@ -56,9 +56,28 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v version="$tag" '
+            $0 ~ "^## " version "([[:space:]-]|$)" { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            {
+              echo "num ${GITHUB_REF_NAME}"
+              echo
+              echo "See CHANGELOG.md for the current release history."
+            } > RELEASE_NOTES.md
+          fi
 
       - name: Publish
         env:
@@ -66,4 +85,4 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" artifacts/**/num-* \
             --title "${GITHUB_REF_NAME}" \
-            --notes "num CLI and VS Code extension release."
+            --notes-file RELEASE_NOTES.md
