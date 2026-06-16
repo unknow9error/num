@@ -2,7 +2,7 @@
 
 `num` is a statically checked workflow and backend language foundation focused
 on operational safety. This reference documents the syntax and semantics
-implemented by v0.1.1.
+implemented by v0.2.0.
 
 ## Files
 
@@ -942,7 +942,7 @@ type checks.
 
 ## Expressions
 
-v0.1.1 has an expression AST for the supported operational subset.
+v0.2.0 has an expression AST for the supported operational subset.
 
 Supported expression forms:
 
@@ -1109,7 +1109,7 @@ workflow main(token: Secret<Text>) {
 }
 ```
 
-Audit logging is treated separately from ordinary `log` in v0.1.1. High-risk
+Audit logging is treated separately from ordinary `log` in v0.2.0. High-risk
 actions are required to call `audit`.
 
 The runtime exposes a `SecretStore` contract plus memory and file-backed stores
@@ -1121,7 +1121,7 @@ KMS, or cloud secret-store integrations are not implemented yet.
 The current implementation has an expression AST for the supported subset above,
 but it is not a complete general-purpose expression language yet.
 
-This means v0.1.1 does not yet implement:
+This means v0.2.0 does not yet implement:
 
 - assignment flow analysis beyond supported expression result checks;
 - overload resolution;

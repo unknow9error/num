@@ -761,7 +761,7 @@ version = "0.1.0"
     #[test]
     fn rejects_version_downgrade() {
         let source = r#"[language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 

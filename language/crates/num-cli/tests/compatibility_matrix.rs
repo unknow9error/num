@@ -72,8 +72,8 @@ fn current_manifest_is_compatible() {
     let report = stdout_json(&output);
 
     assert_eq!(report[0]["status"], "compatible");
-    assert_eq!(report[0]["language"]["version"], "0.1.0");
-    assert_eq!(report[0]["language"]["current"], "0.1.1");
+    assert_eq!(report[0]["language"]["version"], "0.2.0");
+    assert_eq!(report[0]["language"]["current"], "0.2.0");
     assert_eq!(report[0]["manifest"]["schema"], 1);
     assert_eq!(report[0]["manifest"]["current_schema"], 1);
 }
@@ -276,13 +276,13 @@ fn future_language_is_rejected_and_not_downgraded_by_upgrade_version() {
 
     let compat = run_num(&["compat", &project_arg, "--json"]);
     assert!(!compat.status.success());
-    assert!(stderr(&compat).contains("requires language 0.2.0"));
+    assert!(stderr(&compat).contains("requires language 0.3.0"));
     let compat_report = stdout_json_unchecked(&compat);
     assert_eq!(compat_report[0]["status"], "incompatible");
     assert!(compat_report[0]["reason"]
         .as_str()
         .unwrap()
-        .contains("requires language 0.2.0"));
+        .contains("requires language 0.3.0"));
 
     let upgrade = run_num(&["upgrade-version", &project_arg, "--json"]);
     assert!(!upgrade.status.success());
