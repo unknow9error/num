@@ -206,7 +206,7 @@ mod tests {
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.1.1"
+version = "0.2.0"
 compatibility = "minor"
 manifest_schema = 1
 

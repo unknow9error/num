@@ -1,6 +1,6 @@
 # num Architecture
 
-This document describes the v0.1.1 repository architecture and the boundary
+This document describes the v0.2.0 repository architecture and the boundary
 between implemented components and planned Num platform work.
 
 ## Pipeline

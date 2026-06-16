@@ -505,7 +505,7 @@ shared = {{ path = "{}", version = "0.2.0" }}
             shared.join("num.toml"),
             r#"
 [language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 
 [project]
@@ -524,7 +524,7 @@ entry = "src/domain.num"
 
         let err = load_program_input(&root).unwrap_err();
 
-        assert!(err.contains("requires language 0.2.0"));
+        assert!(err.contains("requires language 0.3.0"));
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();
     }
