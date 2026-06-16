@@ -18,6 +18,8 @@
   notes.
 - Release workflow validation now runs once before packaging, and macOS Intel
   packaging uses the supported `macos-15-intel` runner.
+- README badges now use CI, tag-based version, and license signals so the
+  project header does not show stale release workflow or empty-release errors.
 
 ## 0.1.1 - 2026-06-07
 
