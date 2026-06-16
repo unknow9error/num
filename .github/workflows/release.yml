@@ -7,8 +7,32 @@ on:
       - "v*"
 
 jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Test Rust workspace
+        run: cargo test
+
+      - name: Compile VS Code extension
+        run: |
+          npm --prefix vscode-extension ci
+          npm --prefix vscode-extension run compile
+
   package:
     name: Package ${{ matrix.label }}
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -16,7 +40,7 @@ jobs:
         include:
           - os: ubuntu-latest
             label: linux-x64
-          - os: macos-13
+          - os: macos-15-intel
             label: macos-x64
           - os: macos-14
             label: macos-arm64
@@ -33,10 +57,6 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
-
-      - name: Test
-        shell: bash
-        run: cargo test
 
       - name: Package
         shell: bash
