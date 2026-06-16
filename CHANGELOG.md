@@ -16,6 +16,8 @@
 - GitHub-facing project polish: professional README, CI workflow, release
   process guide, improved PR template, and changelog-backed GitHub release
   notes.
+- Release workflow validation now runs once before packaging, and macOS Intel
+  packaging uses the supported `macos-15-intel` runner.
 
 ## 0.1.1 - 2026-06-07
 
