@@ -66,7 +66,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: num-${{ matrix.label }}
-          path: dist/releases/num-*
+          path: |
+            dist/releases/num-*.tar.gz
+            dist/releases/num-*.zip
 
   github-release:
     name: Publish GitHub Release
@@ -103,6 +105,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" artifacts/**/num-* \
+          gh release create "${GITHUB_REF_NAME}" artifacts/**/*.tar.gz artifacts/**/*.zip \
             --title "${GITHUB_REF_NAME}" \
             --notes-file RELEASE_NOTES.md

@@ -24,6 +24,8 @@
   packaging uses the supported `macos-15-intel` runner.
 - README badges now use CI, tag-based version, and license signals so the
   project header does not show stale release workflow or empty-release errors.
+- Release artifact upload now publishes only generated archive files instead
+  of matching package staging directories.
 - Release v0.2.0 version metadata and package artifacts.
 
 ## 0.1.1 - 2026-06-07
