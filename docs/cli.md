@@ -459,6 +459,7 @@ num registry publish examples/refund_workflow --registry /tmp/num-registry --dry
 num registry list --registry /tmp/num-registry
 num registry index --registry /tmp/num-registry --json
 num registry install refund-workflow 0.1.1 --registry /tmp/num-registry --to vendor/num
+num registry install refund-workflow latest --registry /tmp/num-registry --to vendor/num
 ```
 
 `publish` validates the package manifest, collects package source files, copies
@@ -469,13 +470,16 @@ output directories such as `.git`, `target`, `node_modules`, `.num-state`, and
 `dist`. Existing package versions are protected by default; pass `--replace` to
 overwrite a published local version.
 
-`list` reads package/version directories that contain `num.toml`. `index`
+`list` reads package/version directories that contain `num.toml` and sorts
+versions with SemVer precedence instead of lexicographic string order. `index`
 validates each package metadata file and emits a stable machine-readable package
 index with name, version, language version, manifest schema, content hash,
-metadata path, and file count. `install` copies a published package from the
-registry into `<install-root>/<name>/<version>/`. When registry metadata exists,
-`install` verifies the content hash before copying and writes the metadata into
-the installed package too. The default install root is `.num/packages`. These
+metadata path, and file count, also in SemVer order. `install` copies a
+published package from the registry into `<install-root>/<name>/<version>/`; the
+special version `latest` resolves to the highest SemVer-compatible local
+registry version before copying. When registry metadata exists, `install`
+verifies the content hash before copying and writes the metadata into the
+installed package too. The default install root is `.num/packages`. These
 commands are local registry tooling for development and private package
 workflows; `index` is the current API-ready metadata surface, while remote
 download/publish service endpoints are still platform work.

@@ -10,6 +10,8 @@
 - Process connector probes through `num connector probe`.
 - Runnable deploy artifact scaffolds for container and Kubernetes targets.
 - SemVer release planning from changelog sections through `num release-plan`.
+- SemVer-aware local registry version ordering and `latest` install resolution
+  through `num registry`.
 
 ### Patch
 

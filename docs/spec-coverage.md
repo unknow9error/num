@@ -218,7 +218,8 @@ Implemented:
   schema migrations;
 - local filesystem registry publish/list/index/install workflow for package
   development and private package sharing, including package metadata,
-  API-ready package indexes, and content-hash verification;
+  SemVer-aware version ordering, `latest` install resolution, API-ready package
+  indexes, and content-hash verification;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, including content-hash pins for resolved local-registry
   packages;

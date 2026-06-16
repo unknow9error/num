@@ -2,6 +2,7 @@ use crate::compatibility::validate_manifest;
 use crate::integrity::{bytes_hash, ContentHasher};
 use crate::package::{DependencySource, PackageDependency, PackageManifest};
 use serde_json::{json, Value};
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -223,22 +224,27 @@ impl LocalRegistry {
         dry_run: bool,
         replace: bool,
     ) -> Result<InstallReport, String> {
+        let package_version = if version == "latest" {
+            self.latest_version(name)?
+        } else {
+            version.to_string()
+        };
         let dependency = PackageDependency {
             name: name.to_string(),
-            version: version.to_string(),
+            version: package_version.clone(),
             source: DependencySource::Registry,
         };
-        let manifest = self
-            .resolve(&dependency)?
-            .ok_or_else(|| format!("registry dependency `{name}` version `{version}` not found"))?;
+        let manifest = self.resolve(&dependency)?.ok_or_else(|| {
+            format!("registry dependency `{name}` version `{package_version}` not found")
+        })?;
         validate_manifest(&manifest)?;
         let metadata = validate_registry_metadata(&manifest.root, &manifest)?;
-        let target_root = install_root.join(name).join(version);
+        let target_root = install_root.join(name).join(&package_version);
         let files = collect_package_files(&manifest.root)?;
         let metadata_path = target_root.join(REGISTRY_METADATA_FILE);
         if target_root.exists() && !replace {
             return Err(format!(
-                "installed package {name} {version} already exists at {}; pass --replace to overwrite it",
+                "installed package {name} {package_version} already exists at {}; pass --replace to overwrite it",
                 target_root.display()
             ));
         }
@@ -268,7 +274,7 @@ impl LocalRegistry {
 
         Ok(InstallReport {
             package_name: name.to_string(),
-            package_version: version.to_string(),
+            package_version,
             registry_root: self.root.clone(),
             source_root: manifest.root,
             install_root: target_root,
@@ -311,7 +317,7 @@ impl LocalRegistry {
                     versions.push(version.to_string());
                 }
             }
-            versions.sort();
+            sort_registry_versions(&mut versions);
             if !versions.is_empty() {
                 packages.push(RegistryPackage { name, versions });
             }
@@ -367,7 +373,8 @@ impl LocalRegistry {
                     metadata_path: package_root.join(REGISTRY_METADATA_FILE),
                 });
             }
-            versions.sort_by(|left, right| left.version.cmp(&right.version));
+            versions
+                .sort_by(|left, right| compare_registry_versions(&left.version, &right.version));
             if !versions.is_empty() {
                 packages.push(RegistryIndexPackage { name, versions });
             }
@@ -379,6 +386,158 @@ impl LocalRegistry {
             packages,
         })
     }
+
+    fn latest_version(&self, name: &str) -> Result<String, String> {
+        let package_root = self.root.join(name);
+        if !package_root.is_dir() {
+            return Err(format!(
+                "registry package `{name}` was not found at {}",
+                package_root.display()
+            ));
+        }
+
+        let mut versions = Vec::new();
+        for entry in fs::read_dir(&package_root)
+            .map_err(|err| format!("failed to read registry package `{name}`: {err}"))?
+        {
+            let entry = entry.map_err(|err| format!("failed to read version entry: {err}"))?;
+            if !entry.path().join("num.toml").is_file() {
+                continue;
+            }
+            if let Some(version) = entry.file_name().to_str() {
+                if RegistrySemVer::parse(version).is_some() {
+                    versions.push(version.to_string());
+                }
+            }
+        }
+        sort_registry_versions(&mut versions);
+        versions
+            .pop()
+            .ok_or_else(|| format!("registry package `{name}` has no SemVer-compatible versions"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistrySemVer {
+    major: u64,
+    minor: u64,
+    patch: u64,
+    pre: Vec<PrereleaseIdentifier>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PrereleaseIdentifier {
+    Numeric(u64),
+    Text(String),
+}
+
+impl RegistrySemVer {
+    fn parse(version: &str) -> Option<Self> {
+        let public = version.split_once('+').map_or(version, |(left, _)| left);
+        let (core, pre) = public
+            .split_once('-')
+            .map_or((public, ""), |(core, pre)| (core, pre));
+        let mut parts = core.split('.');
+        let major = parse_numeric_identifier(parts.next()?)?;
+        let minor = parse_numeric_identifier(parts.next()?)?;
+        let patch = parse_numeric_identifier(parts.next()?)?;
+        if parts.next().is_some() {
+            return None;
+        }
+        let pre = if pre.is_empty() {
+            Vec::new()
+        } else {
+            pre.split('.')
+                .map(parse_prerelease_identifier)
+                .collect::<Option<Vec<_>>>()?
+        };
+        Some(Self {
+            major,
+            minor,
+            patch,
+            pre,
+        })
+    }
+}
+
+impl Ord for RegistrySemVer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.major
+            .cmp(&other.major)
+            .then_with(|| self.minor.cmp(&other.minor))
+            .then_with(|| self.patch.cmp(&other.patch))
+            .then_with(|| compare_prerelease(&self.pre, &other.pre))
+    }
+}
+
+impl PartialOrd for RegistrySemVer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrereleaseIdentifier {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Numeric(left), Self::Numeric(right)) => left.cmp(right),
+            (Self::Numeric(_), Self::Text(_)) => Ordering::Less,
+            (Self::Text(_), Self::Numeric(_)) => Ordering::Greater,
+            (Self::Text(left), Self::Text(right)) => left.cmp(right),
+        }
+    }
+}
+
+impl PartialOrd for PrereleaseIdentifier {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn parse_numeric_identifier(raw: &str) -> Option<u64> {
+    if raw.is_empty() || (raw.len() > 1 && raw.starts_with('0')) {
+        return None;
+    }
+    raw.parse().ok()
+}
+
+fn parse_prerelease_identifier(raw: &str) -> Option<PrereleaseIdentifier> {
+    if raw.is_empty() {
+        return None;
+    }
+    if raw.chars().all(|ch| ch.is_ascii_digit()) {
+        parse_numeric_identifier(raw).map(PrereleaseIdentifier::Numeric)
+    } else if raw
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
+        Some(PrereleaseIdentifier::Text(raw.to_string()))
+    } else {
+        None
+    }
+}
+
+fn compare_prerelease(left: &[PrereleaseIdentifier], right: &[PrereleaseIdentifier]) -> Ordering {
+    match (left.is_empty(), right.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => left.cmp(right),
+    }
+}
+
+fn compare_registry_versions(left: &str, right: &str) -> Ordering {
+    match (RegistrySemVer::parse(left), RegistrySemVer::parse(right)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => left.cmp(right),
+    }
+}
+
+fn sort_registry_versions(versions: &mut [String]) {
+    versions.sort_by(|left, right| {
+        compare_registry_versions(left, right).then_with(|| left.cmp(right))
+    });
 }
 
 impl PublishReport {
@@ -940,6 +1099,41 @@ entry = "src/lib.num"
     }
 
     #[test]
+    fn install_latest_resolves_highest_semver_registry_version() {
+        let registry_root = temp_registry_dir("install_latest_registry");
+        write_package(
+            &registry_root.join("shared").join("1.2.10"),
+            "shared",
+            "1.2.10",
+        );
+        write_package(
+            &registry_root.join("shared").join("1.10.0-alpha.1"),
+            "shared",
+            "1.10.0-alpha.1",
+        );
+        write_package(
+            &registry_root.join("shared").join("1.10.0"),
+            "shared",
+            "1.10.0",
+        );
+        let install_root = temp_registry_dir("install_latest_target");
+        let registry = LocalRegistry::new(&registry_root);
+
+        let report = registry
+            .install("shared", "latest", &install_root, false, false)
+            .unwrap();
+
+        assert_eq!(report.package_version, "1.10.0");
+        assert!(install_root
+            .join("shared")
+            .join("1.10.0")
+            .join("num.toml")
+            .is_file());
+        fs::remove_dir_all(registry_root).unwrap();
+        fs::remove_dir_all(install_root).unwrap();
+    }
+
+    #[test]
     fn install_rejects_package_when_registry_metadata_hash_does_not_match() {
         let package_root = temp_registry_dir("integrity_package");
         let registry_root = temp_registry_dir("integrity_registry");
@@ -976,9 +1170,14 @@ entry = "src/lib.num"
             "1.2.3",
         );
         write_package(
-            &registry_root.join("shared").join("1.3.0"),
+            &registry_root.join("shared").join("1.10.0"),
             "shared",
-            "1.3.0",
+            "1.10.0",
+        );
+        write_package(
+            &registry_root.join("shared").join("1.2.10"),
+            "shared",
+            "1.2.10",
         );
         write_package(&registry_root.join("core").join("0.1.0"), "core", "0.1.0");
         let registry = LocalRegistry::new(&registry_root);
@@ -986,26 +1185,38 @@ entry = "src/lib.num"
         let report = registry.list().unwrap();
 
         assert_eq!(report.packages[0].name, "core");
-        assert_eq!(report.packages[1].versions, vec!["1.2.3", "1.3.0"]);
+        assert_eq!(
+            report.packages[1].versions,
+            vec!["1.2.3", "1.2.10", "1.10.0"]
+        );
         assert_eq!(report.to_json()["packages"][0]["name"], "core");
-        assert!(report.render_text().contains("shared: 1.2.3, 1.3.0"));
+        assert!(report
+            .render_text()
+            .contains("shared: 1.2.3, 1.2.10, 1.10.0"));
         fs::remove_dir_all(registry_root).unwrap();
     }
 
     #[test]
     fn indexes_registry_package_metadata() {
-        let package_root = temp_registry_dir("index_package");
         let registry_root = temp_registry_dir("index_registry");
-        write_package(&package_root, "shared", "1.2.3");
-        let manifest = PackageManifest::discover(&package_root).unwrap().unwrap();
+        write_package(
+            &registry_root.join("shared").join("1.2.3"),
+            "shared",
+            "1.2.3",
+        );
+        write_package(
+            &registry_root.join("shared").join("1.2.10"),
+            "shared",
+            "1.2.10",
+        );
         let registry = LocalRegistry::new(&registry_root);
-        registry.publish(&manifest, false, false).unwrap();
 
         let report = registry.index().unwrap();
 
         assert_eq!(report.schema, 1);
         assert_eq!(report.packages[0].name, "shared");
         assert_eq!(report.packages[0].versions[0].version, "1.2.3");
+        assert_eq!(report.packages[0].versions[1].version, "1.2.10");
         assert_eq!(report.packages[0].versions[0].language, "0.1.0");
         assert_eq!(report.packages[0].versions[0].manifest_schema, 1);
         assert!(report.packages[0].versions[0]
@@ -1018,7 +1229,6 @@ entry = "src/lib.num"
         assert!(report.render_text().contains("shared"));
         assert!(report.render_text().contains("hash=sha256:"));
 
-        fs::remove_dir_all(package_root).unwrap();
         fs::remove_dir_all(registry_root).unwrap();
     }
 
