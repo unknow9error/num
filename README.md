@@ -1,8 +1,7 @@
 # num
 
 [![CI](https://github.com/unknow9error/num/actions/workflows/ci.yml/badge.svg)](https://github.com/unknow9error/num/actions/workflows/ci.yml)
-[![Release](https://github.com/unknow9error/num/actions/workflows/release.yml/badge.svg)](https://github.com/unknow9error/num/actions/workflows/release.yml)
-[![GitHub release](https://img.shields.io/github/v/release/unknow9error/num?include_prereleases)](https://github.com/unknow9error/num/releases)
+[![Version](https://img.shields.io/github/v/tag/unknow9error/num?label=version)](https://github.com/unknow9error/num/tags)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](vscode-extension/LICENSE)
 
 `num` is a Rust-built programming language and toolchain for safe AI
