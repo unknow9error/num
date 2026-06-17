@@ -14,6 +14,7 @@ num check examples/ai_agent/src/main.num
 num check examples/policy_guard/src/main.num
 num check examples/contract_driven_refund/src/main.num
 num check examples/async_tasks/src/main.num
+num check examples/connector_echo_pipeline
 ```
 
 ## `refund_workflow`
@@ -128,6 +129,28 @@ Useful command:
 
 ```bash
 num check examples/async_tasks/src/main.num
+```
+
+## `connector_echo_pipeline`
+
+Path: `examples/connector_echo_pipeline/`
+
+Demonstrates:
+
+- `.num` connector declarations as the source contract;
+- manifest-configured process connector execution;
+- a Python connector implementation that reads runtime JSON from stdin;
+- `num connector probe` as the connector smoke test;
+- generated TypeScript declarations for JavaScript/TypeScript consumers.
+
+Useful commands:
+
+```bash
+num check examples/connector_echo_pipeline
+num connector probe examples/connector_echo_pipeline echo.reply --arg '"hello"' --json
+num connector-sdk examples/connector_echo_pipeline \
+  --out examples/connector_echo_pipeline/generated/connectors.d.ts
+num run examples/connector_echo_pipeline
 ```
 
 ## Adding an Example
