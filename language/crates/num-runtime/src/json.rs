@@ -39,7 +39,13 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
             .ok_or_else(|| format!("expected number for {raw}")),
         _ if raw.starts_with("Money<") => money_from_json(raw, json),
         _ if raw.starts_with("Brand<") => brand_from_json(module, raw, json),
-        _ if raw.starts_with("Distance<") || raw.starts_with("Duration<") || raw.starts_with("Speed<") => quantity_from_json(raw, json),
+        _ if raw.starts_with("Secret<") => secret_from_json(module, raw, json),
+        _ if raw.starts_with("Distance<")
+            || raw.starts_with("Duration<")
+            || raw.starts_with("Speed<") =>
+        {
+            quantity_from_json(raw, json)
+        }
         _ if raw.starts_with("Option<") => {
             if json.is_null() {
                 Ok(Value::Null)
@@ -50,6 +56,18 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
         }
         _ => declared_value_from_json(module, raw, json),
     }
+}
+
+fn secret_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Value, String> {
+    let inner = raw
+        .strip_prefix("Secret<")
+        .and_then(|value| value.strip_suffix('>'))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("invalid secret type '{raw}'"))?
+        .to_string();
+    value_from_json(module, &TypeRef { raw: inner }, json)
+        .map(|value| Value::Secret(Box::new(value)))
 }
 
 fn route_input_type(

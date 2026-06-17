@@ -1030,7 +1030,7 @@ fn workflow_run_json(
     serde_json::json!({
         "workflow": workflow,
         "status": if result.is_ok() { "completed" } else { "failed" },
-        "error": result.as_ref().err(),
+        "error": result.as_ref().err().map(|error| num_runtime::redaction::redact_text(error)),
         "runtime_error": runtime_error.map(num_runtime::RuntimeError::to_json),
         "trace": trace.iter().map(|event| event.to_json()).collect::<Vec<_>>(),
     })

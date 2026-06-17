@@ -14,6 +14,12 @@
 - Added `num bench` for checked-in lexer/parser/checker benchmark fixtures with
   stable JSON output suitable for CI artifacts.
 
+### Patch
+
+- Redacted `Secret<T>` values and secret-like connector failures from runtime
+  trace/debug JSON, structured connector errors, process connector JSON
+  conversion, and service error responses.
+
 ## 0.3.0 - 2026-06-17
 
 ### Minor

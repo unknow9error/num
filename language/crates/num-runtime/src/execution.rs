@@ -1,5 +1,5 @@
 use crate::interpreter::Value;
-use crate::{ActionSpec, Money, RuntimeError};
+use crate::{redaction, ActionSpec, Money, RuntimeError};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -230,7 +230,9 @@ fn enforce_cost(action: &ActionSpec, actual_cost: Option<Money>) -> Result<(), R
 fn is_retryable(error: &RuntimeError) -> bool {
     match error {
         RuntimeError::ConnectorFailed { retryable, .. } => *retryable,
-        RuntimeError::ActionFailed { .. } | RuntimeError::Timeout { .. } | RuntimeError::Storage(_) => true,
+        RuntimeError::ActionFailed { .. }
+        | RuntimeError::Timeout { .. }
+        | RuntimeError::Storage(_) => true,
         _ => false,
     }
 }
@@ -249,20 +251,28 @@ fn error_message(error: &RuntimeError) -> String {
         }
         RuntimeError::Timeout { action } => format!("timeout: {action}"),
         RuntimeError::ActionFailed { action, reason } => {
-            format!("action failed: {action}: {reason}")
+            format!(
+                "action failed: {action}: {}",
+                redaction::redact_text(reason)
+            )
         }
         RuntimeError::ConnectorFailed {
             method,
             code,
             message,
             retryable,
-        } => format!("connector failed: {method}: {code}: retryable={retryable}: {message}"),
-        RuntimeError::SanitizationFailed { reason } => format!("sanitization failed: {reason}"),
+        } => format!(
+            "connector failed: {method}: {code}: retryable={retryable}: {}",
+            redaction::redact_text(message)
+        ),
+        RuntimeError::SanitizationFailed { reason } => {
+            format!("sanitization failed: {}", redaction::redact_text(reason))
+        }
         RuntimeError::TenantIsolationViolation { expected, actual } => {
             format!("tenant isolation violation: expected {expected}, actual {actual}")
         }
         RuntimeError::SecretNotFound { name } => format!("secret not found: {name}"),
-        RuntimeError::Storage(message) => format!("storage: {message}"),
+        RuntimeError::Storage(message) => format!("storage: {}", redaction::redact_text(message)),
     }
 }
 
@@ -327,6 +337,7 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Brand(name, inner) => {
             json!({"kind": "Brand", "name": name, "value": runtime_value_to_json(inner)})
         }
+        Value::Secret(_) => json!({"kind": "Secret", "value": redaction::REDACTION_MARKER}),
         Value::Uncertain(inner, confidence) => {
             json!({"kind": "Uncertain", "value": runtime_value_to_json(inner), "confidence": confidence})
         }
@@ -372,6 +383,9 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                     .ok_or_else(|| storage_error("missing brand value"))?,
             )?),
         )),
+        "Secret" => Ok(Value::Secret(Box::new(Value::String(
+            redaction::REDACTION_MARKER.to_string(),
+        )))),
         "Uncertain" => Ok(Value::Uncertain(
             Box::new(json_to_runtime_value(
                 value

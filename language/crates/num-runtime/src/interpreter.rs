@@ -6,7 +6,7 @@ use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimiter};
-use crate::{ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext};
+use crate::{redaction, ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext};
 use num_compiler::ast::{
     Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
 };
@@ -44,6 +44,7 @@ pub enum Value {
     String(String),
     Money(i128, String),
     Brand(String, Box<Value>),
+    Secret(Box<Value>),
     Uncertain(Box<Value>, f64),
     List(Vec<Value>),
     Struct(String, HashMap<String, Value>),
@@ -61,6 +62,7 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
+            Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
             Value::Uncertain(val, conf) => write!(f, "Uncertain({}, confidence: {:.2})", val, conf),
             Value::List(items) => {
                 write!(f, "[")?;
@@ -191,6 +193,7 @@ fn value_to_idempotency_key(value: Value) -> String {
         Value::Brand(name, value) => {
             format!("{name}:{}", value_to_idempotency_key(*value))
         }
+        Value::Secret(_) => redaction::REDACTION_MARKER.to_string(),
         Value::Uncertain(value, confidence) => {
             format!("{}:{confidence}", value_to_idempotency_key(*value))
         }
@@ -392,7 +395,8 @@ impl<'a> Runtime<'a> {
     fn enter_budget_scope(&mut self, scope: impl Into<String>, raw: Option<&str>) -> bool {
         if let Some(budget) = parse_money_limit(raw) {
             let scope = scope.into();
-            runtime_println!(self,
+            runtime_println!(
+                self,
                 "  [BUDGET] {} limit set to {}.{:02} {}",
                 scope,
                 budget.minor_units / 100,
@@ -417,9 +421,12 @@ impl<'a> Runtime<'a> {
                 self.rate_limits
                     .check(scope.to_string(), limit)
                     .map_err(runtime_error_to_string)?;
-                runtime_println!(self,
+                runtime_println!(
+                    self,
                     "  [RATE LIMIT] {} allows {} per {:?}",
-                    scope, limit.max_requests, limit.window
+                    scope,
+                    limit.max_requests,
+                    limit.window
                 );
             }
         }
@@ -505,12 +512,17 @@ impl<'a> Runtime<'a> {
                 if !self.saga_rollbacks.is_empty() {
                     runtime_println!(self, "\n=== Initiating Saga Compensations (Rollbacks) ===");
                     for rollback_expr in self.saga_rollbacks.clone().iter().rev() {
-                        runtime_println!(self,
+                        runtime_println!(
+                            self,
                             "  [ROLLBACK] Executing compensation: {}",
                             rollback_expr.text
                         );
                         if let Err(rollback_err) = self.eval_expr(rollback_expr) {
-                            runtime_println!(self, "    [WARNING] Compensation failed: {}", rollback_err);
+                            runtime_println!(
+                                self,
+                                "    [WARNING] Compensation failed: {}",
+                                rollback_err
+                            );
                         }
                     }
                 }
@@ -540,9 +552,12 @@ impl<'a> Runtime<'a> {
         path: &str,
         input: Option<Value>,
     ) -> Result<(), String> {
-        runtime_println!(self,
+        runtime_println!(
+            self,
             "\n=== Starting Service Route: {} {} {} ===",
-            service_name, method, path
+            service_name,
+            method,
+            path
         );
         self.trace(
             RuntimeTraceKind::ServiceRouteStarted,
@@ -716,7 +731,11 @@ impl<'a> Runtime<'a> {
                 let value = self.eval_expr(&assert_stmt.expr)?;
                 match value {
                     Value::Bool(true) => {
-                        runtime_println!(self, "  [ASSERT] {} passed", assert_stmt.expr.text.trim());
+                        runtime_println!(
+                            self,
+                            "  [ASSERT] {} passed",
+                            assert_stmt.expr.text.trim()
+                        );
                         Ok(ExecSignal::Continue)
                     }
                     Value::Bool(false) => Err(format!(
@@ -727,7 +746,8 @@ impl<'a> Runtime<'a> {
                 }
             }
             Stmt::ExpectPolicy(expect_stmt) => {
-                runtime_println!(self,
+                runtime_println!(
+                    self,
                     "  [POLICY EXPECTATION] {} verified by compiler",
                     match expect_stmt.outcome {
                         num_compiler::ast::PolicyExpectation::Allow => "allow",
@@ -751,7 +771,10 @@ impl<'a> Runtime<'a> {
                         "expected workflow failure for `{label}`, but it succeeded"
                     )),
                     (num_compiler::ast::WorkflowExpectation::Failure, Err(err)) => {
-                        runtime_println!(self, "  [WORKFLOW EXPECTATION] {label} failed as expected: {err}");
+                        runtime_println!(
+                            self,
+                            "  [WORKFLOW EXPECTATION] {label} failed as expected: {err}"
+                        );
                         Ok(ExecSignal::Continue)
                     }
                 }
@@ -819,16 +842,32 @@ impl<'a> Runtime<'a> {
                     self.in_saga = was_saga;
                     match res {
                         Ok(signal) => {
-                            runtime_println!(self, "  [SAGA] Completed transaction saga block successfully");
+                            runtime_println!(
+                                self,
+                                "  [SAGA] Completed transaction saga block successfully"
+                            );
                             Ok(signal)
                         }
                         Err(err) => {
-                            runtime_println!(self, "  [SAGA] Transaction saga block failed: {}. Initiating rollbacks.", err);
-                            let rollbacks_to_run: Vec<RawExpr> = self.saga_rollbacks.drain(pre_rollbacks_len..).collect();
+                            runtime_println!(
+                                self,
+                                "  [SAGA] Transaction saga block failed: {}. Initiating rollbacks.",
+                                err
+                            );
+                            let rollbacks_to_run: Vec<RawExpr> =
+                                self.saga_rollbacks.drain(pre_rollbacks_len..).collect();
                             for rollback_expr in rollbacks_to_run.into_iter().rev() {
-                                runtime_println!(self, "  [SAGA] Rolling back: {}", rollback_expr.text);
+                                runtime_println!(
+                                    self,
+                                    "  [SAGA] Rolling back: {}",
+                                    rollback_expr.text
+                                );
                                 if let Err(rollback_err) = self.eval_expr(&rollback_expr) {
-                                    runtime_println!(self, "  [SAGA] Rollback execution failed: {}", rollback_err);
+                                    runtime_println!(
+                                        self,
+                                        "  [SAGA] Rollback execution failed: {}",
+                                        rollback_err
+                                    );
                                 }
                             }
                             Err(err)
@@ -856,7 +895,8 @@ impl<'a> Runtime<'a> {
                         ))
                     }
                 };
-                runtime_println!(self,
+                runtime_println!(
+                    self,
                     "  [IF] Condition '{}' evaluated to {}",
                     if_stmt.condition.text.trim(),
                     truth
@@ -1070,9 +1110,16 @@ impl<'a> Runtime<'a> {
                 eval_binary(*op, left, right)
             }
             Expr::Quantity(value, unit) => {
-                let parsed_val = value.parse::<f64>().map_err(|err| format!("Invalid quantity float value '{value}': {err}"))?;
-                if num_compiler::builtins::symbol(unit).is_some_and(|sym| sym.kind == num_compiler::builtins::BuiltinKind::Currency) {
-                    Ok(Value::Money((parsed_val * 100.0).round() as i128, unit.clone()))
+                let parsed_val = value
+                    .parse::<f64>()
+                    .map_err(|err| format!("Invalid quantity float value '{value}': {err}"))?;
+                if num_compiler::builtins::symbol(unit)
+                    .is_some_and(|sym| sym.kind == num_compiler::builtins::BuiltinKind::Currency)
+                {
+                    Ok(Value::Money(
+                        (parsed_val * 100.0).round() as i128,
+                        unit.clone(),
+                    ))
                 } else {
                     Ok(Value::Quantity(parsed_val, unit.clone()))
                 }
@@ -1105,9 +1152,11 @@ impl<'a> Runtime<'a> {
             return Ok(None);
         };
 
-        runtime_println!(self,
+        runtime_println!(
+            self,
             "  [METHOD CALL] Executing method {} on {}",
-            method_name, type_name
+            method_name,
+            type_name
         );
         let budget_scope = self.enter_budget_scope(
             format!("method:{type_name}:{method_name}"),
@@ -1224,7 +1273,8 @@ impl<'a> Runtime<'a> {
         match name {
             "require_human_approval" | "require_human_review" => {
                 let action = args.first().cloned().unwrap_or(Value::Null);
-                runtime_println!(self,
+                runtime_println!(
+                    self,
                     "    [HUMAN REVIEW] Requested approval for action: {}",
                     action
                 );
@@ -1254,7 +1304,12 @@ impl<'a> Runtime<'a> {
                 let event = args.first().cloned().unwrap_or(Value::Null).to_string();
                 let context = args.get(1).map(ToString::to_string);
                 if let Some(context) = &context {
-                    runtime_println!(self, "    [AUDIT] Logged audit event: {} {}", event, context);
+                    runtime_println!(
+                        self,
+                        "    [AUDIT] Logged audit event: {} {}",
+                        event,
+                        context
+                    );
                 } else {
                     runtime_println!(self, "    [AUDIT] Logged audit event: {}", event);
                 }
@@ -1307,14 +1362,17 @@ impl<'a> Runtime<'a> {
                         error.code, error.retryable
                     )),
                 );
+                let error = redaction::redact_connector_error(&error, &connector_context, &args);
                 let runtime_error = connector_error_to_runtime_error(name, error);
                 self.last_error = Some(runtime_error.clone());
                 runtime_error_to_string(runtime_error)
             });
         }
         if self.is_declared_connector_call(name) {
-            let runtime_error =
-                connector_error_to_runtime_error(name, ConnectorError::missing_implementation(name));
+            let runtime_error = connector_error_to_runtime_error(
+                name,
+                ConnectorError::missing_implementation(name),
+            );
             self.last_error = Some(runtime_error.clone());
             return Err(runtime_error_to_string(runtime_error));
         }
@@ -1323,7 +1381,8 @@ impl<'a> Runtime<'a> {
         let decl = match self.module.declarations.iter().find(|d| d.name() == name) {
             Some(d) => d,
             None => {
-                runtime_print!(self,
+                runtime_print!(
+                    self,
                     "    [MOCK CALL] Calling external function/action '{}' with args: [",
                     name
                 );
@@ -1358,7 +1417,10 @@ impl<'a> Runtime<'a> {
 
                 // Check audit for high-risk action
                 if action.risk >= num_compiler::ast::Risk::High {
-                    runtime_println!(self, "    [TRACE] High-risk action checks for audit logs...");
+                    runtime_println!(
+                        self,
+                        "    [TRACE] High-risk action checks for audit logs..."
+                    );
                 }
 
                 // Bind parameters
@@ -1384,7 +1446,11 @@ impl<'a> Runtime<'a> {
                 let execution = executor
                     .execute(&action_spec, retry, None, |attempt| {
                         if attempt > 1 {
-                            runtime_println!(self, "    [RETRY] Attempt {attempt} for action: {}", action.name);
+                            runtime_println!(
+                                self,
+                                "    [RETRY] Attempt {attempt} for action: {}",
+                                action.name
+                            );
                         }
                         if let Some(cost) = &action_spec.max_cost {
                             self.costs.authorize(cost)?;
@@ -1401,7 +1467,8 @@ impl<'a> Runtime<'a> {
                 let execution_res: Result<(), String> = (|| {
                     let execution = execution?;
                     if execution.replayed {
-                        runtime_println!(self,
+                        runtime_println!(
+                            self,
                             "    [IDEMPOTENCY] Replayed action result for {}",
                             action.name
                         );
@@ -1410,7 +1477,8 @@ impl<'a> Runtime<'a> {
                             .charge(action.name.clone(), cost.clone())
                             .map_err(runtime_error_to_string)?;
                         let total = self.costs.spent(&cost.currency);
-                        runtime_println!(self,
+                        runtime_println!(
+                            self,
                             "    [COST] Charged {}.{} {}; total {}.{} {}",
                             cost.minor_units / 100,
                             format!("{:02}", cost.minor_units.abs() % 100),
@@ -1424,9 +1492,16 @@ impl<'a> Runtime<'a> {
                     // If inside a saga, register rollback compensation
                     if self.in_saga {
                         if let Some(rollback_str) = &action.rollback {
-                            runtime_println!(self, "    [SAGA] Registered compensation template: {}", rollback_str);
+                            runtime_println!(
+                                self,
+                                "    [SAGA] Registered compensation template: {}",
+                                rollback_str
+                            );
                             let parsed = expr::parse(rollback_str).map_err(|err| {
-                                format!("Could not parse rollback expression '{}': {}", rollback_str, err.message)
+                                format!(
+                                    "Could not parse rollback expression '{}': {}",
+                                    rollback_str, err.message
+                                )
                             })?;
 
                             let evaluated_rollback_str = match &parsed {
@@ -1436,12 +1511,21 @@ impl<'a> Runtime<'a> {
                                         let val = self.eval_parsed_expr(arg)?;
                                         evaluated_args.push(value_to_literal_str(&val));
                                     }
-                                    let callee_path = callee.path().ok_or_else(|| "Rollback callee must be a path".to_string())?.join(".");
+                                    let callee_path = callee
+                                        .path()
+                                        .ok_or_else(|| {
+                                            "Rollback callee must be a path".to_string()
+                                        })?
+                                        .join(".");
                                     format!("{}({})", callee_path, evaluated_args.join(", "))
                                 }
                                 _ => rollback_str.clone(),
                             };
-                            runtime_println!(self, "    [SAGA] Registered evaluated compensation: {}", evaluated_rollback_str);
+                            runtime_println!(
+                                self,
+                                "    [SAGA] Registered evaluated compensation: {}",
+                                evaluated_rollback_str
+                            );
 
                             self.saga_rollbacks.push(RawExpr {
                                 text: evaluated_rollback_str,
@@ -1677,35 +1761,59 @@ fn eval_arithmetic(op: &str, left: Value, right: Value) -> Result<Value, String>
             "+" if left_unit == right_unit => Ok(Value::Quantity(left + right, left_unit)),
             "-" if left_unit == right_unit => Ok(Value::Quantity(left - right, left_unit)),
             "*" => {
-                if (left_unit == "km/h" && right_unit == "h") || (left_unit == "KilometersPerHour" && right_unit == "Hour") {
-                    let res_unit = if left_unit == "km/h" { "km" } else { "Kilometer" };
+                if (left_unit == "km/h" && right_unit == "h")
+                    || (left_unit == "KilometersPerHour" && right_unit == "Hour")
+                {
+                    let res_unit = if left_unit == "km/h" {
+                        "km"
+                    } else {
+                        "Kilometer"
+                    };
                     Ok(Value::Quantity(left * right, res_unit.to_string()))
-                } else if (left_unit == "h" && right_unit == "km/h") || (left_unit == "Hour" && right_unit == "KilometersPerHour") {
+                } else if (left_unit == "h" && right_unit == "km/h")
+                    || (left_unit == "Hour" && right_unit == "KilometersPerHour")
+                {
                     let res_unit = if left_unit == "h" { "km" } else { "Kilometer" };
                     Ok(Value::Quantity(left * right, res_unit.to_string()))
                 } else {
-                    Err(format!("Cannot multiply quantity unit {left_unit} by {right_unit}"))
+                    Err(format!(
+                        "Cannot multiply quantity unit {left_unit} by {right_unit}"
+                    ))
                 }
             }
             "/" => {
-                if (left_unit == "km" && right_unit == "h") || (left_unit == "Kilometer" && right_unit == "Hour") {
-                    let res_unit = if left_unit == "km" { "km/h" } else { "KilometersPerHour" };
+                if (left_unit == "km" && right_unit == "h")
+                    || (left_unit == "Kilometer" && right_unit == "Hour")
+                {
+                    let res_unit = if left_unit == "km" {
+                        "km/h"
+                    } else {
+                        "KilometersPerHour"
+                    };
                     Ok(Value::Quantity(left / right, res_unit.to_string()))
-                } else if (left_unit == "km" && right_unit == "km/h") || (left_unit == "Kilometer" && right_unit == "KilometersPerHour") {
+                } else if (left_unit == "km" && right_unit == "km/h")
+                    || (left_unit == "Kilometer" && right_unit == "KilometersPerHour")
+                {
                     let res_unit = if left_unit == "km" { "h" } else { "Hour" };
                     Ok(Value::Quantity(left / right, res_unit.to_string()))
                 } else if left_unit == right_unit {
                     Ok(Value::Float(left / right))
                 } else {
-                    Err(format!("Cannot divide quantity unit {left_unit} by {right_unit}"))
+                    Err(format!(
+                        "Cannot divide quantity unit {left_unit} by {right_unit}"
+                    ))
                 }
             }
-            _ => Err(format!("Cannot apply {op} to quantities with units {left_unit} and {right_unit}")),
+            _ => Err(format!(
+                "Cannot apply {op} to quantities with units {left_unit} and {right_unit}"
+            )),
         },
         (Value::Money(left, left_currency), Value::Money(right, right_currency)) => match op {
             "+" if left_currency == right_currency => Ok(Value::Money(left + right, left_currency)),
             "-" if left_currency == right_currency => Ok(Value::Money(left - right, left_currency)),
-            _ => Err(format!("Cannot apply {op} to Money with currencies {left_currency} and {right_currency}")),
+            _ => Err(format!(
+                "Cannot apply {op} to Money with currencies {left_currency} and {right_currency}"
+            )),
         },
         (Value::Quantity(left, unit), Value::Int(right)) => match op {
             "*" => Ok(Value::Quantity(left * (right as f64), unit)),
@@ -1940,6 +2048,7 @@ fn value_to_literal_str(val: &Value) -> String {
             format!("{} {}", amount, unit)
         }
         Value::Brand(_, inner) => value_to_literal_str(inner),
+        Value::Secret(_) => format!("\"{}\"", redaction::REDACTION_MARKER),
         Value::Uncertain(inner, _) => value_to_literal_str(inner),
         Value::List(items) => {
             let mut parts = Vec::new();
@@ -1962,6 +2071,6 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Enum(name, variant, payload) => match payload {
             Some(p) => format!("{}::{}({})", name, variant, value_to_literal_str(p)),
             None => format!("{}::{}", name, variant),
-        }
+        },
     }
 }

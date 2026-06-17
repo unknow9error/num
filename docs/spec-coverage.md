@@ -289,6 +289,9 @@ Implemented:
   preventing duplicate lifecycle audit output and invalid terminal transition
   reapplication for already processed queue events;
 - memory and file-backed secret stores with redacted secret value debug output;
+- runtime redaction of `Secret<T>` values and secret-like connector failures in
+  trace/debug JSON, structured runtime errors, process connector JSON
+  conversion, and service error responses;
 - memory and file-backed workflow event queues;
 - file-backed worker ownership leases, lease heartbeat refresh, retry attempts,
   stale lease recovery, and dead-letter event handling;
@@ -321,7 +324,8 @@ Implemented:
 - connector error taxonomy at the runtime executor boundary with stable
   `code`, `message`, and `retryable` fields;
 - machine-readable connector failure reports in `num run --json` and
-  `num debug --json` through `runtime_error.connector`;
+  `num debug --json` through `runtime_error.connector`, with secret values
+  rendered as `<redacted>`;
 - silent JSON stdout for runtime reporting commands (`run --json`, `trace`,
   `debug --json`, and `cost-report --json`);
 - TypeScript connector implementation SDK generation from checked connector

@@ -16,6 +16,7 @@ pub mod json;
 pub mod observability;
 pub mod process_connectors;
 pub mod rate_limit;
+pub mod redaction;
 pub mod sanitization;
 pub mod secrets;
 pub mod service;
@@ -262,23 +263,26 @@ impl RuntimeError {
             RuntimeError::Timeout { action } => {
                 format!("Timeout while executing action '{action}'")
             }
-            RuntimeError::ActionFailed { reason, .. } => reason.clone(),
+            RuntimeError::ActionFailed { reason, .. } => redaction::redact_text(reason),
             RuntimeError::ConnectorFailed {
                 method,
                 code,
                 message,
                 retryable,
             } => format!(
-                "Connector '{method}' failed [{code}, retryable={retryable}]: {message}"
+                "Connector '{method}' failed [{code}, retryable={retryable}]: {}",
+                redaction::redact_text(message)
             ),
             RuntimeError::SanitizationFailed { reason } => {
-                format!("Sanitization failed: {reason}")
+                format!("Sanitization failed: {}", redaction::redact_text(reason))
             }
             RuntimeError::TenantIsolationViolation { expected, actual } => {
                 format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
             }
             RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
-            RuntimeError::Storage(message) => format!("Storage error: {message}"),
+            RuntimeError::Storage(message) => {
+                format!("Storage error: {}", redaction::redact_text(message))
+            }
         }
     }
 
@@ -314,7 +318,7 @@ impl RuntimeError {
                 "kind": self.kind(),
                 "message": self.message(),
                 "action": action,
-                "reason": reason,
+                "reason": redaction::redact_text(reason),
             }),
             RuntimeError::ConnectorFailed {
                 method,
@@ -327,14 +331,14 @@ impl RuntimeError {
                 "connector": {
                     "method": method,
                     "code": code,
-                    "message": message,
+                    "message": redaction::redact_text(message),
                     "retryable": retryable,
                 },
             }),
             RuntimeError::SanitizationFailed { reason } => serde_json::json!({
                 "kind": self.kind(),
                 "message": self.message(),
-                "reason": reason,
+                "reason": redaction::redact_text(reason),
             }),
             RuntimeError::TenantIsolationViolation { expected, actual } => serde_json::json!({
                 "kind": self.kind(),
@@ -537,6 +541,47 @@ workflow main() {
         let res = runtime.run_workflow("main", HashMap::new());
 
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_runtime_redacts_secret_connector_failures() {
+        let source = r#"
+module test.secret
+
+connector secrets {
+    send(token: Secret<Text> from Vault secret) -> Unit
+}
+
+workflow main(token: Secret<Text> from Vault secret) {
+    secrets.send(token)
+}
+"#;
+        let compilation = compile("test.num", source);
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register("secrets.send", |args| {
+            let Some(Value::Secret(inner)) = args.first() else {
+                return Err("missing secret".to_string());
+            };
+            Err(format!("upstream echoed {}", inner))
+        });
+        let mut runtime = Runtime::with_connectors(&compilation.module, vec![], Box::new(registry));
+        let mut args = HashMap::new();
+        args.insert(
+            "token".to_string(),
+            Value::Secret(Box::new(Value::String("sk_live_runtime".to_string()))),
+        );
+
+        let result = runtime.run_workflow("main", args);
+
+        let error = result.unwrap_err();
+        assert!(error.contains("<redacted>"));
+        assert!(!error.contains("sk_live_runtime"));
+        let runtime_error = runtime.last_error().unwrap().to_json();
+        assert_eq!(
+            runtime_error["connector"]["message"],
+            "upstream echoed \"<redacted>\""
+        );
+        assert!(!runtime_error.to_string().contains("sk_live_runtime"));
     }
 
     #[test]
@@ -1272,7 +1317,10 @@ workflow main() {
             .contains("Connector implementation missing"));
         let error = runtime.last_error().unwrap();
         assert_eq!(error.kind(), "connector_failed");
-        assert_eq!(error.to_json()["connector"]["code"], "missing_implementation");
+        assert_eq!(
+            error.to_json()["connector"]["code"],
+            "missing_implementation"
+        );
         assert_eq!(error.to_json()["connector"]["retryable"], false);
     }
 
@@ -1551,7 +1599,11 @@ workflow main() {
 }
 "#;
         let compilation = compile("test.num", source);
-        assert!(compilation.diagnostics.is_empty(), "Diagnostics: {:?}", compilation.diagnostics);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
         let mut runtime = Runtime::new(&compilation.module, vec![]);
         let res = runtime.run_workflow("main", HashMap::new());
         assert!(res.is_ok(), "Run workflow failed: {:?}", res);
@@ -1585,7 +1637,11 @@ workflow main() {
 }
 "#;
         let compilation = compile("test.num", source);
-        assert!(compilation.diagnostics.is_empty(), "Diagnostics: {:?}", compilation.diagnostics);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
         let mut runtime = Runtime::new(&compilation.module, vec![]);
         let res = runtime.run_workflow("main", HashMap::new());
         assert!(res.is_ok(), "Run workflow failed: {:?}", res);
@@ -1620,30 +1676,44 @@ workflow main() {
 }
 "#;
         let compilation = compile("test.num", source);
-        assert!(compilation.diagnostics.is_empty(), "Diagnostics: {:?}", compilation.diagnostics);
-        
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+
         let charges = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let charges_handler = charges.clone();
         let refunds = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let refunds_handler = refunds.clone();
-        
+
         let mut registry = StaticConnectorRegistry::new();
         registry.register("payment.charge", move |args| {
-            charges_handler.borrow_mut().push(args.first().unwrap().clone());
+            charges_handler
+                .borrow_mut()
+                .push(args.first().unwrap().clone());
             Ok(Value::Null)
         });
         registry.register("payment.refund", move |args| {
-            refunds_handler.borrow_mut().push(args.first().unwrap().clone());
+            refunds_handler
+                .borrow_mut()
+                .push(args.first().unwrap().clone());
             Ok(Value::Null)
         });
-        
+
         let mut runtime = Runtime::with_connectors(&compilation.module, vec![], Box::new(registry));
         let res = runtime.run_workflow("main", HashMap::new());
         assert!(res.is_err(), "Saga should fail");
-        
+
         assert_eq!(charges.borrow().len(), 1);
         assert_eq!(refunds.borrow().len(), 1);
-        assert_eq!(charges.borrow()[0], Value::Money(1500000, "KZT".to_string()));
-        assert_eq!(refunds.borrow()[0], Value::Money(1500000, "KZT".to_string()));
+        assert_eq!(
+            charges.borrow()[0],
+            Value::Money(1500000, "KZT".to_string())
+        );
+        assert_eq!(
+            refunds.borrow()[0],
+            Value::Money(1500000, "KZT".to_string())
+        );
     }
 }
