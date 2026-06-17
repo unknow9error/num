@@ -11,6 +11,8 @@
   connector contract, manifest process connector execution through Python,
   direct connector probing, and generated TypeScript implementation types for
   JavaScript consumers.
+- Added `num bench` for checked-in lexer/parser/checker benchmark fixtures with
+  stable JSON output suitable for CI artifacts.
 
 ## 0.3.0 - 2026-06-17
 

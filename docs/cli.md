@@ -699,6 +699,27 @@ or version upgrades are visible before they break project compatibility.
 resolved dependency manifests too. Project version bumps remain scoped to the
 workspace package, even in dependency graph mode.
 
+### `bench`
+
+Measure lexer, parser, and checker cost for checked-in benchmark fixture
+projects.
+
+```bash
+num bench
+num bench --json
+num bench --iterations 10 --json
+num bench language/crates/num-cli/tests/fixtures/benchmarks/medium --json
+```
+
+Without an explicit path, the command uses the benchmark fixtures bundled with
+the CLI crate. A path may point at one fixture project, one `.num` file, or a
+directory containing fixture projects.
+
+The JSON output is intended for CI artifacts. It includes a stable
+`schema_version`, the iteration count, fixture names, input sizes, diagnostic
+counts, and median `lex_nanos`, `parse_nanos`, and `check_nanos` timings. These
+numbers are observability data only; the command does not enforce timing gates.
+
 ### `version`
 
 Print the CLI, language, manifest schema, and lockfile schema versions.

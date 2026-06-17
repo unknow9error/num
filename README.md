@@ -149,6 +149,7 @@ num deploy [project-dir|file] [--apply]
 num compat [project-dir|file] [--json]
 num migrate [project-dir|file] [--write] [--json]
 num upgrade-version [project-dir|file]
+num bench [fixture-root] [--json] [--iterations N]
 num release-plan [CHANGELOG.md] [--json]
 num lock [project-dir|file] [--check|--migrate]
 num registry <publish|list|index|install>
