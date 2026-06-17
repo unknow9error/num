@@ -1,4 +1,5 @@
 use crate::interpreter::Value;
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -47,6 +48,72 @@ impl From<&str> for ConnectorError {
 
 pub trait ConnectorExecutor {
     fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>>;
+
+    fn call_with_context(
+        &self,
+        context: &ConnectorCallContext,
+        args: &[Value],
+    ) -> Option<Result<Value, ConnectorError>> {
+        self.call(&context.method, args)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorArgLabel {
+    pub index: usize,
+    pub name: String,
+    pub ty: String,
+    pub source: Option<String>,
+    pub privacy: Option<String>,
+    pub trust: Option<String>,
+}
+
+impl ConnectorArgLabel {
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "index": self.index,
+            "name": self.name,
+            "type": self.ty,
+            "source": self.source,
+            "privacy": self.privacy,
+            "trust": self.trust,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorCallContext {
+    pub connector: String,
+    pub method_name: String,
+    pub method: String,
+    pub capability: String,
+    pub actor: String,
+    pub tenant: String,
+    pub correlation_id: String,
+    pub request_id: String,
+    pub policy_decision: String,
+    pub arg_labels: Vec<ConnectorArgLabel>,
+}
+
+impl ConnectorCallContext {
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "connector": self.connector,
+            "method_name": self.method_name,
+            "method": self.method,
+            "capability": self.capability,
+            "actor": self.actor,
+            "tenant": self.tenant,
+            "correlation_id": self.correlation_id,
+            "request_id": self.request_id,
+            "policy_decision": self.policy_decision,
+            "arg_labels": self
+                .arg_labels
+                .iter()
+                .map(ConnectorArgLabel::to_json)
+                .collect::<Vec<_>>(),
+        })
+    }
 }
 
 pub struct ChainedConnectorExecutor {
@@ -65,11 +132,29 @@ impl ConnectorExecutor for ChainedConnectorExecutor {
             .iter()
             .find_map(|executor| executor.call(name, args))
     }
+
+    fn call_with_context(
+        &self,
+        context: &ConnectorCallContext,
+        args: &[Value],
+    ) -> Option<Result<Value, ConnectorError>> {
+        self.executors
+            .iter()
+            .find_map(|executor| executor.call_with_context(context, args))
+    }
 }
 
 impl<T: ConnectorExecutor + ?Sized> ConnectorExecutor for Arc<T> {
     fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.as_ref().call(name, args)
+    }
+
+    fn call_with_context(
+        &self,
+        context: &ConnectorCallContext,
+        args: &[Value],
+    ) -> Option<Result<Value, ConnectorError>> {
+        self.as_ref().call_with_context(context, args)
     }
 }
 

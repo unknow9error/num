@@ -1,6 +1,6 @@
 [package]
 name = "num-compiler"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "Compiler frontend and semantic analyzer for the num language"

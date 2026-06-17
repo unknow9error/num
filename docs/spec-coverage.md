@@ -1,14 +1,14 @@
 # Num Specification Coverage
 
 This document maps the full Num technical specification to the current `num`
-v0.2.0 implementation.
+v0.3.0 implementation.
 
 The short version: the repository implements a working compiler frontend,
 semantic checker, IR, CLI, editor integration, examples, release package, and a
 mocked demo runtime. It does not yet implement the complete industrial Num
 language/runtime/platform.
 
-## Covered in v0.2.0
+## Covered in v0.3.0
 
 ### Language Surface
 
@@ -514,6 +514,9 @@ Implemented foundation:
   recovery, and dead-letter handling for queued workflow events;
 - queued workflow event processing through the lifecycle engine;
 - state transition validation for terminal and compensation states.
+- runtime connector egress context propagation for external/process connector
+  boundaries, including tenant, actor, request/correlation identifiers, scoped
+  connector capability, policy decision marker, and declared argument labels.
 
 Not yet implemented:
 
@@ -557,7 +560,7 @@ Not yet implemented:
 
 ## Not Covered Yet
 
-Major full-spec areas not implemented in v0.2.0:
+Major full-spec areas not implemented in v0.3.0:
 
 - remote package registry HTTP/service APIs;
 - production remote git auth/cache policy;
@@ -636,7 +639,7 @@ Major full-spec areas not implemented in v0.2.0:
 - language versioning and compatibility policy;
 - manifest migration tooling;
 - manifest version upgrade tooling;
-- compatibility matrix coverage for the current v0.2.0 manifest/schema
+- compatibility matrix coverage for the current v0.3.0 manifest/schema
   surface;
 - standard library.
 
@@ -660,7 +663,7 @@ Major full-spec areas not implemented in v0.2.0:
 
 ## Verification Commands
 
-Use these commands to verify the documented v0.2.0 surface:
+Use these commands to verify the documented v0.3.0 surface:
 
 ```bash
 cargo test

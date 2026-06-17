@@ -270,7 +270,7 @@ source = "src"
 entry = "src/main.num"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 path_to_toml_string(shared.display().to_string())
             ),
@@ -286,7 +286,7 @@ shared = {{ path = "{}", version = "0.2.0" }}
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/domain.num"
 "#,
@@ -322,7 +322,7 @@ entry = "src/domain.num"
             "{}_registry",
             root.file_name().unwrap().to_string_lossy()
         ));
-        let shared = registry.join("shared").join("0.2.0");
+        let shared = registry.join("shared").join("0.3.0");
         let core = registry.join("core").join("1.0.0");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(shared.join("src")).unwrap();
@@ -341,7 +341,7 @@ entry = "src/main.num"
 path = "{}"
 
 [dependencies]
-shared = "0.2.0"
+shared = "0.3.0"
 "#,
                 path_to_toml_string(registry.display().to_string())
             ),
@@ -357,7 +357,7 @@ shared = "0.2.0"
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/domain.num"
 
@@ -419,7 +419,7 @@ entry = "src/types.num"
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/domain.num"
 "#,
@@ -443,7 +443,7 @@ source = "src"
 entry = "src/main.num"
 
 [dependencies]
-shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
+shared = {{ git = "{}", version = "0.3.0", rev = "{}" }}
 "#,
                 path_to_toml_string(shared.display().to_string()),
                 rev
@@ -490,7 +490,7 @@ source = "src"
 entry = "src/main.num"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 path_to_toml_string(shared.display().to_string())
             ),
@@ -505,12 +505,12 @@ shared = {{ path = "{}", version = "0.2.0" }}
             shared.join("num.toml"),
             r#"
 [language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/domain.num"
 "#,
@@ -524,7 +524,7 @@ entry = "src/domain.num"
 
         let err = load_program_input(&root).unwrap_err();
 
-        assert!(err.contains("requires language 0.3.0"));
+        assert!(err.contains("requires language 0.4.0"));
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();
     }

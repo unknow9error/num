@@ -1344,7 +1344,7 @@ entry = "source/app.num"
 
 [dependencies]
 std = "0.1.0"
-shared = { path = "../shared", version = "0.2.0" }
+shared = { path = "../shared", version = "0.3.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0", rev = "abc123" }
 "#,
         );
@@ -1782,7 +1782,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 path_to_toml_string(shared.display().to_string())
             ),
@@ -1793,7 +1793,7 @@ shared = {{ path = "{}", version = "0.2.0" }}
                 r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies]
 core = {{ path = "{}", version = "1.0.0" }}
@@ -1816,7 +1816,7 @@ version = "1.0.0"
         assert!(lockfile.contains("name = \"app\""));
         assert!(lockfile.contains("name = \"shared\""));
         assert!(lockfile.contains("name = \"core\""));
-        assert!(lockfile.contains("dependencies = [\"shared@0.2.0 path:"));
+        assert!(lockfile.contains("dependencies = [\"shared@0.3.0 path:"));
         assert!(lockfile.contains("dependencies = [\"core@1.0.0 path:"));
         assert!(lockfile.find("name = \"core\"") < lockfile.find("name = \"shared\""));
 
@@ -1843,7 +1843,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 path_to_toml_string(shared.display().to_string())
             ),
@@ -1853,14 +1853,14 @@ shared = {{ path = "{}", version = "0.2.0" }}
             r#"
 [project]
 name = "shared"
-version = "0.3.0"
+version = "0.4.0"
 "#,
         );
 
         let err = write_lockfile(&root).unwrap_err();
 
         assert!(err.contains(
-            "dependency `shared` version `0.2.0` resolved to package `shared` version `0.3.0`"
+            "dependency `shared` version `0.3.0` resolved to package `shared` version `0.4.0`"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -1880,7 +1880,7 @@ version = "0.3.0"
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 "#,
         );
         init_git_repo(&shared);
@@ -1895,7 +1895,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
+shared = {{ git = "{}", version = "0.3.0", rev = "{}" }}
 "#,
                 path_to_toml_string(shared.display().to_string()),
                 rev
@@ -1925,7 +1925,7 @@ shared = {{ git = "{}", version = "0.2.0", rev = "{}" }}
             "{}_registry",
             root.file_name().unwrap().to_string_lossy()
         ));
-        let shared = registry.join("shared").join("0.2.0");
+        let shared = registry.join("shared").join("0.3.0");
         let core = registry.join("core").join("1.0.0");
         fs::create_dir_all(&shared).unwrap();
         fs::create_dir_all(&core).unwrap();
@@ -1942,7 +1942,7 @@ version = "0.1.0"
 path = "{}"
 
 [dependencies]
-shared = "0.2.0"
+shared = "0.3.0"
 "#,
                 path_to_toml_string(registry.display().to_string())
             ),
@@ -1952,7 +1952,7 @@ shared = "0.2.0"
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies]
 core = "1.0.0"
@@ -1997,7 +1997,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 path_to_toml_string(shared.display().to_string())
             ),
@@ -2008,7 +2008,7 @@ shared = {{ path = "{}", version = "0.2.0" }}
             r#"
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/lib.num"
 "#,

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-06-17
+
+### Minor
+
+- Runtime connector calls now carry a distributed egress context with
+  connector/method identity, scoped capability, actor, tenant, request and
+  correlation identifiers, policy decision marker, and declared argument
+  source/privacy/trust labels.
+- Manifest-configured process connectors receive the egress context in their
+  stdin JSON payload so external connector processes can enforce, audit, and
+  propagate Num data-leak controls beyond one runtime instance.
+- Generated TypeScript connector SDKs include `NumConnectorEgressContext` and
+  optional context parameters for connector implementations.
+
 ## 0.2.0 - 2026-06-16
 
 ### Minor

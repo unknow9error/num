@@ -39,7 +39,7 @@ workflow process_refund(request: RefundRequest) budget 100 KZT rate limit 60 per
 
 ## Status
 
-This repository implements the v0.2.0 production slice of the larger Num
+This repository implements the v0.3.0 production slice of the larger Num
 language specification. It includes a working compiler, CLI, runtime foundation,
 language server, VS Code extension, package/deploy tooling, and example
 projects.
@@ -125,6 +125,8 @@ num deploy examples/refund_workflow --apply
   reports.
 - File-backed workflow state, event queue draining, worker leases, retries,
   dead-letter handling, and lease heartbeat refresh.
+- Runtime connector egress context propagation for distributed data-leak
+  controls across process and external connector boundaries.
 - Manifest compatibility, migration, version upgrade, lockfile, local registry,
   package integrity, connector SDK, OpenAPI import, SQL import, and deployment
   artifact commands.

@@ -11,7 +11,7 @@ runtime metadata, security policy mode, connectors, and deployment planning.
 
 ```toml
 [language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -39,7 +39,7 @@ Current fields:
 
 ```toml
 [language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 ```
@@ -85,7 +85,7 @@ Current fields:
 ```toml
 [project]
 name = "refund-workflow"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/main.num"
 ```
@@ -106,8 +106,8 @@ Example:
 
 ```toml
 [dependencies]
-std = "0.2.0"
-shared = { path = "../shared", version = "0.2.0" }
+std = "0.3.0"
+shared = { path = "../shared", version = "0.3.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
 ```
 
@@ -148,7 +148,7 @@ Registry-style dependencies are resolved from a local filesystem registry when
 ```text
 registry-root/
   shared/
-    0.2.0/
+    0.3.0/
       num.toml
       src/
 ```

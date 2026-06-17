@@ -1233,7 +1233,7 @@ optional = ["NUM_TEST_DEPLOY_OPTIONAL"]
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -1336,7 +1336,7 @@ artifact = "dist/num-deploy.json"
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -1395,7 +1395,7 @@ entry = "src/main.num"
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -1471,7 +1471,7 @@ service BillingApi {
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 

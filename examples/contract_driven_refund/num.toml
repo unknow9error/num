@@ -1,11 +1,11 @@
 [language]
-version = "0.2.0"
+version = "0.3.0"
 compatibility = "minor"
 manifest_schema = 1
 
 [project]
 name = "contract-driven-refund"
-version = "0.2.0"
+version = "0.3.0"
 source = "src"
 entry = "src/main.num"
 

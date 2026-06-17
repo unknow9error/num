@@ -1,4 +1,4 @@
-use crate::connectors::{ConnectorError, ConnectorExecutor};
+use crate::connectors::{ConnectorCallContext, ConnectorError, ConnectorExecutor};
 use crate::interpreter::Value;
 use serde_json::{json, Map, Value as JsonValue};
 use std::collections::HashMap;
@@ -40,6 +40,7 @@ impl ProcessConnectorExecutor {
         config: &ProcessConnectorConfig,
         method: &str,
         args: &[Value],
+        context: Option<&ConnectorCallContext>,
     ) -> Result<Value, ConnectorError> {
         let mut command = Command::new(&config.command);
         command.args(&config.args);
@@ -64,6 +65,7 @@ impl ProcessConnectorExecutor {
         let input = json!({
             "method": method,
             "args": args.iter().map(value_to_json).collect::<Vec<_>>(),
+            "egress": context.map(ConnectorCallContext::to_json),
         });
         if let Some(mut stdin) = child.stdin.take() {
             stdin
@@ -179,7 +181,17 @@ impl ConnectorExecutor for ProcessConnectorExecutor {
     fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
         self.configs
             .get(name)
-            .map(|config| Self::run(config, name, args))
+            .map(|config| Self::run(config, name, args, None))
+    }
+
+    fn call_with_context(
+        &self,
+        context: &ConnectorCallContext,
+        args: &[Value],
+    ) -> Option<Result<Value, ConnectorError>> {
+        self.configs
+            .get(&context.method)
+            .map(|config| Self::run(config, &context.method, args, Some(context)))
     }
 }
 
@@ -325,7 +337,7 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::{value_from_json, value_to_json, ProcessConnectorConfig, ProcessConnectorExecutor};
-    use crate::connectors::ConnectorExecutor;
+    use crate::connectors::{ConnectorArgLabel, ConnectorCallContext, ConnectorExecutor};
     use crate::interpreter::Value;
     use serde_json::json;
 
@@ -384,6 +396,66 @@ mod tests {
         let result = executor.call("echo.text", &[]).unwrap().unwrap();
 
         assert_eq!(result, Value::String("ok".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_connector_receives_egress_context() {
+        let executor = ProcessConnectorExecutor::new(vec![ProcessConnectorConfig {
+            method: "mailer.send".to_string(),
+            command: "/usr/bin/env".to_string(),
+            args: vec![
+                "python3".to_string(),
+                "-c".to_string(),
+                "import json,sys; payload=json.load(sys.stdin); print(json.dumps(payload['egress']))"
+                    .to_string(),
+            ],
+            cwd: None,
+            timeout_ms: None,
+        }]);
+        let context = ConnectorCallContext {
+            connector: "mailer".to_string(),
+            method_name: "send".to_string(),
+            method: "mailer.send".to_string(),
+            capability: "connector:mailer.send".to_string(),
+            actor: "user@example.com".to_string(),
+            tenant: "tenant_a".to_string(),
+            correlation_id: "corr_1".to_string(),
+            request_id: "req_1".to_string(),
+            policy_decision: "compile_time_checked".to_string(),
+            arg_labels: vec![ConnectorArgLabel {
+                index: 0,
+                name: "email".to_string(),
+                ty: "Email".to_string(),
+                source: Some("UserInput".to_string()),
+                privacy: Some("private".to_string()),
+                trust: Some("verified".to_string()),
+            }],
+        };
+
+        let result = executor
+            .call_with_context(&context, &[Value::String("customer@example.com".to_string())])
+            .unwrap()
+            .unwrap();
+
+        let Value::Struct(_, fields) = result else {
+            panic!("expected egress context object");
+        };
+        assert_eq!(
+            fields.get("capability"),
+            Some(&Value::String("connector:mailer.send".to_string()))
+        );
+        assert_eq!(fields.get("tenant"), Some(&Value::String("tenant_a".to_string())));
+        let Some(Value::List(labels)) = fields.get("arg_labels") else {
+            panic!("expected arg labels list");
+        };
+        let Some(Value::Struct(_, label_fields)) = labels.first() else {
+            panic!("expected first arg label");
+        };
+        assert_eq!(
+            label_fields.get("privacy"),
+            Some(&Value::String("private".to_string()))
+        );
     }
 
     #[cfg(unix)]
