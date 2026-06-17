@@ -170,6 +170,7 @@ Implemented:
 - `num compat`
 - `num migrate`
 - `num upgrade-version`
+- `num bench`
 - `num release-plan`
 - `num version`
 - `num registry publish`
@@ -677,6 +678,7 @@ num check examples/contract_driven_refund/src/main.num
 num ir examples/refund_workflow/src/main.num
 num run examples/refund_workflow/src/main.num
 num test examples/refund_workflow
+num bench --json
 node examples/contract_driven_refund/backend/runtime-demo.js success
 node examples/contract_driven_refund/backend/runtime-demo.js approval
 ```

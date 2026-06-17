@@ -1,0 +1,219 @@
+module benchmarks.generated_large
+
+type AccountId = Brand<Text, "AccountId">
+
+type AccountEvent {
+    id: AccountId from UserInput internal
+    amount: Money<KZT> from UserInput internal
+    accepted: Bool from UserInput internal
+}
+
+fn accept_event(event: AccountEvent) -> Bool {
+    audit("accept_event", {
+        id: event.id,
+        amount: event.amount
+    })
+    return event.accepted
+}
+
+workflow generated_001(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_002(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_003(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_004(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_005(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_006(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_007(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_008(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_009(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_010(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_011(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_012(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_013(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_014(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_015(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_016(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_017(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_018(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_019(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_020(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_021(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_022(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_023(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_024(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_025(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_026(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_027(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_028(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_029(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_030(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_031(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_032(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_033(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_034(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_035(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_036(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_037(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_038(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_039(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_040(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_041(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_042(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_043(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_044(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_045(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_046(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_047(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_048(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_049(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+workflow generated_050(event: AccountEvent) {
+    let accepted: Bool = accept_event(event)
+    assert accepted == true
+}
+

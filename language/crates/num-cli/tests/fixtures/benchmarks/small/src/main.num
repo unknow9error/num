@@ -1,0 +1,14 @@
+module benchmarks.small
+
+type CustomerId = Brand<Text, "CustomerId">
+
+workflow main() {
+    let customer: CustomerId = CustomerId("customer_1")
+    let active: Bool = true
+
+    assert active == true
+    audit("small_fixture_checked", {
+        customer: customer
+    })
+}
+

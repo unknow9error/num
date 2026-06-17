@@ -1,0 +1,107 @@
+module benchmarks.medium
+
+permission ViewOrders
+permission ApproveOrder
+permission NotifyCustomer
+
+role Operator {
+    allow ViewOrders
+    allow NotifyCustomer
+}
+
+role Manager {
+    allow ViewOrders
+    allow ApproveOrder
+    allow NotifyCustomer
+}
+
+policy DataSharing {
+    allow Database -> Internal
+    allow UserInput -> Internal
+    deny private -> External
+}
+
+type OrderId = Brand<Text, "OrderId">
+
+type Order {
+    id: OrderId from Database internal
+    customer_email: Email from Database internal
+    total: Money<KZT> from Database internal
+}
+
+type ApprovalRequest {
+    order_id: OrderId from UserInput internal
+    total: Money<KZT> from UserInput internal
+    urgent: Bool from UserInput internal
+}
+
+enum ApprovalState {
+    Pending
+    Approved
+    Escalated
+}
+
+connector orders {
+    find(id: OrderId) -> Order
+    mark_approved(id: OrderId) -> ApprovalState
+}
+
+connector mailer {
+    send(email: Email from Database private, body: Text) -> Unit
+}
+
+action approve_order(order: Order)
+    requires Permission.ApproveOrder
+    risk medium
+    timeout 5s
+    cost 5 KZT
+    retry 2
+    idempotency key order.id
+{
+    orders.mark_approved(order.id)
+    audit("order_approved", {
+        order_id: order.id,
+        total: order.total
+    })
+}
+
+action notify_customer(order: Order)
+    requires Permission.NotifyCustomer
+    risk low
+{
+    mailer.send(order.customer_email, "approved")
+}
+
+workflow approve(request: ApprovalRequest) budget 50 KZT rate limit 20 per 1m {
+    require Permission.ViewOrders for current_user
+
+    let order = orders.find(request.order_id)
+
+    if request.urgent {
+        require Permission.ApproveOrder for current_user
+    }
+
+    require Permission.ApproveOrder for current_user
+    require Permission.NotifyCustomer for current_user
+
+    approve_order(order)
+    notify_customer(order)
+}
+
+service OrdersApi budget 100 KZT rate limit 60 per 1m {
+    route POST "/orders/approve" requires Permission.ViewOrders requires Permission.ApproveOrder requires Permission.NotifyCustomer {
+        input request: ApprovalRequest from HttpBody private
+
+        require Permission.ApproveOrder for current_user
+        require Permission.NotifyCustomer for current_user
+
+        let order = orders.find(request.order_id)
+        approve_order(order)
+        notify_customer(order)
+    }
+}
+
+test "medium fixture smoke" {
+    let checked: Bool = true
+    assert checked == true
+}
