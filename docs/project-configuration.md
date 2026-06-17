@@ -253,9 +253,12 @@ Supported `policy_mode` values:
 - `off` - project commands run compiler checks without project policy lint
   enforcement.
 
-`tenant_isolation` is parsed into package metadata. Runtime workflow state
-access can be guarded with `TenantGuard`; full CLI-driven runtime wiring is
-still a platform integration step.
+`tenant_isolation` is parsed into package metadata. When enabled, workflow state
+access is guarded with `TenantGuard`, and service-route commands (`num route`,
+`num serve`, and `num serve-once`) reject requests whose runtime tenant context
+does not match the service tenant. The current demo service tenant defaults to
+`default`; omit the field or set it to `false` to preserve permissive demo
+behavior while prototyping.
 
 ### `[runtime]`
 
@@ -285,6 +288,8 @@ package root. Explicit state-root arguments still use the direct
 `file:` path. HTTP service commands `num serve` and `num serve-once` append
 request-scoped audit JSONL to the same manifest-relative audit path, preserving
 actor, tenant, request id, correlation id, service, method, and path metadata.
+Tenant-isolation rejections are also recorded as service audit events so failed
+cross-tenant access attempts remain visible to audit reports.
 `num deploy` includes the same runtime values in the generated deployment plan.
 
 ### `[environment]`

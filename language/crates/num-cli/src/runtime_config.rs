@@ -56,6 +56,12 @@ pub fn resolve_interpreter_audit_target(input: &Path) -> Result<InterpreterAudit
     resolve_interpreter_audit_store(&manifest)
 }
 
+pub fn resolve_tenant_isolation(input: &Path) -> Result<bool, String> {
+    Ok(manifest_for_runtime_target(input)?
+        .map(|manifest| manifest.security.tenant_isolation)
+        .unwrap_or(false))
+}
+
 pub fn write_interpreter_audit_events(
     target: &InterpreterAuditTarget,
     command: &str,
@@ -211,7 +217,7 @@ fn resolve_manifest_relative_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_interpreter_audit_target, resolve_workflow_runtime_paths,
+        resolve_interpreter_audit_target, resolve_tenant_isolation, resolve_workflow_runtime_paths,
         write_interpreter_audit_events, write_service_audit_events, InterpreterAuditTarget,
         RuntimePathSource,
     };
@@ -325,6 +331,34 @@ audit_store = "file:audit/demo.jsonl"
         assert!(source.contains("\"action\":\"run\""));
         assert!(source.contains("\"command\":\"run\""));
         assert!(source.contains("\\\"ok\\\""));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolves_tenant_isolation_from_manifest_security() {
+        let root = temp_dir("tenant_isolation");
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[security]
+tenant_isolation = true
+"#,
+        )
+        .unwrap();
+
+        assert!(resolve_tenant_isolation(&root).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn tenant_isolation_defaults_to_disabled_without_manifest() {
+        let root = temp_dir("tenant_isolation_absent");
+
+        assert!(!resolve_tenant_isolation(&root.join("src/main.num")).unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -505,20 +505,25 @@ fn run() -> Result<(), String> {
         "route" => {
             let path = required_path(args.next(), "route")?;
             let method = args.next().ok_or_else(|| {
-                "usage: num route <file.num|dir> <METHOD> <PATH> [service]".to_string()
+                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>]"
+                    .to_string()
             })?;
             let route_path = args.next().ok_or_else(|| {
-                "usage: num route <file.num|dir> <METHOD> <PATH> [service]".to_string()
+                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>]"
+                    .to_string()
             })?;
+            let route_options = parse_route_options(args)?;
             let compilation = compile_checked(&path)?;
 
-            let service_name = args
-                .next()
+            let service_name = route_options
+                .clone()
+                .service_name
                 .or_else(|| demo::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let input = demo::route_input(&compilation.module, &service_name, &method, &route_path);
             let connectors = connector_executor_for_path(&path, false)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -526,11 +531,11 @@ fn run() -> Result<(), String> {
                 connectors,
             )
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
-            .with_output_enabled(false);
-            let response = runtime.handle_http_request_with_empty_body_input(
-                &num_runtime::http::HttpRequest::new(method, route_path, ""),
-                input,
-            );
+            .with_output_enabled(false)
+            .with_tenant_isolation(tenant_isolation);
+            let mut request = num_runtime::http::HttpRequest::new(method, route_path, "");
+            route_options.apply_headers(&mut request);
+            let response = runtime.handle_http_request_with_empty_body_input(&request, input);
             print!("{}", response.body);
             if response.status >= 400 {
                 Err(format!("route failed with HTTP status {}", response.status))
@@ -547,13 +552,15 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
                 demo::default_permissions(),
                 connectors,
             )
-            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()));
+            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
+            .with_tenant_isolation(tenant_isolation);
 
             println!("Serving one request for service {service_name} on http://{addr}");
             http::serve_once(&addr, |request| {
@@ -576,13 +583,15 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
                 demo::default_permissions(),
                 connectors,
             )
-            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()));
+            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
+            .with_tenant_isolation(tenant_isolation);
 
             println!("Serving service {service_name} on http://{}", options.addr);
             http::serve(&options.addr, options.max_requests, |request| {
@@ -802,6 +811,36 @@ struct ServeOptions {
     max_requests: Option<usize>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct RouteOptions {
+    service_name: Option<String>,
+    actor: Option<String>,
+    tenant: Option<String>,
+    request_id: Option<String>,
+    correlation_id: Option<String>,
+}
+
+impl RouteOptions {
+    fn apply_headers(self, request: &mut num_runtime::http::HttpRequest) {
+        if let Some(actor) = self.actor {
+            request.headers.insert("x-actor".to_string(), actor);
+        }
+        if let Some(tenant) = self.tenant {
+            request.headers.insert("x-tenant".to_string(), tenant);
+        }
+        if let Some(request_id) = self.request_id {
+            request
+                .headers
+                .insert("x-request-id".to_string(), request_id);
+        }
+        if let Some(correlation_id) = self.correlation_id {
+            request
+                .headers
+                .insert("x-correlation-id".to_string(), correlation_id);
+        }
+    }
+}
+
 struct DebugOptions {
     workflow_name: Option<String>,
     breakpoints: Vec<BreakpointSpec>,
@@ -987,6 +1026,40 @@ fn parse_run_options(args: impl Iterator<Item = String>) -> Result<RunOptions, S
     })
 }
 
+fn parse_route_options(args: impl Iterator<Item = String>) -> Result<RouteOptions, String> {
+    let mut options = RouteOptions::default();
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--actor" => options.actor = Some(next_route_value(&mut args, "--actor")?),
+            "--tenant" => options.tenant = Some(next_route_value(&mut args, "--tenant")?),
+            "--request-id" => {
+                options.request_id = Some(next_route_value(&mut args, "--request-id")?)
+            }
+            "--correlation-id" => {
+                options.correlation_id = Some(next_route_value(&mut args, "--correlation-id")?)
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected route argument '{other}'"));
+            }
+            _ if options.service_name.is_none() => options.service_name = Some(arg),
+            _ => return Err(format!("unexpected route argument '{arg}'")),
+        }
+    }
+
+    Ok(options)
+}
+
+fn next_route_value(
+    args: &mut std::iter::Peekable<impl Iterator<Item = String>>,
+    flag: &str,
+) -> Result<String, String> {
+    args.next()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("usage: {flag} <value>"))
+}
+
 fn serve_target(
     args: impl Iterator<Item = String>,
     command: &str,
@@ -1122,7 +1195,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH>     Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1356,6 +1429,50 @@ service Api {
 
         assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
         assert!(options.format_json);
+    }
+
+    #[test]
+    fn route_options_parse_service_and_request_context() {
+        let options = parse_route_options(
+            [
+                "BillingApi".to_string(),
+                "--tenant".to_string(),
+                "tenant_a".to_string(),
+                "--actor".to_string(),
+                "agent@example.com".to_string(),
+                "--request-id".to_string(),
+                "req_42".to_string(),
+                "--correlation-id".to_string(),
+                "corr_42".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(options.service_name, Some("BillingApi".to_string()));
+        assert_eq!(options.tenant, Some("tenant_a".to_string()));
+        assert_eq!(options.actor, Some("agent@example.com".to_string()));
+        assert_eq!(options.request_id, Some("req_42".to_string()));
+        assert_eq!(options.correlation_id, Some("corr_42".to_string()));
+    }
+
+    #[test]
+    fn route_options_allow_flags_without_service() {
+        let options =
+            parse_route_options(["--tenant".to_string(), "tenant_a".to_string()].into_iter())
+                .unwrap();
+
+        assert_eq!(options.service_name, None);
+        assert_eq!(options.tenant, Some("tenant_a".to_string()));
+    }
+
+    #[test]
+    fn route_options_reject_unknown_or_duplicate_positionals() {
+        assert!(parse_route_options(["--unknown".to_string()].into_iter()).is_err());
+        assert!(parse_route_options(
+            ["BillingApi".to_string(), "OtherApi".to_string()].into_iter()
+        )
+        .is_err());
     }
 
     #[test]
