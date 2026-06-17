@@ -1,6 +1,6 @@
 # num Architecture
 
-This document describes the v0.2.0 repository architecture and the boundary
+This document describes the v0.3.0 repository architecture and the boundary
 between implemented components and planned Num platform work.
 
 ## Pipeline
@@ -83,6 +83,9 @@ Owns runtime contracts and the demo interpreter:
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;
 - runtime trace event model for observability/debugging;
+- connector egress context envelopes for propagating actor, tenant, scoped
+  capability, request/correlation identifiers, policy decision, and declared
+  source/privacy/trust labels across external connector boundaries;
 - cost ledger report summarization for dashboard-oriented tooling;
 - file-backed `StateStore`;
 - file-backed workflow state listing and dashboard-oriented summary reports;

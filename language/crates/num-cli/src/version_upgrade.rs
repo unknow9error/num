@@ -703,7 +703,7 @@ version = "0.1.0"
             source,
         );
         let options = VersionUpgradeOptions {
-            target_project_version: Some("0.2.0".to_string()),
+            target_project_version: Some("0.3.0".to_string()),
             ..VersionUpgradeOptions::default()
         };
 
@@ -712,8 +712,8 @@ version = "0.1.0"
         assert!(plan.changed);
         assert!(plan
             .source
-            .contains("[project]\nname = \"app\"\nversion = \"0.2.0\""));
-        assert_eq!(plan.project.unwrap().to, "0.2.0");
+            .contains("[project]\nname = \"app\"\nversion = \"0.3.0\""));
+        assert_eq!(plan.project.unwrap().to, "0.3.0");
     }
 
     #[test]
@@ -761,7 +761,7 @@ version = "0.1.0"
     #[test]
     fn rejects_version_downgrade() {
         let source = r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -831,7 +831,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 toml_path(&shared)
             ),
@@ -846,7 +846,7 @@ manifest_schema = 1
 
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies]
 core = {{ path = "{}", version = "1.0.0" }}
@@ -914,7 +914,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 toml_path(&shared)
             ),
@@ -928,7 +928,7 @@ manifest_schema = 1
 
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 "#,
         );
 
@@ -970,7 +970,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-shared = {{ path = "{}", version = "0.2.0" }}
+shared = {{ path = "{}", version = "0.3.0" }}
 "#,
                 toml_path(&shared)
             ),
@@ -984,7 +984,7 @@ manifest_schema = 1
 
 [project]
 name = "shared"
-version = "0.2.0"
+version = "0.3.0"
 "#,
         );
 
@@ -994,7 +994,7 @@ version = "0.2.0"
                 write: true,
                 include_dependencies: true,
                 write_dependencies: true,
-                target_project_version: Some("0.3.0".to_string()),
+                target_project_version: Some("0.4.0".to_string()),
                 ..VersionUpgradeOptions::default()
             },
         )
@@ -1005,11 +1005,11 @@ version = "0.2.0"
         assert!(report.root.applied);
         assert!(report.applied);
         assert!(report.dependencies[0].report.applied);
-        assert_eq!(report.root.project.unwrap().to, "0.3.0");
+        assert_eq!(report.root.project.unwrap().to, "0.4.0");
         assert!(report.dependencies[0].report.project.is_none());
-        assert!(root_source.contains("version = \"0.3.0\""));
+        assert!(root_source.contains("version = \"0.4.0\""));
         assert!(shared_source.contains(&format!("version = \"{CURRENT_LANGUAGE_VERSION}\"")));
-        assert!(!shared_source.contains("version = \"0.3.0\""));
+        assert!(!shared_source.contains("version = \"0.4.0\""));
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();

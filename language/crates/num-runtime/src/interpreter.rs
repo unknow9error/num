@@ -1,10 +1,15 @@
-use crate::connectors::{ConnectorError, ConnectorExecutor, DemoConnectorExecutor};
+use crate::connectors::{
+    ConnectorArgLabel, ConnectorCallContext, ConnectorError, ConnectorExecutor,
+    DemoConnectorExecutor,
+};
 use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimiter};
 use crate::{ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext};
-use num_compiler::ast::{Declaration, MatchBinding, MatchPattern, Module, RawExpr, Stmt};
+use num_compiler::ast::{
+    Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
+};
 use num_compiler::expr::{self, BinaryOp, Expr};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
@@ -238,6 +243,31 @@ fn current_user_value(security: &SecurityContext) -> Value {
         Value::String(security.correlation_id.clone()),
     );
     Value::Struct("Actor".to_string(), fields)
+}
+
+fn privacy_label(labels: &Labels) -> Option<String> {
+    labels.privacy.map(|privacy| {
+        match privacy {
+            Privacy::Public => "public",
+            Privacy::Internal => "internal",
+            Privacy::Private => "private",
+            Privacy::Sensitive => "sensitive",
+            Privacy::Secret => "secret",
+            Privacy::Regulated => "regulated",
+        }
+        .to_string()
+    })
+}
+
+fn trust_label(labels: &Labels) -> Option<String> {
+    labels.trust.map(|trust| {
+        match trust {
+            Trust::Untrusted => "untrusted",
+            Trust::Trusted => "trusted",
+            Trust::Verified => "verified",
+        }
+        .to_string()
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -1255,11 +1285,18 @@ impl<'a> Runtime<'a> {
             return Ok(value);
         }
 
-        if let Some(result) = self.connectors.call(name, &args) {
+        let connector_context = self.connector_call_context(name);
+        if let Some(result) = self.connectors.call_with_context(&connector_context, &args) {
             self.trace(
                 RuntimeTraceKind::ConnectorCalled,
                 name,
-                Some(format!("{} args", args.len())),
+                Some(format!(
+                    "{} args capability={} tenant={} policy={}",
+                    args.len(),
+                    connector_context.capability,
+                    connector_context.tenant,
+                    connector_context.policy_decision
+                )),
             );
             return result.map_err(|error| {
                 self.trace(
@@ -1470,6 +1507,64 @@ impl<'a> Runtime<'a> {
                 .any(|method| method.name == method_name),
             _ => false,
         })
+    }
+
+    fn connector_call_context(&self, name: &str) -> ConnectorCallContext {
+        let (connector, method_name) = name
+            .split_once('.')
+            .map(|(connector, method)| (connector.to_string(), method.to_string()))
+            .unwrap_or_else(|| ("external".to_string(), name.to_string()));
+        let arg_labels = self.connector_arg_labels(name);
+        let policy_decision = if arg_labels.is_empty() {
+            "runtime_unlabeled".to_string()
+        } else {
+            "compile_time_checked".to_string()
+        };
+
+        ConnectorCallContext {
+            connector,
+            method_name,
+            method: name.to_string(),
+            capability: format!("connector:{name}"),
+            actor: self.security.actor.clone(),
+            tenant: self.security.tenant.clone(),
+            correlation_id: self.security.correlation_id.clone(),
+            request_id: self.security.request_id.clone(),
+            policy_decision,
+            arg_labels,
+        }
+    }
+
+    fn connector_arg_labels(&self, name: &str) -> Vec<ConnectorArgLabel> {
+        let Some((connector_name, method_name)) = name.split_once('.') else {
+            return Vec::new();
+        };
+        self.module
+            .declarations
+            .iter()
+            .find_map(|decl| match decl {
+                Declaration::Connector(connector) if connector.name == connector_name => connector
+                    .methods
+                    .iter()
+                    .find(|method| method.name == method_name)
+                    .map(|method| {
+                        method
+                            .params
+                            .iter()
+                            .enumerate()
+                            .map(|(index, param)| ConnectorArgLabel {
+                                index,
+                                name: param.name.clone(),
+                                ty: param.ty.raw.clone(),
+                                source: param.labels.source.clone(),
+                                privacy: privacy_label(&param.labels),
+                                trust: trust_label(&param.labels),
+                            })
+                            .collect()
+                    }),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     fn enum_constructor_value(&self, name: &str, args: &[Value]) -> Result<Option<Value>, String> {

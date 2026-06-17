@@ -68,7 +68,7 @@ Parse a `.num` file and print the formatter output to stdout.
 num fmt examples/refund_workflow/src/main.num
 ```
 
-The formatter is stdout-only in v0.2.0. Redirect output manually if needed.
+The formatter is stdout-only in v0.3.0. Redirect output manually if needed.
 
 ### `ir`
 
@@ -416,8 +416,8 @@ from `num.toml`. Dependency values can be version strings or inline tables:
 
 ```toml
 [dependencies]
-std = "0.2.0"
-shared = { path = "../shared", version = "0.2.0" }
+std = "0.3.0"
+shared = { path = "../shared", version = "0.3.0" }
 banking = { git = "https://example.com/banking.num.git", version = "1.4.0" }
 ledger = { git = "https://example.com/ledger.num.git", version = "2.1.0", rev = "abc123" }
 ```
@@ -458,7 +458,7 @@ num registry publish examples/refund_workflow --registry /tmp/num-registry
 num registry publish examples/refund_workflow --registry /tmp/num-registry --dry-run --json
 num registry list --registry /tmp/num-registry
 num registry index --registry /tmp/num-registry --json
-num registry install refund-workflow 0.2.0 --registry /tmp/num-registry --to vendor/num
+num registry install refund-workflow 0.3.0 --registry /tmp/num-registry --to vendor/num
 num registry install refund-workflow latest --registry /tmp/num-registry --to vendor/num
 ```
 
@@ -532,8 +532,45 @@ are classified internally with `code`, `message`, and `retryable` fields so
 process, database, and missing-implementation failures share the same boundary.
 `num run --json` and `num debug --json` expose connector failures in the
 structured `runtime_error.connector` payload, and JSON runtime commands suppress
-demo execution logs on stdout. This is not managed connector hosting,
-auth/secrets binding, or a generated network client runtime yet.
+demo execution logs on stdout.
+
+In v0.3.0, every runtime connector call also carries an egress context. Process
+connectors receive this context in stdin under `egress`:
+
+```json
+{
+  "method": "mailer.send",
+  "args": ["customer@example.com"],
+  "egress": {
+    "connector": "mailer",
+    "method_name": "send",
+    "method": "mailer.send",
+    "capability": "connector:mailer.send",
+    "actor": "admin@company.com",
+    "tenant": "default",
+    "correlation_id": "corr_demo",
+    "request_id": "req_demo",
+    "policy_decision": "compile_time_checked",
+    "arg_labels": [
+      {
+        "index": 0,
+        "name": "email",
+        "type": "Email",
+        "source": "UserInput",
+        "privacy": "private",
+        "trust": "verified"
+      }
+    ]
+  }
+}
+```
+
+Generated TypeScript SDKs expose the same shape as
+`NumConnectorEgressContext` and add an optional `context` parameter to connector
+methods. External workers should treat `capability`, `tenant`, `actor`,
+`correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
+that leaves a single Num runtime instance. This is not managed connector
+hosting, auth/secrets binding, or a generated network client runtime yet.
 
 ### `deploy`
 
@@ -628,7 +665,7 @@ future schema are rejected instead of rewritten.
 
 `--source` switches from manifest migration to source migration. It discovers
 workspace `.num` source files, runs the compiler checks, reports blocking
-diagnostics, and lists per-file source migration actions. The first v0.2.0
+diagnostics, and lists per-file source migration actions. The first v0.3.0
 source rewrite inserts deterministic explicit `module` declarations into legacy
 files that omit them, deriving the module path from the manifest source-relative
 file path. `--source --write` applies source rewrites only when the current
@@ -642,8 +679,8 @@ Plan or apply safe `num.toml` version upgrades.
 ```bash
 num upgrade-version examples/refund_workflow
 num upgrade-version examples/refund_workflow --json
-num upgrade-version examples/refund_workflow --project 0.2.0 --write
-num upgrade-version legacy_project --language 0.2.0 --write
+num upgrade-version examples/refund_workflow --project 0.3.0 --write
+num upgrade-version legacy_project --language 0.3.0 --write
 num upgrade-version examples/refund_workflow --include-dependencies --json
 num upgrade-version examples/refund_workflow --include-dependencies --write --write-dependencies
 ```
@@ -747,7 +784,7 @@ Print shell completion scripts.
 num completions zsh
 ```
 
-Only zsh completion is supported in v0.2.0.
+Only zsh completion is supported in v0.3.0.
 
 ### `lsp`
 

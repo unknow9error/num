@@ -141,6 +141,14 @@ parameters, type fields, nested structured fields, and local `let` bindings.
 public `DerivedData`; trust gateways such as `sanitize(...)` do not remove
 privacy or provenance labels.
 
+At runtime, connector calls preserve the checked boundary as an egress context
+that includes connector/method identity, scoped capability, actor, tenant,
+request/correlation identifiers, a policy decision marker, and declared
+argument source/privacy/trust labels. Manifest-configured process connectors
+receive this context in stdin under `egress`, so distributed connector workers
+can enforce and audit the same data-leak contract outside the originating Num
+runtime instance.
+
 ## External Calls
 
 - `N2700` - member call uses an undeclared connector or service namespace.
