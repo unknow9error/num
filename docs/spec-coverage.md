@@ -313,6 +313,9 @@ Implemented:
 - request role headers `X-Role` and `X-Roles` resolved against `.num` `role`
   declarations to populate service-route runtime permissions;
 - typed JSON request body decoding for route inputs;
+- normalized JSON service-route error responses for `num route`, `num serve`,
+  and `num serve-once`, including stable `kind`/`code` fields and
+  request/correlation identifiers;
 - connector execution interface and static connector registry;
 - manifest-configured process connector execution for `num run`, `num test`,
   `num trace`, `num cost-report`, `num route`, `num serve`, and

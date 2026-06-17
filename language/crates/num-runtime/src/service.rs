@@ -5,6 +5,7 @@ use crate::redaction;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
 use crate::{RuntimeError, SecurityContext};
 use num_compiler::ast::{Declaration, Module};
+use serde_json::{json, Value as JsonValue};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ pub struct ServiceRuntime<'a> {
     permissions: Vec<String>,
     connectors: Arc<dyn ConnectorExecutor + 'a>,
     audit_recorder: Option<ServiceAuditRecorder<'a>>,
+    output_enabled: bool,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -31,6 +33,7 @@ impl<'a> ServiceRuntime<'a> {
             permissions,
             connectors: Arc::new(DemoConnectorExecutor::new()),
             audit_recorder: None,
+            output_enabled: true,
         }
     }
 
@@ -46,6 +49,7 @@ impl<'a> ServiceRuntime<'a> {
             permissions,
             connectors,
             audit_recorder: None,
+            output_enabled: true,
         }
     }
 
@@ -54,6 +58,11 @@ impl<'a> ServiceRuntime<'a> {
         recorder: impl Fn(&SecurityContext, &str, &str, &[String]) -> Result<(), RuntimeError> + 'a,
     ) -> Self {
         self.audit_recorder = Some(Arc::new(recorder));
+        self
+    }
+
+    pub fn with_output_enabled(mut self, enabled: bool) -> Self {
+        self.output_enabled = enabled;
         self
     }
 
@@ -120,7 +129,13 @@ impl<'a> ServiceRuntime<'a> {
             ) {
                 Ok(input) => input,
                 Err(message) => {
-                    return HttpResponse::text(400, "Bad Request", format!("{message}\n"));
+                    return route_error_response(
+                        RouteErrorClass::Validation {
+                            code: "invalid_request_body",
+                            message,
+                        },
+                        &security,
+                    );
                 }
             }
         };
@@ -130,6 +145,7 @@ impl<'a> ServiceRuntime<'a> {
             security.clone(),
             Box::new(self.connectors.clone()),
         );
+        runtime.set_output_enabled(self.output_enabled);
         let result =
             runtime.run_service_route(&self.service_name, &request.method, &request.path, input);
         if let Err(err) = self.record_audit_events(
@@ -138,38 +154,21 @@ impl<'a> ServiceRuntime<'a> {
             &request.path,
             runtime.audit_events(),
         ) {
-            return HttpResponse::text(
-                500,
-                "Internal Server Error",
-                format!(
-                    "failed to persist audit events: {}\n",
-                    redaction::redact_text(&format!("{err:?}"))
-                ),
+            return route_error_response(
+                RouteErrorClass::Internal {
+                    code: "audit_persist_failed",
+                    message: format!("failed to persist audit events: {err:?}"),
+                },
+                &security,
             );
         }
 
         match result {
             Ok(()) => HttpResponse::text(200, "OK", "ok\n"),
-            Err(message) if message.contains("not found") => HttpResponse::text(
-                404,
-                "Not Found",
-                format!("{}\n", redaction::redact_text(&message)),
-            ),
-            Err(message) if message.contains("Security Violation") => HttpResponse::text(
-                403,
-                "Forbidden",
-                format!("{}\n", redaction::redact_text(&message)),
-            ),
-            Err(message) if message.contains("Missing route input") => HttpResponse::text(
-                400,
-                "Bad Request",
-                format!("{}\n", redaction::redact_text(&message)),
-            ),
-            Err(message) => HttpResponse::text(
-                500,
-                "Internal Server Error",
-                format!("{}\n", redaction::redact_text(&message)),
-            ),
+            Err(message) => {
+                let runtime_error = runtime.last_error();
+                route_error_response(classify_route_error(&message, runtime_error), &security)
+            }
         }
     }
 
@@ -185,6 +184,233 @@ impl<'a> ServiceRuntime<'a> {
         };
         recorder(security, method, path, events)
     }
+}
+
+enum RouteErrorClass {
+    Validation {
+        code: &'static str,
+        message: String,
+    },
+    Permission {
+        code: &'static str,
+        message: String,
+    },
+    Tenant {
+        code: &'static str,
+        message: String,
+    },
+    Connector {
+        code: String,
+        method: String,
+        retryable: bool,
+    },
+    Workflow {
+        code: &'static str,
+        message: String,
+    },
+    Internal {
+        code: &'static str,
+        message: String,
+    },
+}
+
+fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> RouteErrorClass {
+    if let Some(error) = runtime_error {
+        match error {
+            RuntimeError::PermissionDenied { .. } => {
+                return RouteErrorClass::Permission {
+                    code: "permission_denied",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::TenantIsolationViolation { .. } => {
+                return RouteErrorClass::Tenant {
+                    code: "tenant_isolation_violation",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::ConnectorFailed {
+                method,
+                code,
+                retryable,
+                ..
+            } => {
+                return RouteErrorClass::Connector {
+                    code: code.clone(),
+                    method: method.clone(),
+                    retryable: *retryable,
+                };
+            }
+            RuntimeError::Timeout { .. } => {
+                return RouteErrorClass::Workflow {
+                    code: "timeout",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::CostLimitExceeded { .. } => {
+                return RouteErrorClass::Workflow {
+                    code: "cost_limit_exceeded",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::RateLimitExceeded { .. } => {
+                return RouteErrorClass::Workflow {
+                    code: "rate_limit_exceeded",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::SecretNotFound { .. } => {
+                return RouteErrorClass::Internal {
+                    code: "secret_not_found",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::SanitizationFailed { .. } => {
+                return RouteErrorClass::Validation {
+                    code: "sanitization_failed",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::ActionFailed { .. } => {
+                return RouteErrorClass::Workflow {
+                    code: "action_failed",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::Storage(_) => {
+                return RouteErrorClass::Internal {
+                    code: "storage_error",
+                    message: error.message(),
+                };
+            }
+        }
+    }
+
+    if message.contains("not found") {
+        RouteErrorClass::Validation {
+            code: "route_not_found",
+            message: message.to_string(),
+        }
+    } else if message.contains("Security Violation") {
+        RouteErrorClass::Permission {
+            code: "permission_denied",
+            message: message.to_string(),
+        }
+    } else if message.contains("Missing route input") {
+        RouteErrorClass::Validation {
+            code: "missing_route_input",
+            message: message.to_string(),
+        }
+    } else if message.starts_with("rejected:") {
+        RouteErrorClass::Workflow {
+            code: "workflow_rejected",
+            message: message.to_string(),
+        }
+    } else {
+        RouteErrorClass::Internal {
+            code: "internal_error",
+            message: message.to_string(),
+        }
+    }
+}
+
+fn route_error_response(error: RouteErrorClass, security: &SecurityContext) -> HttpResponse {
+    let (status, reason, payload) = route_error_payload(error, security);
+    HttpResponse::json(status, reason, payload)
+}
+
+fn route_error_payload(
+    error: RouteErrorClass,
+    security: &SecurityContext,
+) -> (u16, &'static str, JsonValue) {
+    let request_id = security.request_id.clone();
+    let correlation_id = security.correlation_id.clone();
+    match error {
+        RouteErrorClass::Validation { code, message } => (
+            if code == "route_not_found" { 404 } else { 400 },
+            if code == "route_not_found" {
+                "Not Found"
+            } else {
+                "Bad Request"
+            },
+            json!({
+                "error": base_error("validation", code, message, request_id, correlation_id),
+            }),
+        ),
+        RouteErrorClass::Permission { code, message } => (
+            403,
+            "Forbidden",
+            json!({
+                "error": base_error("permission", code, message, request_id, correlation_id),
+            }),
+        ),
+        RouteErrorClass::Tenant { code, message } => (
+            403,
+            "Forbidden",
+            json!({
+                "error": base_error("tenant", code, message, request_id, correlation_id),
+            }),
+        ),
+        RouteErrorClass::Connector {
+            code,
+            method,
+            retryable,
+        } => (
+            502,
+            "Bad Gateway",
+            json!({
+                "error": {
+                    "kind": "connector",
+                    "code": code,
+                    "message": "connector call failed",
+                    "request_id": request_id,
+                    "correlation_id": correlation_id,
+                    "connector": {
+                        "method": method,
+                        "retryable": retryable,
+                    }
+                }
+            }),
+        ),
+        RouteErrorClass::Workflow { code, message } => (
+            if code == "rate_limit_exceeded" {
+                429
+            } else {
+                500
+            },
+            if code == "rate_limit_exceeded" {
+                "Too Many Requests"
+            } else {
+                "Internal Server Error"
+            },
+            json!({
+                "error": base_error("workflow", code, message, request_id, correlation_id),
+            }),
+        ),
+        RouteErrorClass::Internal { code, message } => (
+            500,
+            "Internal Server Error",
+            json!({
+                "error": base_error("internal", code, message, request_id, correlation_id),
+            }),
+        ),
+    }
+}
+
+fn base_error(
+    kind: &'static str,
+    code: impl Into<String>,
+    message: impl AsRef<str>,
+    request_id: String,
+    correlation_id: String,
+) -> JsonValue {
+    json!({
+        "kind": kind,
+        "code": code.into(),
+        "message": redaction::redact_text(message.as_ref()),
+        "request_id": request_id,
+        "correlation_id": correlation_id,
+    })
 }
 
 fn request_roles(request: &HttpRequest) -> impl Iterator<Item = &str> {
@@ -205,7 +431,12 @@ mod tests {
     use crate::interpreter::Value;
     use crate::RuntimeError;
     use num_compiler::compile;
+    use serde_json::Value as JsonValue;
     use std::sync::{Arc, Mutex};
+
+    fn error_body(response: &crate::http::HttpResponse) -> JsonValue {
+        serde_json::from_str(&response.body).unwrap()
+    }
 
     #[test]
     fn maps_http_request_to_service_route() {
@@ -283,8 +514,13 @@ service SecretApi {
             r#"{"token":"sk_live_http"}"#,
         ));
 
-        assert_eq!(response.status, 500);
-        assert!(response.body.contains("<redacted>"));
+        assert_eq!(response.status, 502);
+        assert_eq!(response.content_type, "application/json; charset=utf-8");
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "connector");
+        assert_eq!(body["error"]["code"], "execution_failed");
+        assert_eq!(body["error"]["message"], "connector call failed");
+        assert_eq!(body["error"]["connector"]["method"], "secrets.send");
         assert!(!response.body.contains("sk_live_http"));
     }
 
@@ -309,7 +545,50 @@ service BillingApi {
         let response = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));
 
         assert_eq!(response.status, 400);
-        assert!(response.body.contains("Missing route input"));
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "validation");
+        assert_eq!(body["error"]["code"], "missing_route_input");
+        assert_eq!(body["error"]["request_id"], "req_demo");
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Missing route input"));
+    }
+
+    #[test]
+    fn invalid_request_body_returns_structured_validation_error() {
+        let source = r#"
+module test.api
+
+type RefundRequest {
+    id: Text
+}
+
+service BillingApi {
+    route POST "/refunds" {
+        input request: RefundRequest from HttpBody
+        audit("refund")
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![]);
+        let mut request = HttpRequest::new("POST", "/refunds", r#"{"id": 42}"#);
+        request
+            .headers
+            .insert("x-request-id".to_string(), "req_invalid".to_string());
+        request
+            .headers
+            .insert("x-correlation-id".to_string(), "corr_invalid".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 400);
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "validation");
+        assert_eq!(body["error"]["code"], "invalid_request_body");
+        assert_eq!(body["error"]["request_id"], "req_invalid");
+        assert_eq!(body["error"]["correlation_id"], "corr_invalid");
     }
 
     #[test]
@@ -410,7 +689,13 @@ service BillingApi {
         let response = runtime.handle_http_request(&request);
 
         assert_eq!(response.status, 403);
-        assert!(response.body.contains("IssueRefund"));
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "permission");
+        assert_eq!(body["error"]["code"], "permission_denied");
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("IssueRefund"));
     }
 
     #[test]
@@ -521,6 +806,12 @@ service BillingApi {
         let response = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));
 
         assert_eq!(response.status, 500);
-        assert!(response.body.contains("failed to persist audit events"));
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "internal");
+        assert_eq!(body["error"]["code"], "audit_persist_failed");
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("failed to persist audit events"));
     }
 }

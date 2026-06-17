@@ -316,6 +316,22 @@ optional final argument when a module declares multiple services:
 num route app.num POST /refunds BillingApi
 ```
 
+`num route` prints the route response body. Success responses are plain `ok`;
+failure responses are JSON and use the same contract as `num serve` and
+`num serve-once`:
+
+```json
+{
+  "error": {
+    "kind": "validation",
+    "code": "missing_route_input",
+    "message": "Missing route input",
+    "request_id": "req_demo",
+    "correlation_id": "corr_demo"
+  }
+}
+```
+
 Current limitations:
 
 - this is a route dry-run, not an HTTP listener;
@@ -323,6 +339,16 @@ Current limitations:
 - route input values are generated for included demo schemas;
 - configured `[connectors]` process commands run before the demo connector
   fallback.
+
+Service route failures are machine-readable. Parse and body validation failures
+return `400`; route misses return `404`; permission and tenant failures return
+`403`; connector failures return `502` with `error.kind = "connector"` and a
+stable connector `code`; rate-limit failures return `429`; other workflow or
+internal failures return `500`. Error payloads include `request_id` and
+`correlation_id` when the request supplied `X-Request-Id` or
+`X-Correlation-Id`, otherwise the demo defaults are used. Client-facing
+connector failures use a generic message so connector stderr and secrets do not
+leak into HTTP responses.
 
 ### `serve`
 
