@@ -39,8 +39,15 @@ impl<'a> Checker<'a> {
                     self.enum_constructor(raw, &field.value, env, None);
                 }
             }
-            Expr::Async(inner) | Expr::Await(inner) => self.enum_constructor(raw, inner, env, expected),
-            Expr::Quantity(_, _) | Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) => {}
+            Expr::Async(inner) | Expr::Await(inner) => {
+                self.enum_constructor(raw, inner, env, expected)
+            }
+            Expr::Quantity(_, _)
+            | Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_) => {}
         }
     }
 

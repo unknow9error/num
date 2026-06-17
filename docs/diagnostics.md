@@ -89,6 +89,12 @@ diagnostic has:
 - `N2322` - enum variant constructor payload type does not match the declared
   payload type.
 
+## Async Tasks
+
+- `N2900` - `await` is used on an expression that is not `Task<T>`.
+- `N2901` - an `async` task is created as a bare expression statement without
+  an owner.
+
 The current checker treats calls whose expression text contains `ai.` as AI
 calls. It treats use of `.confidence`, `.value`, `require_human_review`, or
 `require_human_approval` as uncertainty handling.

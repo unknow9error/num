@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Minor
+
+- Added a static async task model for the 0.4.0 language slice: `async <expr>`
+  now produces `Task<T>`, `await <task>` unwraps `Task<T>`, and the checker
+  rejects `await` on non-task values and bare async tasks without owners.
+
 ## 0.3.0 - 2026-06-17
 
 ### Minor

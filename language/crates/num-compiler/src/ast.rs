@@ -258,6 +258,10 @@ impl TypeRef {
         self.raw.starts_with("Result<")
     }
 
+    pub fn is_task(&self) -> bool {
+        self.raw.starts_with("Task<")
+    }
+
     pub fn is_secret(&self) -> bool {
         self.raw == "Secret" || self.raw.starts_with("Secret<")
     }

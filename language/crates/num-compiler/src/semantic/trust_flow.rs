@@ -72,7 +72,9 @@ impl<'a> Checker<'a> {
         match expr {
             Expr::Ident(name) => env.get(name).map(|binding| self.binding_labels(binding)),
             Expr::Member { object, field } => self.member_labels(object, field, env),
-            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => self.expr_labels(inner, env),
+            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+                self.expr_labels(inner, env)
+            }
             Expr::Binary { left, right, .. } => {
                 let left_labels = self.expr_labels(left, env);
                 let right_labels = self.expr_labels(right, env);
@@ -119,7 +121,11 @@ impl<'a> Checker<'a> {
                 }
                 labels
             }
-            Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => None,
+            Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => None,
         }
     }
 
@@ -349,13 +355,17 @@ fn first_untrusted_expr(
                     .find_map(|arg| first_untrusted_expr(arg, env, checker))
             })
         }
-        Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => first_untrusted_expr(inner, env, checker),
+        Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+            first_untrusted_expr(inner, env, checker)
+        }
         Expr::Binary { left, right, .. } => first_untrusted_expr(left, env, checker)
             .or_else(|| first_untrusted_expr(right, env, checker)),
         Expr::Object(fields) => fields
             .iter()
             .find_map(|field| first_untrusted_expr(&field.value, env, checker)),
-        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => None,
+        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {
+            None
+        }
     }
 }
 
@@ -394,6 +404,8 @@ fn expr_label(expr: &Expr) -> String {
         Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => expr_label(inner),
         Expr::Binary { .. } => "expression".to_string(),
         Expr::Object(_) => "object".to_string(),
-        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => "literal".to_string(),
+        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {
+            "literal".to_string()
+        }
     }
 }

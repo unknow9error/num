@@ -27,7 +27,12 @@ impl<'a> Checker<'a> {
                 }
             }
             Expr::Async(inner) | Expr::Await(inner) => self.binary_expr(raw, inner, env),
-            Expr::Quantity(_, _) | Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) => {}
+            Expr::Quantity(_, _)
+            | Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_) => {}
         }
     }
 
@@ -168,7 +173,12 @@ impl<'a> Checker<'a> {
                 }
             }
             Expr::Async(inner) | Expr::Await(inner) => self.field_access(raw, inner, env),
-            Expr::Quantity(_, _) | Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) => {}
+            Expr::Quantity(_, _)
+            | Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_) => {}
         }
     }
 
@@ -351,22 +361,41 @@ impl<'a> Checker<'a> {
                 binary_result_type(*op, &left_ty, &right_ty)
             }
             Expr::Quantity(_, unit) => {
-                if crate::builtins::symbol(unit).is_some_and(|sym| sym.kind == crate::builtins::BuiltinKind::Currency) {
-                    Some(TypeRef { raw: format!("Money<{}>", unit) })
+                if crate::builtins::symbol(unit)
+                    .is_some_and(|sym| sym.kind == crate::builtins::BuiltinKind::Currency)
+                {
+                    Some(TypeRef {
+                        raw: format!("Money<{}>", unit),
+                    })
                 } else if unit == "km" || unit == "Kilometer" {
-                    Some(TypeRef { raw: "Distance<Kilometer>".to_string() })
+                    Some(TypeRef {
+                        raw: "Distance<Kilometer>".to_string(),
+                    })
                 } else if unit == "h" || unit == "Hour" {
-                    Some(TypeRef { raw: "Duration<Hour>".to_string() })
+                    Some(TypeRef {
+                        raw: "Duration<Hour>".to_string(),
+                    })
                 } else if unit == "km/h" || unit == "KilometersPerHour" {
-                    Some(TypeRef { raw: "Speed<KilometersPerHour>".to_string() })
+                    Some(TypeRef {
+                        raw: "Speed<KilometersPerHour>".to_string(),
+                    })
                 } else if unit.contains('/') {
-                    Some(TypeRef { raw: format!("Speed<{}>", unit) })
+                    Some(TypeRef {
+                        raw: format!("Speed<{}>", unit),
+                    })
                 } else {
-                    Some(TypeRef { raw: format!("Distance<{}>", unit) })
+                    Some(TypeRef {
+                        raw: format!("Distance<{}>", unit),
+                    })
                 }
             }
-            Expr::Async(inner) => self.expr_type(inner, env),
-            Expr::Await(inner) => self.expr_type(inner, env),
+            Expr::Async(inner) => self.expr_type(inner, env).map(|inner_ty| TypeRef {
+                raw: format!("Task<{}>", inner_ty.raw),
+            }),
+            Expr::Await(inner) => {
+                let inner_ty = self.expr_type(inner, env)?;
+                self.task_inner_type(&inner_ty).or(Some(inner_ty))
+            }
         }
     }
 

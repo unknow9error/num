@@ -701,7 +701,13 @@ impl<'a> Checker<'a> {
                 }
                 Stmt::Scope(stmt) => {
                     let mut scope_env = env.clone();
-                    self.statements(&stmt.body, &mut scope_env, granted, expected_return, test_kind);
+                    self.statements(
+                        &stmt.body,
+                        &mut scope_env,
+                        granted,
+                        expected_return,
+                        test_kind,
+                    );
                 }
                 Stmt::If(stmt) => {
                     self.expr(&stmt.condition, env, granted, expected_return, None);
@@ -748,7 +754,7 @@ impl<'a> Checker<'a> {
                     self.match_stmt(stmt, env, granted, expected_return, test_kind)
                 }
                 Stmt::Return(expr) => self.return_stmt(expr, env, granted, expected_return),
-                Stmt::Expr(expr) => self.expr(expr, env, granted, expected_return, None),
+                Stmt::Expr(expr) => self.expr_stmt(expr, env, granted, expected_return),
             }
         }
     }
@@ -1021,8 +1027,33 @@ impl<'a> Checker<'a> {
         self.option_constructor(expr, &parsed, env, expected_expr);
         self.result_constructor(expr, &parsed, env, expected_expr);
         self.try_expr(expr, &parsed, env, expected_return);
+        self.async_expr(expr, &parsed, env);
         self.binary_expr(expr, &parsed, env);
         self.field_access(expr, &parsed, env);
+    }
+
+    fn expr_stmt(
+        &mut self,
+        raw: &RawExpr,
+        env: &HashMap<String, Binding>,
+        granted: &HashSet<String>,
+        expected_return: Option<&TypeRef>,
+    ) {
+        self.expr(raw, env, granted, expected_return, None);
+        let Some(parsed) = self.parse_expr(raw) else {
+            return;
+        };
+        if matches!(parsed, Expr::Async(_)) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2901",
+                    "async task is created without an owner",
+                    raw.span.clone(),
+                )
+                .with_reason("structured concurrency requires every async task to be owned")
+                .with_help("bind the task with `let task: Task<T> = async ...` or await an existing Task<T>"),
+            );
+        }
     }
 
     fn return_stmt(
@@ -1877,7 +1908,15 @@ impl<'a> Checker<'a> {
         self.resolve_aliases(ty).is_uncertain()
     }
 
+    pub(super) fn is_task_type(&self, ty: &TypeRef) -> bool {
+        self.resolve_aliases(ty).is_task()
+    }
+
     pub(super) fn option_inner_type(&self, ty: &TypeRef) -> Option<TypeRef> {
+        generic_arg(&self.resolve_aliases(ty).raw).map(|raw| TypeRef { raw })
+    }
+
+    pub(super) fn task_inner_type(&self, ty: &TypeRef) -> Option<TypeRef> {
         generic_arg(&self.resolve_aliases(ty).raw).map(|raw| TypeRef { raw })
     }
 
@@ -1982,8 +2021,62 @@ impl<'a> Checker<'a> {
                     self.try_expr(raw, &field.value, env, expected_return);
                 }
             }
-            Expr::Async(inner) | Expr::Await(inner) => self.try_expr(raw, inner, env, expected_return),
-            Expr::Quantity(_, _) | Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) => {}
+            Expr::Async(inner) | Expr::Await(inner) => {
+                self.try_expr(raw, inner, env, expected_return)
+            }
+            Expr::Quantity(_, _)
+            | Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_) => {}
+        }
+    }
+
+    fn async_expr(&mut self, raw: &RawExpr, expr: &Expr, env: &HashMap<String, Binding>) {
+        match expr {
+            Expr::Await(inner) => {
+                self.async_expr(raw, inner, env);
+
+                let Some(inner_ty) = self.expr_type(inner, env) else {
+                    return;
+                };
+                if !self.is_task_type(&inner_ty) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            "N2900",
+                            format!("`await` cannot unwrap non-Task type `{}`", inner_ty.raw),
+                            raw.span.clone(),
+                        )
+                        .with_reason("await only resolves Task<T> values created by async work")
+                        .with_help("use `await` on a Task<T> binding or remove `await` from this expression"),
+                    );
+                }
+            }
+            Expr::Async(inner) => self.async_expr(raw, inner, env),
+            Expr::Try(inner) => self.async_expr(raw, inner, env),
+            Expr::Call { callee, args } => {
+                self.async_expr(raw, callee, env);
+                for arg in args {
+                    self.async_expr(raw, arg, env);
+                }
+            }
+            Expr::Member { object, .. } => self.async_expr(raw, object, env),
+            Expr::Binary { left, right, .. } => {
+                self.async_expr(raw, left, env);
+                self.async_expr(raw, right, env);
+            }
+            Expr::Object(fields) => {
+                for field in fields {
+                    self.async_expr(raw, &field.value, env);
+                }
+            }
+            Expr::Quantity(_, _)
+            | Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_) => {}
         }
     }
 }
@@ -2018,7 +2111,9 @@ fn expr_label(expr: &Expr) -> String {
         Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => expr_label(inner),
         Expr::Binary { .. } => "expression".to_string(),
         Expr::Object(_) => "object".to_string(),
-        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => "literal".to_string(),
+        Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {
+            "literal".to_string()
+        }
     }
 }
 
@@ -2103,6 +2198,7 @@ fn builtin_type_names() -> HashSet<String> {
         "Bytes",
         "Result",
         "Option",
+        "Task",
         "List",
         "Map",
         "Set",
@@ -2145,6 +2241,7 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("Bytes", 0),
         ("Result", 2),
         ("Option", 1),
+        ("Task", 1),
         ("List", 1),
         ("Map", 2),
         ("Set", 1),
@@ -2472,11 +2569,25 @@ fn arithmetic_result_type(op: BinaryOp, left: &TypeRef, right: &TypeRef) -> Opti
             if is_numeric_type(left) && is_money_type(right) {
                 return Some(right.clone());
             }
-            if (is_speed_type(left) && is_duration_type(right)) || (is_duration_type(left) && is_speed_type(right)) {
-                let speed_unit = if is_speed_type(left) { generic_arg(&left.raw) } else { generic_arg(&right.raw) };
-                let duration_unit = if is_duration_type(left) { generic_arg(&left.raw) } else { generic_arg(&right.raw) };
-                if speed_unit.as_deref() == Some("KilometersPerHour") && duration_unit.as_deref() == Some("Hour") {
-                    return Some(TypeRef { raw: "Distance<Kilometer>".to_string() });
+            if (is_speed_type(left) && is_duration_type(right))
+                || (is_duration_type(left) && is_speed_type(right))
+            {
+                let speed_unit = if is_speed_type(left) {
+                    generic_arg(&left.raw)
+                } else {
+                    generic_arg(&right.raw)
+                };
+                let duration_unit = if is_duration_type(left) {
+                    generic_arg(&left.raw)
+                } else {
+                    generic_arg(&right.raw)
+                };
+                if speed_unit.as_deref() == Some("KilometersPerHour")
+                    && duration_unit.as_deref() == Some("Hour")
+                {
+                    return Some(TypeRef {
+                        raw: "Distance<Kilometer>".to_string(),
+                    });
                 }
             }
             if is_numeric_type(right) {
@@ -2501,25 +2612,38 @@ fn arithmetic_result_type(op: BinaryOp, left: &TypeRef, right: &TypeRef) -> Opti
             if is_distance_type(left) && is_duration_type(right) {
                 let dist_unit = generic_arg(&left.raw);
                 let dur_unit = generic_arg(&right.raw);
-                if dist_unit.as_deref() == Some("Kilometer") && dur_unit.as_deref() == Some("Hour") {
-                    return Some(TypeRef { raw: "Speed<KilometersPerHour>".to_string() });
+                if dist_unit.as_deref() == Some("Kilometer") && dur_unit.as_deref() == Some("Hour")
+                {
+                    return Some(TypeRef {
+                        raw: "Speed<KilometersPerHour>".to_string(),
+                    });
                 }
             }
             if is_distance_type(left) && is_speed_type(right) {
                 let dist_unit = generic_arg(&left.raw);
                 let speed_unit = generic_arg(&right.raw);
-                if dist_unit.as_deref() == Some("Kilometer") && speed_unit.as_deref() == Some("KilometersPerHour") {
-                    return Some(TypeRef { raw: "Duration<Hour>".to_string() });
+                if dist_unit.as_deref() == Some("Kilometer")
+                    && speed_unit.as_deref() == Some("KilometersPerHour")
+                {
+                    return Some(TypeRef {
+                        raw: "Duration<Hour>".to_string(),
+                    });
                 }
             }
             if is_distance_type(left) && types_compatible(left, right) {
-                return Some(TypeRef { raw: "Float".to_string() });
+                return Some(TypeRef {
+                    raw: "Float".to_string(),
+                });
             }
             if is_duration_type(left) && types_compatible(left, right) {
-                return Some(TypeRef { raw: "Float".to_string() });
+                return Some(TypeRef {
+                    raw: "Float".to_string(),
+                });
             }
             if is_speed_type(left) && types_compatible(left, right) {
-                return Some(TypeRef { raw: "Float".to_string() });
+                return Some(TypeRef {
+                    raw: "Float".to_string(),
+                });
             }
             if is_numeric_type(right) {
                 if is_distance_type(left) || is_duration_type(left) || is_speed_type(left) {
@@ -2598,9 +2722,9 @@ fn is_ordered_type(ty: &TypeRef) -> bool {
         ty.raw.as_str(),
         "Int" | "Float" | "Decimal" | "Date" | "DateTime"
     ) || is_money_type(ty)
-      || is_distance_type(ty)
-      || is_duration_type(ty)
-      || is_speed_type(ty)
+        || is_distance_type(ty)
+        || is_duration_type(ty)
+        || is_speed_type(ty)
 }
 
 fn is_distance_type(ty: &TypeRef) -> bool {
@@ -2672,12 +2796,19 @@ fn collect_root_member_names(expr: &Expr, names: &mut Vec<String>) {
             collect_root_member_names(left, names);
             collect_root_member_names(right, names);
         }
-        Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => collect_root_member_names(inner, names),
+        Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+            collect_root_member_names(inner, names)
+        }
         Expr::Object(fields) => {
             for field in fields {
                 collect_root_member_names(&field.value, names);
             }
         }
-        Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {}
+        Expr::Ident(_)
+        | Expr::String(_)
+        | Expr::Bool(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Quantity(_, _) => {}
     }
 }
