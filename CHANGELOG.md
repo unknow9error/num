@@ -7,6 +7,10 @@
 - Added a static async task model for the 0.4.0 language slice: `async <expr>`
   now produces `Task<T>`, `await <task>` unwraps `Task<T>`, and the checker
   rejects `await` on non-task values and bare async tasks without owners.
+- Added a connector echo pipeline example that ties together a `.num`
+  connector contract, manifest process connector execution through Python,
+  direct connector probing, and generated TypeScript implementation types for
+  JavaScript consumers.
 
 ## 0.3.0 - 2026-06-17
 

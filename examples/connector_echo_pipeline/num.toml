@@ -1,0 +1,16 @@
+[language]
+version = "0.3.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "connector-echo-pipeline"
+version = "0.4.0"
+source = "src"
+entry = "src/main.num"
+
+[security]
+policy_mode = "strict"
+
+[connectors]
+"echo.reply" = { command = "python3", args = "echo.py", cwd = "python", timeout_ms = "2000" }

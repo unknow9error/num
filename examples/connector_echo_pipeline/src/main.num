@@ -1,0 +1,10 @@
+module examples.connector_echo_pipeline
+
+connector echo {
+    reply(message: Text) -> Text
+}
+
+workflow main() {
+    let response: Text = echo.reply("hello from num")
+    audit("echo_reply_received", response)
+}
