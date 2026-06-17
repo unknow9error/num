@@ -134,6 +134,8 @@ The compiler checks:
 - deterministic `test workflow` connector fixtures through
   `mock_connector connector.method(...) => Value` for declared non-AI connector
   methods with non-`Unit` results;
+- checked-in workflow lifecycle fixtures for wait/resume audit checkpoints,
+  saga compensation audits, and idempotent action replay behavior;
 - deterministic `test ai` mocks through `mock_ai ai.method(...) => Value
   confidence <number>` for declared `Uncertain<T>` AI connector methods;
 - `return` value compatibility with declared `fn`, `workflow`, and `action`
@@ -551,7 +553,8 @@ Not yet implemented:
 - tool-call sandboxing;
 - AI policy configuration;
 - richer AI test fixtures beyond deterministic `mock_ai` responses.
-- richer workflow fixtures beyond deterministic connector return-value mocks.
+- workflow fixtures for distributed state simulation beyond the checked-in
+  lifecycle examples.
 
 ### Cost and Limits
 

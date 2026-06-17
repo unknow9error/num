@@ -477,6 +477,7 @@ mod tests {
     };
     use num_runtime::events::{FileWorkflowEventQueue, WorkflowLeaseOptions};
     use num_runtime::storage::FileStateStore;
+    use num_runtime::{StateStore, WorkflowStatus};
     use std::fs;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -604,6 +605,80 @@ mod tests {
 
         let store = FileStateStore::new(&root);
         assert_eq!(store.list_workflows().unwrap()[0].id, "wf_1");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workflow_cli_drains_wait_resume_and_replays_duplicate_events() {
+        let root = unique_test_dir("cli-lifecycle");
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "start",
+            "wf_lifecycle",
+            "wait_resume_checkpoint",
+            "--event-id",
+            "evt-start",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "wait",
+            "wf_lifecycle",
+            "--event-id",
+            "evt-wait",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "resume",
+            "wf_lifecycle",
+            "--event-id",
+            "evt-resume",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "resume",
+            "wf_lifecycle",
+            "--event-id",
+            "evt-resume",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run([
+            "enqueue",
+            root.to_str().unwrap(),
+            "complete",
+            "wf_lifecycle",
+            "--event-id",
+            "evt-complete",
+        ]
+        .into_iter()
+        .map(str::to_string))
+        .unwrap();
+        run(["drain", root.to_str().unwrap(), "--max-events", "10"]
+            .into_iter()
+            .map(str::to_string))
+        .unwrap();
+
+        let store = FileStateStore::new(&root);
+        let workflow = store.load_workflow("wf_lifecycle").unwrap().unwrap();
+        assert_eq!(workflow.status, WorkflowStatus::Completed);
+        assert!(workflow.metadata.contains_key("num.processed_event.evt-resume"));
+
+        let audit = fs::read_to_string(root.join("audit/events.jsonl")).unwrap();
+        assert_eq!(audit.matches("\"kind\":\"Resumed\"").count(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 
