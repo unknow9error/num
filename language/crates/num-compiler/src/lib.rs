@@ -1148,6 +1148,77 @@ service BillingApi budget 50 KZT rate limit 5 per 10s {
     }
 
     #[test]
+    fn types_async_tasks_and_awaited_results() {
+        let source = r#"
+module tests.async_flow
+
+fn fetch_profile(id: Text) -> Text {
+    return "Aidar"
+}
+
+workflow main() -> Text {
+    let task: Task<Text> = async fetch_profile("u1")
+    let profile: Text = await task
+    return profile
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_await_on_non_task_value() {
+        let source = r#"
+module tests.await_non_task
+
+workflow main() {
+    let name: Text = "Aidar"
+    let result = await name
+}
+"#;
+
+        assert!(codes(source).contains(&"N2900"));
+    }
+
+    #[test]
+    fn rejects_task_assigned_to_awaited_value_type() {
+        let source = r#"
+module tests.async_mismatch
+
+fn fetch_profile(id: Text) -> Text {
+    return "Aidar"
+}
+
+workflow main() {
+    let profile: Text = async fetch_profile("u1")
+}
+"#;
+
+        assert!(codes(source).contains(&"N1300"));
+    }
+
+    #[test]
+    fn rejects_bare_async_expression_as_lost_task() {
+        let source = r#"
+module tests.lost_async_task
+
+fn fetch_profile(id: Text) -> Text {
+    return "Aidar"
+}
+
+workflow main() {
+    async fetch_profile("u1")
+}
+"#;
+
+        assert!(codes(source).contains(&"N2901"));
+    }
+
+    #[test]
     fn rejects_top_level_declaration_inside_unclosed_block() {
         let source = r#"
 module tests.braces

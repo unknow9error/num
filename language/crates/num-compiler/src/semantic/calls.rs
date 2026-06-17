@@ -254,7 +254,12 @@ impl<'a> Checker<'a> {
             Expr::Async(inner) | Expr::Await(inner) => {
                 self.check_method_calls(raw, inner, env);
             }
-            Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {}
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => {}
         }
     }
 

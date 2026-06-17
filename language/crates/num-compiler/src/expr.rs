@@ -75,13 +75,19 @@ impl Expr {
     pub fn contains_ident(&self, name: &str) -> bool {
         match self {
             Expr::Ident(candidate) => candidate == name,
-            Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => false,
+            Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => false,
             Expr::Object(fields) => fields.iter().any(|field| field.value.contains_ident(name)),
             Expr::Member { object, .. } => object.contains_ident(name),
             Expr::Call { callee, args } => {
                 callee.contains_ident(name) || args.iter().any(|arg| arg.contains_ident(name))
             }
-            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => inner.contains_ident(name),
+            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+                inner.contains_ident(name)
+            }
             Expr::Binary { left, right, .. } => {
                 left.contains_ident(name) || right.contains_ident(name)
             }
@@ -90,9 +96,12 @@ impl Expr {
 
     pub fn contains_member_field(&self, field: &str) -> bool {
         match self {
-            Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {
-                false
-            }
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => false,
             Expr::Object(fields) => fields
                 .iter()
                 .any(|object_field| object_field.value.contains_member_field(field)),
@@ -101,7 +110,9 @@ impl Expr {
                 callee.contains_member_field(field)
                     || args.iter().any(|arg| arg.contains_member_field(field))
             }
-            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => inner.contains_member_field(field),
+            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+                inner.contains_member_field(field)
+            }
             Expr::Binary { left, right, .. } => {
                 left.contains_member_field(field) || right.contains_member_field(field)
             }
@@ -116,16 +127,21 @@ impl Expr {
                     || args.iter().any(|arg| arg.contains_call_path(expected))
             }
             Expr::Member { object, .. } => object.contains_call_path(expected),
-            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => inner.contains_call_path(expected),
+            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+                inner.contains_call_path(expected)
+            }
             Expr::Binary { left, right, .. } => {
                 left.contains_call_path(expected) || right.contains_call_path(expected)
             }
             Expr::Object(fields) => fields
                 .iter()
                 .any(|field| field.value.contains_call_path(expected)),
-            Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {
-                false
-            }
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => false,
         }
     }
 
@@ -169,7 +185,9 @@ impl Expr {
                 }
             }
             Expr::Member { object, .. } => object.collect_calls(calls),
-            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => inner.collect_calls(calls),
+            Expr::Try(inner) | Expr::Async(inner) | Expr::Await(inner) => {
+                inner.collect_calls(calls)
+            }
             Expr::Binary { left, right, .. } => {
                 left.collect_calls(calls);
                 right.collect_calls(calls);
@@ -179,7 +197,12 @@ impl Expr {
                     field.value.collect_calls(calls);
                 }
             }
-            Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {}
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => {}
         }
     }
 }
@@ -444,7 +467,9 @@ impl Parser {
                 if let Token::Ident(unit) = self.peek() {
                     let mut unit = unit.clone();
                     self.advance(); // consume unit identifier
-                    if matches!(self.peek(), Token::Slash) && matches!(self.tokens.get(self.index + 1), Some(Token::Ident(_))) {
+                    if matches!(self.peek(), Token::Slash)
+                        && matches!(self.tokens.get(self.index + 1), Some(Token::Ident(_)))
+                    {
                         self.advance(); // consume Slash
                         if let Token::Ident(next_unit) = self.advance() {
                             unit = format!("{}/{}", unit, next_unit);

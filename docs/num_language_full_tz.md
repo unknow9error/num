@@ -1151,7 +1151,8 @@ connector crm {
 ### 19.1 Async/await
 
 ```num
-let user = await users.fetch(id)
+let task: Task<User> = async users.fetch(id)
+let user: User = await task
 ```
 
 ---

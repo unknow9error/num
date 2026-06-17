@@ -38,7 +38,12 @@ impl<'a> Checker<'a> {
             Expr::Async(inner) | Expr::Await(inner) => {
                 self.brand_constructor(raw, inner, env, expected);
             }
-            Expr::Ident(_) | Expr::String(_) | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Quantity(_, _) => {}
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Quantity(_, _) => {}
         }
     }
 

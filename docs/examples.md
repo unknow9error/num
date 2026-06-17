@@ -13,6 +13,7 @@ num check examples/refund_workflow/src
 num check examples/ai_agent/src/main.num
 num check examples/policy_guard/src/main.num
 num check examples/contract_driven_refund/src/main.num
+num check examples/async_tasks/src/main.num
 ```
 
 ## `refund_workflow`
@@ -110,6 +111,23 @@ node examples/contract_driven_refund/backend/runtime-demo.js success
 node examples/contract_driven_refund/backend/runtime-demo.js approval
 node examples/contract_driven_refund/backend/runtime-demo.js denied
 node examples/contract_driven_refund/backend/runtime-demo.js rollback
+```
+
+## `async_tasks`
+
+Path: `examples/async_tasks/src/main.num`
+
+Demonstrates:
+
+- `Task<T>` as the static type for async work;
+- `async <expr>` producing a task;
+- `await <task>` unwrapping the task result;
+- rejection of assigning a task where the awaited value is expected.
+
+Useful command:
+
+```bash
+num check examples/async_tasks/src/main.num
 ```
 
 ## Adding an Example

@@ -988,6 +988,7 @@ The semantic checker uses this AST for:
 - explicit branded alias unwrap through `unbrand(value)`;
 - enum variant constructors such as `Failed("network")` in typed enum contexts;
 - `Result<T,E>?` unwrap and compatible error propagation;
+- `async <expr>` task creation and `await <task>` unwrapping for `Task<T>`;
 - `Uncertain<T>.confidence` and `Uncertain<T>.value`;
 - object literal fields, with provenance, privacy, and trust labels preserved
   through nested field expressions;
@@ -1016,6 +1017,36 @@ Ordering comparisons require compatible ordered scalar values:
 - `DateTime`
 - `Duration`
 - `Money<C>` when both sides use the same currency
+
+## Async Tasks
+
+The compiler models asynchronous work with `Task<T>`.
+
+```num
+fn fetch_profile(id: Text) -> Text {
+    return "Aidar"
+}
+
+workflow main() -> Text {
+    let task: Task<Text> = async fetch_profile("u1")
+    let profile: Text = await task
+    return profile
+}
+```
+
+`async <expr>` has type `Task<T>` when `<expr>` has type `T`. `await <task>`
+unwraps `Task<T>` back to `T`. Awaiting a non-task value is rejected, and a
+task cannot be assigned to the awaited value type without an explicit `await`.
+
+Bare async expressions are rejected so tasks do not get created and forgotten:
+
+```num
+workflow main() {
+    async fetch_profile("u1")
+}
+```
+
+Bind the task to an owner or await an existing task instead.
 
 ## AI and `Uncertain<T>`
 

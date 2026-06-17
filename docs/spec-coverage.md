@@ -1,14 +1,14 @@
 # Num Specification Coverage
 
 This document maps the full Num technical specification to the current `num`
-v0.3.0 implementation.
+v0.4.0 development implementation.
 
 The short version: the repository implements a working compiler frontend,
 semantic checker, IR, CLI, editor integration, examples, release package, and a
 mocked demo runtime. It does not yet implement the complete industrial Num
 language/runtime/platform.
 
-## Covered in v0.3.0
+## Covered in v0.4.0
 
 ### Language Surface
 
@@ -144,6 +144,10 @@ The compiler checks:
   `Money<C>` values;
 - equality comparisons over compatible operand types;
 - boolean `&&` / `||` expressions over `Bool` operands;
+- `async <expr>` task creation as `Task<T>`, `await <task>` unwrapping, and
+  rejection of `await` on non-task values;
+- first structured-concurrency lost-task guard, rejecting bare `async`
+  expression statements that create tasks without owners;
 - arithmetic expressions over compatible numeric types and selected
   `Money<C>` operations;
 - object literal expressions such as audit contexts, with nested labels
@@ -571,8 +575,7 @@ Major full-spec areas not implemented in v0.3.0:
 - document processing APIs;
 - full OpenAPI import coverage beyond the current connector-contract subset;
 - full database schema import coverage beyond the current SQL contract subset;
-- async/await;
-- structured concurrency;
+- full structured concurrency beyond the current lost-task static guard;
 - actor model;
 - clustered/networked queue coordination beyond the local file-backed worker
   lease and heartbeat model;

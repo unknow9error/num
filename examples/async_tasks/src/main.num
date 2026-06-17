@@ -1,0 +1,11 @@
+module examples.async_tasks
+
+fn fetch_profile(id: Text) -> Text {
+    return id
+}
+
+workflow load_profile(id: Text) -> Text {
+    let task: Task<Text> = async fetch_profile(id)
+    let profile: Text = await task
+    return profile
+}
