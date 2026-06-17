@@ -517,18 +517,26 @@ fn run() -> Result<(), String> {
                 .or_else(|| demo::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
             let input = demo::route_input(&compilation.module, &service_name, &method, &route_path);
-            let connectors = connector_executor_for_path(&path, true)?;
+            let connectors = connector_executor_for_path(&path, false)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
-
-            let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
+            let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
+                service_name.clone(),
                 demo::default_permissions(),
-                Box::new(connectors.clone()),
+                connectors,
+            )
+            .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
+            .with_output_enabled(false);
+            let response = runtime.handle_http_request_with_empty_body_input(
+                &num_runtime::http::HttpRequest::new(method, route_path, ""),
+                input,
             );
-            let result = runtime.run_service_route(&service_name, &method, &route_path, input);
-            persist_interpreter_audits(&audit_target, "route", runtime.audit_events())?;
-            result?;
-            Ok(())
+            print!("{}", response.body);
+            if response.status >= 400 {
+                Err(format!("route failed with HTTP status {}", response.status))
+            } else {
+                Ok(())
+            }
         }
         "serve-once" => {
             let path = required_path(args.next(), "serve-once")?;

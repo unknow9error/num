@@ -18,6 +18,9 @@
 
 ### Patch
 
+- Normalized service-route error responses for `num route`, `num serve`, and
+  `num serve-once` with stable JSON `kind`/`code` fields, request identifiers,
+  and redacted connector/internal messages.
 - Redacted `Secret<T>` values and secret-like connector failures from runtime
   trace/debug JSON, structured connector errors, process connector JSON
   conversion, and service error responses.

@@ -52,6 +52,18 @@ impl HttpResponse {
             content_type: "text/plain; charset=utf-8".to_string(),
         }
     }
+
+    pub fn json(status: u16, reason: impl Into<String>, body: serde_json::Value) -> Self {
+        let body = serde_json::to_string_pretty(&body).unwrap_or_else(|_| {
+            "{\"error\":{\"kind\":\"internal\",\"code\":\"json_render_failed\"}}".to_string()
+        });
+        Self {
+            status,
+            reason: reason.into(),
+            body: format!("{body}\n"),
+            content_type: "application/json; charset=utf-8".to_string(),
+        }
+    }
 }
 
 pub fn serve_once<F>(addr: &str, handler: F) -> Result<(), String>
@@ -91,7 +103,19 @@ where
 
     let response = match parse_request(&raw) {
         Ok(request) => handler(request),
-        Err(message) => HttpResponse::text(400, "Bad Request", format!("{message}\n")),
+        Err(message) => HttpResponse::json(
+            400,
+            "Bad Request",
+            serde_json::json!({
+                "error": {
+                    "kind": "parse",
+                    "code": "invalid_http_request",
+                    "message": message,
+                    "request_id": null,
+                    "correlation_id": null,
+                }
+            }),
+        ),
     };
     stream
         .write_all(&response_bytes(&response))
@@ -315,5 +339,21 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(text.contains("Content-Length: 5\r\n"));
         assert!(text.ends_with("done\n"));
+    }
+
+    #[test]
+    fn renders_json_response() {
+        let response = HttpResponse::json(
+            400,
+            "Bad Request",
+            serde_json::json!({"error": {"kind": "parse", "code": "invalid_http_request"}}),
+        );
+        let bytes = response_bytes(&response);
+        let text = String::from_utf8(bytes).unwrap();
+
+        assert!(text.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+        assert!(text.contains("Content-Type: application/json; charset=utf-8\r\n"));
+        assert!(text.contains("\"kind\": \"parse\""));
+        assert!(text.ends_with("}\n"));
     }
 }

@@ -752,6 +752,26 @@ comma-separated `X-Roles` headers are resolved against `.num` `role`
 declarations and grant the role's allowed permissions for that request. A
 hardened production HTTP server runtime is not implemented yet.
 
+Service-route failures use a stable JSON response body:
+
+```json
+{
+  "error": {
+    "kind": "permission",
+    "code": "permission_denied",
+    "message": "Security Violation: Missing required permission 'IssueRefund'",
+    "request_id": "req_42",
+    "correlation_id": "corr_42"
+  }
+}
+```
+
+The `kind` field classifies `parse`, `validation`, `permission`, `tenant`,
+`connector`, `workflow`, or `internal` failures. The `code` field is stable for
+tests and clients. Connector failures return a generic client-facing message
+with connector method and retryability metadata, while detailed diagnostics stay
+in runtime trace/debug surfaces.
+
 Service declarations can also define a budget applied to every demo route
 execution and a rate limit checked before the route body runs. Route execution
 opens a parent budget scope, so nested function/workflow calls and actions
