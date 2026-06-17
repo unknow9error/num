@@ -217,7 +217,7 @@ source = "src"
 entry = "src/main.num"
 
 [connectors]
-"echo.text" = { command = "/bin/echo", args = "true" }
+"echo.text" = { command = "/bin/sh", args = "-c 'cat >/dev/null; printf true'" }
 "#,
         )
         .unwrap();

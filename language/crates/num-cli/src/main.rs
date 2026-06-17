@@ -22,7 +22,7 @@ mod workflow_cli;
 use num_compiler::{
     check_program, compile, compile_program,
     diagnostic::{Diagnostic, Severity},
-    formatter, lint, Compilation, ProgramModule,
+    formatter, lexer, lint, parser, Compilation, ProgramModule,
 };
 use num_runtime::{
     audit_report,
@@ -99,12 +99,8 @@ fn run() -> Result<(), String> {
             }
         }
         "fmt" => {
-            let path = required_path(args.next(), "fmt")?;
-            let source = fs::read_to_string(&path)
-                .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-            let compilation = compile(path.display().to_string(), &source);
-            print!("{}", formatter::format_module(&compilation.module));
-            Ok(())
+            let options = parse_fmt_options(args)?;
+            run_fmt(options)
         }
         "ir" => {
             let path = required_path(args.next(), "ir")?;
@@ -847,6 +843,19 @@ struct DebugOptions {
     format_json: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FmtMode {
+    Stdout,
+    Write,
+    Check,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FmtOptions {
+    path: PathBuf,
+    mode: FmtMode,
+}
+
 struct RunOptions {
     path: PathBuf,
     format_json: bool,
@@ -1026,6 +1035,161 @@ fn parse_run_options(args: impl Iterator<Item = String>) -> Result<RunOptions, S
     })
 }
 
+fn parse_fmt_options(args: impl Iterator<Item = String>) -> Result<FmtOptions, String> {
+    let mut path = None;
+    let mut mode = FmtMode::Stdout;
+
+    for arg in args {
+        match arg.as_str() {
+            "--write" | "-w" => {
+                if mode == FmtMode::Check {
+                    return Err("`num fmt --write` cannot be combined with --check".to_string());
+                }
+                mode = FmtMode::Write;
+            }
+            "--check" => {
+                if mode == FmtMode::Write {
+                    return Err("`num fmt --check` cannot be combined with --write".to_string());
+                }
+                mode = FmtMode::Check;
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected fmt argument '{other}'"));
+            }
+            _ if path.is_none() => path = Some(PathBuf::from(arg)),
+            _ => return Err(format!("unexpected fmt argument '{arg}'")),
+        }
+    }
+
+    Ok(FmtOptions {
+        path: path.ok_or_else(|| "usage: num fmt [--write|--check] <file.num|dir>".to_string())?,
+        mode,
+    })
+}
+
+fn run_fmt(options: FmtOptions) -> Result<(), String> {
+    match options.mode {
+        FmtMode::Stdout => {
+            let source = fs::read_to_string(&options.path)
+                .map_err(|err| format!("failed to read {}: {err}", options.path.display()))?;
+            let formatted = format_num_source(&options.path, &source)?;
+            print!("{formatted}");
+            Ok(())
+        }
+        FmtMode::Write => {
+            let report = format_num_paths(&options.path, true)?;
+            for path in &report.changed {
+                println!("formatted {}", path.display());
+            }
+            println!(
+                "num fmt wrote: {} changed, {} checked",
+                report.changed.len(),
+                report.checked
+            );
+            Ok(())
+        }
+        FmtMode::Check => {
+            let report = format_num_paths(&options.path, false)?;
+            if report.changed.is_empty() {
+                println!("num fmt --check passed: {} files", report.checked);
+                return Ok(());
+            }
+            for path in &report.changed {
+                println!("unformatted {}", path.display());
+            }
+            Err(format!(
+                "num fmt --check failed: {} unformatted of {} files",
+                report.changed.len(),
+                report.checked
+            ))
+        }
+    }
+}
+
+struct FmtReport {
+    checked: usize,
+    changed: Vec<PathBuf>,
+}
+
+fn format_num_paths(path: &Path, write: bool) -> Result<FmtReport, String> {
+    let paths = collect_fmt_paths(path)?;
+    let mut changed = Vec::new();
+
+    for path in &paths {
+        let source = fs::read_to_string(path)
+            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        let formatted = format_num_source(path, &source)?;
+        if formatted != source {
+            changed.push(path.clone());
+            if write {
+                fs::write(path, formatted)
+                    .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+            }
+        }
+    }
+
+    Ok(FmtReport {
+        checked: paths.len(),
+        changed,
+    })
+}
+
+fn collect_fmt_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
+    if path.is_file() {
+        if is_num_file(path) {
+            return Ok(vec![path.to_path_buf()]);
+        }
+        return Err(format!("{} is not a .num file", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!(
+            "{} is not a .num file or directory",
+            path.display()
+        ));
+    }
+
+    let mut paths = Vec::new();
+    collect_fmt_paths_recursive(path, &mut paths)?;
+    paths.sort();
+    if paths.is_empty() {
+        return Err(format!("no .num files found under {}", path.display()));
+    }
+    Ok(paths)
+}
+
+fn collect_fmt_paths_recursive(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in
+        fs::read_dir(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?
+    {
+        let entry =
+            entry.map_err(|err| format!("failed to read {} entry: {err}", path.display()))?;
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            collect_fmt_paths_recursive(&entry_path, paths)?;
+        } else if is_num_file(&entry_path) {
+            paths.push(entry_path);
+        }
+    }
+    Ok(())
+}
+
+fn is_num_file(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "num")
+}
+
+fn format_num_source(path: &Path, source: &str) -> Result<String, String> {
+    let source_name = path.display().to_string();
+    let lexed = lexer::lex(&source_name, source);
+    let parsed = parser::parse(&source_name, &lexed.tokens);
+    let mut diagnostics = lexed.diagnostics;
+    diagnostics.extend(parsed.diagnostics);
+    print_diagnostics(&diagnostics);
+    if diagnostics.iter().any(|diagnostic| diagnostic.is_error()) {
+        return Err(format!("num fmt failed: {}", path.display()));
+    }
+    Ok(formatter::format_module(&parsed.module))
+}
+
 fn parse_route_options(args: impl Iterator<Item = String>) -> Result<RouteOptions, String> {
     let mut options = RouteOptions::default();
     let mut args = args.peekable();
@@ -1195,7 +1359,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt <file.num>                           Print formatted source\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json> [module]           Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1239,7 +1403,7 @@ _num() {
     commands=(
     'check:parse and validate a num source file'
     'lint:run project quality/security lints'
-    'fmt:print formatted source'
+    'fmt:format source or verify formatting'
     'ir:print lowered IR'
     'run:validate and runtime dry-run'
     'test:run .num test declarations'
@@ -1337,6 +1501,16 @@ mod tests {
         }
     }
 
+    fn temp_cli_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("num_cli_{name}_{stamp}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
     #[test]
     fn strict_policy_mode_adds_blocking_lints() {
         let module = program_module(
@@ -1429,6 +1603,112 @@ service Api {
 
         assert_eq!(options.path, PathBuf::from("examples/refund_workflow"));
         assert!(options.format_json);
+    }
+
+    #[test]
+    fn fmt_options_parse_write_and_check_modes() {
+        let write = parse_fmt_options(
+            [
+                "--write".to_string(),
+                "examples/refund_workflow".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+        let check = parse_fmt_options(
+            [
+                "examples/refund_workflow".to_string(),
+                "--check".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(write.mode, FmtMode::Write);
+        assert_eq!(write.path, PathBuf::from("examples/refund_workflow"));
+        assert_eq!(check.mode, FmtMode::Check);
+        assert_eq!(check.path, PathBuf::from("examples/refund_workflow"));
+        assert!(
+            parse_fmt_options(["--write".to_string(), "--check".to_string()].into_iter()).is_err()
+        );
+    }
+
+    #[test]
+    fn fmt_check_passes_for_unchanged_file() {
+        let root = temp_cli_dir("fmt_check_clean");
+        let path = root.join("main.num");
+        let formatted = format_num_source(
+            &path,
+            "module tests.fmt\nworkflow main(){\naudit(\"ok\")\n}\n",
+        )
+        .unwrap();
+        fs::write(&path, formatted).unwrap();
+
+        run_fmt(FmtOptions {
+            path: path.clone(),
+            mode: FmtMode::Check,
+        })
+        .unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fmt_check_fails_for_changed_file_without_writing() {
+        let root = temp_cli_dir("fmt_check_dirty");
+        let path = root.join("main.num");
+        let source = "module tests.fmt\nworkflow main(){\naudit(\"ok\")\n}\n";
+        fs::write(&path, source).unwrap();
+
+        let err = run_fmt(FmtOptions {
+            path: path.clone(),
+            mode: FmtMode::Check,
+        })
+        .unwrap_err();
+
+        assert!(err.contains("unformatted"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fmt_write_formats_only_num_files_in_directory() {
+        let root = temp_cli_dir("fmt_write_dir");
+        let source_path = root.join("main.num");
+        let text_path = root.join("notes.txt");
+        fs::write(
+            &source_path,
+            "module tests.fmt\nworkflow main(){\naudit(\"ok\")\n}\n",
+        )
+        .unwrap();
+        fs::write(&text_path, "do not touch\n").unwrap();
+
+        run_fmt(FmtOptions {
+            path: root.clone(),
+            mode: FmtMode::Write,
+        })
+        .unwrap();
+
+        let formatted = fs::read_to_string(&source_path).unwrap();
+        assert!(formatted.contains("workflow main() {\n    audit(\"ok\")\n}"));
+        assert_eq!(fs::read_to_string(&text_path).unwrap(), "do not touch\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fmt_write_fails_on_parse_error() {
+        let root = temp_cli_dir("fmt_parse_error");
+        let path = root.join("bad.num");
+        fs::write(&path, "module tests.bad\n\nworkflow main( {\n").unwrap();
+
+        let err = run_fmt(FmtOptions {
+            path: root.clone(),
+            mode: FmtMode::Write,
+        })
+        .unwrap_err();
+
+        assert!(err.contains("num fmt failed"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
