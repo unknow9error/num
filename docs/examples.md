@@ -14,6 +14,7 @@ num check examples/ai_agent/src/main.num
 num check examples/policy_guard/src/main.num
 num check examples/contract_driven_refund/src/main.num
 num check examples/async_tasks/src/main.num
+num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
 
@@ -129,6 +130,28 @@ Useful command:
 
 ```bash
 num check examples/async_tasks/src/main.num
+```
+
+## `workflow_lifecycle`
+
+Path: `examples/workflow_lifecycle/src/main.num`
+
+Demonstrates:
+
+- `test workflow` fixtures for lifecycle audit checkpoints;
+- saga compensation through rollback metadata;
+- idempotency-key replay of repeated action calls;
+- file-backed workflow event commands for wait/resume/complete transitions.
+
+Useful commands:
+
+```bash
+num test examples/workflow_lifecycle
+num workflow enqueue examples/workflow_lifecycle start wf_lifecycle wait_resume_checkpoint --event-id evt-start
+num workflow enqueue examples/workflow_lifecycle wait wf_lifecycle --event-id evt-wait
+num workflow enqueue examples/workflow_lifecycle resume wf_lifecycle --event-id evt-resume
+num workflow drain examples/workflow_lifecycle --max-events 10 --json
+num workflow-report examples/workflow_lifecycle --json
 ```
 
 ## `connector_echo_pipeline`

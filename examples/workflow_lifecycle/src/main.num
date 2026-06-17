@@ -1,0 +1,77 @@
+module examples.workflow_lifecycle
+
+action reserve_inventory(order_id: Text)
+    idempotency key order_id
+    rollback release_inventory(order_id)
+{
+    audit("inventory_reserved")
+}
+
+action release_inventory(order_id: Text) {
+    audit("inventory_released")
+}
+
+action capture_payment(payment_id: Text)
+    idempotency key payment_id
+    rollback refund_payment(payment_id)
+{
+    audit("payment_captured")
+}
+
+action refund_payment(payment_id: Text) {
+    audit("payment_refunded")
+}
+
+action send_receipt(order_id: Text)
+    idempotency key order_id
+{
+    audit("receipt_sent")
+}
+
+workflow wait_resume_checkpoint() {
+    audit("workflow_waiting")
+    require_human_approval(
+        action: "resume_order",
+        reason: "waiting on external confirmation"
+    )
+    audit("workflow_resumed")
+}
+
+workflow compensated_checkout() {
+    let order_id: Text = "order_123"
+    let payment_id: Text = "payment_123"
+
+    transaction saga {
+        reserve_inventory(order_id)
+        capture_payment(payment_id)
+        reject("payment settlement failed")
+    }
+}
+
+workflow idempotent_receipt_replay() {
+    let order_id: Text = "order_123"
+
+    send_receipt(order_id)
+    send_receipt(order_id)
+    audit("receipt_replay_checked")
+}
+
+test workflow "wait resume checkpoint emits lifecycle audits" {
+    expect_workflow_success wait_resume_checkpoint()
+    expect_audit "workflow_waiting"
+    expect_audit "workflow_resumed"
+}
+
+test workflow "compensation rolls back completed saga steps" {
+    expect_workflow_failure compensated_checkout()
+    expect_audit "inventory_reserved"
+    expect_audit "payment_captured"
+    expect_audit "payment_refunded"
+    expect_audit "inventory_released"
+}
+
+test workflow "idempotent action replay stays deterministic" {
+    expect_workflow_success idempotent_receipt_replay()
+    expect_audit "receipt_sent"
+    expect_audit "receipt_replay_checked"
+}

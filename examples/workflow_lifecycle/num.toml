@@ -1,0 +1,17 @@
+[language]
+version = "0.3.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "workflow-lifecycle"
+version = "0.4.0"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "file:.num-state"
+audit_store = "file:audit/events.jsonl"
+
+[security]
+policy_mode = "strict"

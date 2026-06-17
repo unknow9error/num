@@ -33,6 +33,7 @@ jobs:
           num check examples/ai_agent
           num check examples/policy_guard
           num check examples/contract_driven_refund
+          num test examples/workflow_lifecycle
 
   vscode:
     name: VS Code extension
