@@ -750,6 +750,9 @@ actor context is exposed as `current_user`, with `current_user.id`,
 `current_user.correlation_id` available during execution. `X-Role` and
 comma-separated `X-Roles` headers are resolved against `.num` `role`
 declarations and grant the role's allowed permissions for that request. A
+project manifest with `[security].tenant_isolation = true` makes `num route`,
+`num serve`, and `num serve-once` reject cross-tenant service requests before
+the route body executes and emit a structured tenant error plus audit event. A
 hardened production HTTP server runtime is not implemented yet.
 
 Service-route failures use a stable JSON response body:

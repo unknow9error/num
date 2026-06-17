@@ -316,6 +316,17 @@ optional final argument when a module declares multiple services:
 num route app.num POST /refunds BillingApi
 ```
 
+For tenant-aware dry-runs, pass the request context that would normally come
+from HTTP headers:
+
+```bash
+num route app.num POST /refunds BillingApi \
+  --tenant tenant_a \
+  --actor agent@example.com \
+  --request-id req_42 \
+  --correlation-id corr_42
+```
+
 `num route` prints the route response body. Success responses are plain `ok`;
 failure responses are JSON and use the same contract as `num serve` and
 `num serve-once`:
@@ -349,6 +360,12 @@ internal failures return `500`. Error payloads include `request_id` and
 `X-Correlation-Id`, otherwise the demo defaults are used. Client-facing
 connector failures use a generic message so connector stderr and secrets do not
 leak into HTTP responses.
+
+When a project manifest enables `[security].tenant_isolation = true`, `num
+route` checks `--tenant` and the service runtime checks `X-Tenant` against the
+service tenant before executing the route body. Cross-tenant requests return a
+structured `403` tenant error and write an audit event. If the setting is absent
+or `false`, demo service commands keep the previous permissive behavior.
 
 ### `serve`
 
@@ -391,6 +408,9 @@ Current limitations:
 - `X-Actor`, `X-Tenant`, `X-Request-Id`, and `X-Correlation-Id` headers are
   captured into the runtime `SecurityContext`; `X-Actor` is exposed to `.num`
   code as `current_user.id`;
+- when `[security].tenant_isolation = true`, `X-Tenant` must match the service
+  tenant before route execution starts; cross-tenant requests return a
+  structured `403` tenant error and are written to audit output;
 - `X-Role` and comma-separated `X-Roles` headers are resolved against `.num`
   `role` declarations and grant the role's allowed permissions for the request;
 - permissions can also be injected by the CLI for demo purposes;

@@ -312,6 +312,9 @@ Implemented:
   `X-Actor`, `X-Tenant`, `X-Request-Id`, and `X-Correlation-Id`;
 - request role headers `X-Role` and `X-Roles` resolved against `.num` `role`
   declarations to populate service-route runtime permissions;
+- project manifest `[security].tenant_isolation` wiring for `num route`,
+  `num serve`, and `num serve-once`, with cross-tenant service-route requests
+  rejected before route execution and recorded in audit output;
 - typed JSON request body decoding for route inputs;
 - normalized JSON service-route error responses for `num route`, `num serve`,
   and `num serve-once`, including stable `kind`/`code` fields and

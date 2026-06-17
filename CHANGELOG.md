@@ -18,6 +18,9 @@
 
 ### Patch
 
+- Wired `[security].tenant_isolation` into `num route`, `num serve`, and
+  `num serve-once` so service-route requests build tenant-aware security context,
+  reject cross-tenant access, and record tenant failures in audit output.
 - Normalized service-route error responses for `num route`, `num serve`, and
   `num serve-once` with stable JSON `kind`/`code` fields, request identifiers,
   and redacted connector/internal messages.

@@ -2,8 +2,9 @@ use crate::http::{HttpRequest, HttpResponse};
 use crate::interpreter::{Runtime, Value};
 use crate::json;
 use crate::redaction;
+use crate::tenant::TenantGuard;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
-use crate::{RuntimeError, SecurityContext};
+use crate::{RuntimeError, SecurityContext, TenantId};
 use num_compiler::ast::{Declaration, Module};
 use serde_json::{json, Value as JsonValue};
 use std::collections::BTreeSet;
@@ -19,6 +20,8 @@ pub struct ServiceRuntime<'a> {
     connectors: Arc<dyn ConnectorExecutor + 'a>,
     audit_recorder: Option<ServiceAuditRecorder<'a>>,
     output_enabled: bool,
+    tenant_guard: TenantGuard,
+    service_tenant: TenantId,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -34,6 +37,8 @@ impl<'a> ServiceRuntime<'a> {
             connectors: Arc::new(DemoConnectorExecutor::new()),
             audit_recorder: None,
             output_enabled: true,
+            tenant_guard: TenantGuard::disabled(),
+            service_tenant: "default".to_string(),
         }
     }
 
@@ -50,6 +55,8 @@ impl<'a> ServiceRuntime<'a> {
             connectors,
             audit_recorder: None,
             output_enabled: true,
+            tenant_guard: TenantGuard::disabled(),
+            service_tenant: "default".to_string(),
         }
     }
 
@@ -63,6 +70,20 @@ impl<'a> ServiceRuntime<'a> {
 
     pub fn with_output_enabled(mut self, enabled: bool) -> Self {
         self.output_enabled = enabled;
+        self
+    }
+
+    pub fn with_tenant_isolation(mut self, enabled: bool) -> Self {
+        self.tenant_guard = if enabled {
+            TenantGuard::strict()
+        } else {
+            TenantGuard::disabled()
+        };
+        self
+    }
+
+    pub fn with_service_tenant(mut self, tenant: impl Into<TenantId>) -> Self {
+        self.service_tenant = tenant.into();
         self
     }
 
@@ -117,6 +138,36 @@ impl<'a> ServiceRuntime<'a> {
         empty_body_input: Option<Value>,
     ) -> HttpResponse {
         let security = self.security_context(request);
+        if let Err(error) = self
+            .tenant_guard
+            .ensure_access(&security, &self.service_tenant)
+        {
+            let message = error.message();
+            let quoted_message = serde_json::to_string(&message)
+                .unwrap_or_else(|_| "\"tenant rejected\"".to_string());
+            let audit_events = [format!(
+                "{{\"kind\":\"tenant_isolation_violation\",\"message\":{quoted_message}}}"
+            )];
+            let response = route_error_response(
+                RouteErrorClass::Tenant {
+                    code: "tenant_isolation_violation",
+                    message,
+                },
+                &security,
+            );
+            if let Err(audit_error) =
+                self.record_audit_events(&security, &request.method, &request.path, &audit_events)
+            {
+                return route_error_response(
+                    RouteErrorClass::Internal {
+                        code: "audit_persist_failed",
+                        message: format!("failed to persist audit events: {audit_error:?}"),
+                    },
+                    &security,
+                );
+            }
+            return response;
+        }
         let input = if request.body.trim().is_empty() {
             empty_body_input
         } else {
@@ -627,6 +678,112 @@ service BillingApi {
         assert_eq!(context.tenant, "tenant_a");
         assert_eq!(context.request_id, "req_42");
         assert!(context.permissions.contains("IssueRefund"));
+    }
+
+    #[test]
+    fn tenant_isolation_allows_same_tenant_service_request() {
+        let source = r#"
+module test.api
+
+service BillingApi {
+    route POST "/refunds" {
+        audit("refund")
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_tenant_isolation(true)
+            .with_service_tenant("tenant_a");
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_a".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, "ok\n");
+    }
+
+    #[test]
+    fn tenant_isolation_rejects_cross_tenant_service_request_with_audit_event() {
+        let source = r#"
+module test.api
+
+service BillingApi {
+    route POST "/refunds" {
+        audit("refund")
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&captured);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_tenant_isolation(true)
+            .with_service_tenant("tenant_a")
+            .with_audit_recorder(move |security, method, path, events| {
+                captured_events.lock().unwrap().push((
+                    security.tenant.clone(),
+                    method.to_string(),
+                    path.to_string(),
+                    events.to_vec(),
+                ));
+                Ok(())
+            });
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_b".to_string());
+        request
+            .headers
+            .insert("x-request-id".to_string(), "req_tenant".to_string());
+        request
+            .headers
+            .insert("x-correlation-id".to_string(), "corr_tenant".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 403);
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "tenant");
+        assert_eq!(body["error"]["code"], "tenant_isolation_violation");
+        assert_eq!(body["error"]["request_id"], "req_tenant");
+        assert_eq!(body["error"]["correlation_id"], "corr_tenant");
+        let records = captured.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "tenant_b");
+        assert_eq!(records[0].1, "POST");
+        assert_eq!(records[0].2, "/refunds");
+        assert_eq!(records[0].3.len(), 1);
+        assert!(records[0].3[0].contains("tenant_isolation_violation"));
+    }
+
+    #[test]
+    fn disabled_tenant_isolation_allows_cross_tenant_service_request() {
+        let source = r#"
+module test.api
+
+service BillingApi {
+    route POST "/refunds" {
+        audit("refund")
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_tenant_isolation(false)
+            .with_service_tenant("tenant_a");
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_b".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, "ok\n");
     }
 
     #[test]
