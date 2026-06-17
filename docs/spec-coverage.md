@@ -162,7 +162,7 @@ Implemented:
 - `num check <file.num>` for entry-file program checks over the containing
   source directory;
 - `num check <directory>` for multi-file program checks with `use` resolution;
-- `num fmt`
+- `num fmt` stdout, `--write`, and `--check` modes
 - `num ir`
 - `num run`
 - `num test`

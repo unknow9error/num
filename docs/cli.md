@@ -68,7 +68,19 @@ Parse a `.num` file and print the formatter output to stdout.
 num fmt examples/refund_workflow/src/main.num
 ```
 
-The formatter is stdout-only in v0.3.0. Redirect output manually if needed.
+For editor and CI workflows, use write or check mode:
+
+```bash
+num fmt --write examples/refund_workflow/src
+num fmt --check examples/refund_workflow/src
+```
+
+Default stdout mode is intended for a single file and remains backward
+compatible. `--write` and `--check` accept either one `.num` file or a directory,
+traverse directories in stable order, and ignore non-`.num` files. `--check`
+prints each unformatted file and exits with a non-zero status when formatting
+would change any source. Parse or validation diagnostics also fail write/check
+mode before any formatted output is accepted.
 
 ### `ir`
 

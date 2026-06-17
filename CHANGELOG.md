@@ -18,6 +18,9 @@
 
 ### Patch
 
+- Added `num fmt --write` and `num fmt --check` modes with stable directory
+  traversal for `.num` files while preserving stdout formatting for single-file
+  usage.
 - Wired `[security].tenant_isolation` into `num route`, `num serve`, and
   `num serve-once` so service-route requests build tenant-aware security context,
   reject cross-tenant access, and record tenant failures in audit output.
