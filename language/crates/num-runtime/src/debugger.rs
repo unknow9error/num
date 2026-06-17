@@ -1,4 +1,5 @@
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
+use crate::redaction;
 use crate::RuntimeError;
 use serde_json::{json, Value};
 
@@ -91,7 +92,7 @@ impl DebugReport {
         json!({
             "workflow": self.workflow,
             "status": if self.result.is_ok() { "completed" } else { "failed" },
-            "error": self.result.as_ref().err(),
+            "error": self.result.as_ref().err().map(|error| redaction::redact_text(error)),
             "runtime_error": self.runtime_error.as_ref().map(RuntimeError::to_json),
             "breakpoints": self.breakpoints.iter().map(BreakpointSpec::to_json).collect::<Vec<_>>(),
             "hits": self.hits.iter().map(BreakpointHit::to_json).collect::<Vec<_>>(),
@@ -206,15 +207,13 @@ mod tests {
             retryable: true,
         };
 
-        let report = DebugReport::from_trace(
-            "main",
-            Err(error.message()),
-            Some(error),
-            vec![],
-            &[],
-        );
+        let report =
+            DebugReport::from_trace("main", Err(error.message()), Some(error), vec![], &[]);
 
-        assert_eq!(report.to_json()["runtime_error"]["kind"], "connector_failed");
+        assert_eq!(
+            report.to_json()["runtime_error"]["kind"],
+            "connector_failed"
+        );
         assert_eq!(
             report.to_json()["runtime_error"]["connector"]["code"],
             "timeout"
@@ -222,6 +221,30 @@ mod tests {
         assert_eq!(
             report.to_json()["runtime_error"]["connector"]["retryable"],
             true
+        );
+    }
+
+    #[test]
+    fn debug_report_redacts_secret_error_payloads() {
+        let error = RuntimeError::ConnectorFailed {
+            method: "secrets.send".to_string(),
+            code: "execution_failed".to_string(),
+            message: "token=sk_live_debug".to_string(),
+            retryable: false,
+        };
+
+        let report =
+            DebugReport::from_trace("main", Err(error.message()), Some(error), vec![], &[]);
+        let payload = report.to_json();
+
+        assert!(!payload.to_string().contains("sk_live_debug"));
+        assert_eq!(
+            payload["runtime_error"]["connector"]["message"],
+            "token=<redacted>"
+        );
+        assert_eq!(
+            payload["error"],
+            "Connector 'secrets.send' failed [execution_failed, retryable=false]: token=<redacted>"
         );
     }
 }

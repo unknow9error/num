@@ -1,3 +1,4 @@
+use crate::redaction;
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,7 +33,7 @@ impl RuntimeTraceEvent {
             "timestamp_ms": system_time_ms(self.timestamp),
             "kind": self.kind.as_str(),
             "target": self.target,
-            "detail": self.detail,
+            "detail": self.detail.as_ref().map(|detail| redaction::redact_text(detail)),
         })
     }
 }

@@ -1,5 +1,6 @@
 use crate::connectors::{ConnectorCallContext, ConnectorError, ConnectorExecutor};
 use crate::interpreter::Value;
+use crate::redaction;
 use serde_json::{json, Map, Value as JsonValue};
 use std::collections::HashMap;
 use std::io::Write;
@@ -96,27 +97,26 @@ impl ProcessConnectorExecutor {
             ));
         }
 
-        let stdout = String::from_utf8(output.stdout)
-            .map_err(|err| {
-                ConnectorError::new(
-                    "invalid_stdout",
-                    format!("connector `{method}` wrote non-UTF8 stdout: {err}"),
-                    false,
-                )
-            })?;
+        let stdout = String::from_utf8(output.stdout).map_err(|err| {
+            ConnectorError::new(
+                "invalid_stdout",
+                format!("connector `{method}` wrote non-UTF8 stdout: {err}"),
+                false,
+            )
+        })?;
         let stdout = stdout.trim();
         if stdout.is_empty() {
             return Ok(Value::Null);
         }
-        let json = serde_json::from_str(stdout)
-            .map_err(|err| {
-                ConnectorError::new(
-                    "invalid_json",
-                    format!("connector `{method}` returned invalid JSON: {err}"),
-                    false,
-                )
-            })?;
-        value_from_json(&json).map_err(|message| ConnectorError::new("invalid_json", message, false))
+        let json = serde_json::from_str(stdout).map_err(|err| {
+            ConnectorError::new(
+                "invalid_json",
+                format!("connector `{method}` returned invalid JSON: {err}"),
+                false,
+            )
+        })?;
+        value_from_json(&json)
+            .map_err(|message| ConnectorError::new("invalid_json", message, false))
     }
 }
 
@@ -126,15 +126,13 @@ fn wait_with_optional_timeout(
     timeout_ms: Option<u64>,
 ) -> Result<std::process::Output, ConnectorError> {
     let Some(timeout_ms) = timeout_ms else {
-        return child
-            .wait_with_output()
-            .map_err(|err| {
-                ConnectorError::new(
-                    "wait_failed",
-                    format!("failed to wait for connector `{method}`: {err}"),
-                    true,
-                )
-            });
+        return child.wait_with_output().map_err(|err| {
+            ConnectorError::new(
+                "wait_failed",
+                format!("failed to wait for connector `{method}`: {err}"),
+                true,
+            )
+        });
     };
     let timeout = Duration::from_millis(timeout_ms);
     let started = Instant::now();
@@ -151,15 +149,13 @@ fn wait_with_optional_timeout(
             })?
             .is_some()
         {
-            return child
-                .wait_with_output()
-                .map_err(|err| {
-                    ConnectorError::new(
-                        "wait_failed",
-                        format!("failed to collect connector `{method}` output: {err}"),
-                        true,
-                    )
-                });
+            return child.wait_with_output().map_err(|err| {
+                ConnectorError::new(
+                    "wait_failed",
+                    format!("failed to collect connector `{method}` output: {err}"),
+                    true,
+                )
+            });
         }
 
         if started.elapsed() >= timeout {
@@ -210,6 +206,7 @@ pub fn value_to_json(value: &Value) -> JsonValue {
             "$brand": name,
             "value": value_to_json(value),
         }),
+        Value::Secret(_) => JsonValue::String(redaction::REDACTION_MARKER.to_string()),
         Value::Uncertain(value, confidence) => json!({
             "$uncertain": value_to_json(value),
             "confidence": confidence,
@@ -268,7 +265,9 @@ pub fn value_from_json(json: &JsonValue) -> Result<Value, String> {
 
 fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if let (Some(amount), Some(unit)) = (
-        object.get("$quantity").and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64))),
+        object
+            .get("$quantity")
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64))),
         object.get("unit").and_then(JsonValue::as_str),
     ) {
         return Ok(Value::Quantity(amount, unit.to_string()));
@@ -317,6 +316,10 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
             name.to_string(),
             Box::new(value_from_json(value)?),
         ));
+    }
+
+    if let Some(value) = object.get("$secret") {
+        return Ok(Value::Secret(Box::new(value_from_json(value)?)));
     }
 
     let type_name = object
@@ -379,6 +382,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn converts_secret_values_to_redacted_json() {
+        let value = Value::Secret(Box::new(Value::String("sk_live_process".to_string())));
+
+        let json = value_to_json(&value);
+
+        assert_eq!(json, json!("<redacted>"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_connector_executes_configured_command() {
@@ -434,7 +446,10 @@ mod tests {
         };
 
         let result = executor
-            .call_with_context(&context, &[Value::String("customer@example.com".to_string())])
+            .call_with_context(
+                &context,
+                &[Value::String("customer@example.com".to_string())],
+            )
             .unwrap()
             .unwrap();
 
@@ -445,7 +460,10 @@ mod tests {
             fields.get("capability"),
             Some(&Value::String("connector:mailer.send".to_string()))
         );
-        assert_eq!(fields.get("tenant"), Some(&Value::String("tenant_a".to_string())));
+        assert_eq!(
+            fields.get("tenant"),
+            Some(&Value::String("tenant_a".to_string()))
+        );
         let Some(Value::List(labels)) = fields.get("arg_labels") else {
             panic!("expected arg labels list");
         };

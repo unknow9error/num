@@ -1,8 +1,9 @@
 use crate::http::{HttpRequest, HttpResponse};
 use crate::interpreter::{Runtime, Value};
 use crate::json;
-use crate::{RuntimeError, SecurityContext};
+use crate::redaction;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
+use crate::{RuntimeError, SecurityContext};
 use num_compiler::ast::{Declaration, Module};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -131,30 +132,44 @@ impl<'a> ServiceRuntime<'a> {
         );
         let result =
             runtime.run_service_route(&self.service_name, &request.method, &request.path, input);
-        if let Err(err) =
-            self.record_audit_events(&security, &request.method, &request.path, runtime.audit_events())
-        {
+        if let Err(err) = self.record_audit_events(
+            &security,
+            &request.method,
+            &request.path,
+            runtime.audit_events(),
+        ) {
             return HttpResponse::text(
                 500,
                 "Internal Server Error",
-                format!("failed to persist audit events: {err:?}\n"),
+                format!(
+                    "failed to persist audit events: {}\n",
+                    redaction::redact_text(&format!("{err:?}"))
+                ),
             );
         }
 
         match result {
             Ok(()) => HttpResponse::text(200, "OK", "ok\n"),
-            Err(message) if message.contains("not found") => {
-                HttpResponse::text(404, "Not Found", format!("{message}\n"))
-            }
-            Err(message) if message.contains("Security Violation") => {
-                HttpResponse::text(403, "Forbidden", format!("{message}\n"))
-            }
-            Err(message) if message.contains("Missing route input") => {
-                HttpResponse::text(400, "Bad Request", format!("{message}\n"))
-            }
-            Err(message) => {
-                HttpResponse::text(500, "Internal Server Error", format!("{message}\n"))
-            }
+            Err(message) if message.contains("not found") => HttpResponse::text(
+                404,
+                "Not Found",
+                format!("{}\n", redaction::redact_text(&message)),
+            ),
+            Err(message) if message.contains("Security Violation") => HttpResponse::text(
+                403,
+                "Forbidden",
+                format!("{}\n", redaction::redact_text(&message)),
+            ),
+            Err(message) if message.contains("Missing route input") => HttpResponse::text(
+                400,
+                "Bad Request",
+                format!("{}\n", redaction::redact_text(&message)),
+            ),
+            Err(message) => HttpResponse::text(
+                500,
+                "Internal Server Error",
+                format!("{}\n", redaction::redact_text(&message)),
+            ),
         }
     }
 
@@ -185,7 +200,9 @@ fn request_roles(request: &HttpRequest) -> impl Iterator<Item = &str> {
 #[cfg(test)]
 mod tests {
     use super::ServiceRuntime;
+    use crate::connectors::StaticConnectorRegistry;
     use crate::http::HttpRequest;
+    use crate::interpreter::Value;
     use crate::RuntimeError;
     use num_compiler::compile;
     use std::sync::{Arc, Mutex};
@@ -222,6 +239,53 @@ service BillingApi {
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body, "ok\n");
+    }
+
+    #[test]
+    fn service_route_redacts_secret_connector_failure_response() {
+        let source = r#"
+module test.api
+
+type TokenRequest {
+    token: Secret<Text> from HttpBody secret
+}
+
+connector secrets {
+    send(token: Secret<Text> from HttpBody secret) -> Unit
+}
+
+service SecretApi {
+    route POST "/secrets" {
+        input request: TokenRequest from HttpBody private
+
+        secrets.send(request.token)
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register("secrets.send", |args| {
+            let Some(Value::Secret(inner)) = args.first() else {
+                return Err("missing secret".to_string());
+            };
+            Err(format!("connector echoed {}", inner))
+        });
+        let runtime = ServiceRuntime::with_connectors(
+            &compilation.module,
+            "SecretApi".to_string(),
+            vec![],
+            std::sync::Arc::new(registry),
+        );
+
+        let response = runtime.handle_http_request(&HttpRequest::new(
+            "POST",
+            "/secrets",
+            r#"{"token":"sk_live_http"}"#,
+        ));
+
+        assert_eq!(response.status, 500);
+        assert!(response.body.contains("<redacted>"));
+        assert!(!response.body.contains("sk_live_http"));
     }
 
     #[test]
@@ -449,7 +513,9 @@ service BillingApi {
         let compilation = compile("test.num", source);
         let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
             .with_audit_recorder(|_, _, _, _| {
-                Err(RuntimeError::Storage("audit disk is unavailable".to_string()))
+                Err(RuntimeError::Storage(
+                    "audit disk is unavailable".to_string(),
+                ))
             });
 
         let response = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));

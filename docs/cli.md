@@ -99,8 +99,9 @@ selected workflow, final status, trace events, the legacy text `error`, and a
 typed `runtime_error` object when the failure comes from the runtime. Connector
 failures include `runtime_error.kind = "connector_failed"` and a nested
 `connector` object with `method`, stable `code`, human `message`, and
-`retryable`. Runtime execution logs are suppressed in JSON mode so stdout is a
-single machine-readable payload.
+`retryable`. Secret values are rendered as `<redacted>` in the legacy `error`,
+structured `runtime_error`, and trace payloads. Runtime execution logs are
+suppressed in JSON mode so stdout is a single machine-readable payload.
 
 Current limitations:
 
@@ -532,7 +533,9 @@ are classified internally with `code`, `message`, and `retryable` fields so
 process, database, and missing-implementation failures share the same boundary.
 `num run --json` and `num debug --json` expose connector failures in the
 structured `runtime_error.connector` payload, and JSON runtime commands suppress
-demo execution logs on stdout.
+demo execution logs on stdout. If a `Secret<T>` or `secret`-labeled value reaches
+a runtime output boundary, the CLI reports the stable `<redacted>` marker instead
+of the raw value.
 
 In v0.3.0, every runtime connector call also carries an egress context. Process
 connectors receive this context in stdin under `egress`:

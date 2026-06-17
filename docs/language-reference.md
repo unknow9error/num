@@ -1144,8 +1144,11 @@ Audit logging is treated separately from ordinary `log` in v0.3.0. High-risk
 actions are required to call `audit`.
 
 The runtime exposes a `SecretStore` contract plus memory and file-backed stores
-for local execution. Secret values use redacted debug output. External vault,
-KMS, or cloud secret-store integrations are not implemented yet.
+for local execution. Secret values use redacted debug output, and runtime
+reporting boundaries use the stable `<redacted>` marker for `Secret<T>` values
+in trace/debug JSON, structured connector errors, process connector JSON
+conversion, and service error responses. External vault, KMS, or cloud
+secret-store integrations are not implemented yet.
 
 ## Current Expression Limitations
 
