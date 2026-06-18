@@ -862,6 +862,8 @@ The importer currently handles a focused SQL subset:
 - inline `PRIMARY KEY` columns;
 - single-column table-level `PRIMARY KEY (...)` constraints, including named
   constraints;
+- inline `REFERENCES` columns and table-level `FOREIGN KEY (...) REFERENCES`
+  constraints as generated relation hint comments;
 - generated `database` connector methods: `list_<table>`,
   `find_<table>_by_<primary_key>`, and `insert_<table>`.
 
@@ -869,9 +871,11 @@ The runtime crate includes an in-memory executor for these generated
 `database.*` method names. It is intended for contract tests and demos, not for
 production database access.
 
-Indexes, foreign keys as typed relations, composite primary-key finder methods,
-migrations, SQL dialect-specific features, and generated runtime clients are not
-implemented yet.
+Indexes, executable relation loading, composite primary-key finder methods,
+migrations, SQL dialect-specific features such as `ALTER TABLE ... ADD
+CONSTRAINT`, and generated runtime clients are not implemented yet. Unsupported
+foreign-key forms are documented as outside the current import subset rather
+than represented as runnable relations.
 
 ### `completions`
 

@@ -25,6 +25,11 @@ pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
     for table in &tables {
         let table_ident = to_identifier(&table.name);
         let table_type = to_type_name(&table.name);
+        for relation in &table.foreign_keys {
+            out.push_str("    // ");
+            out.push_str(&relation.comment(&table.name, &table.columns));
+            out.push('\n');
+        }
         out.push_str("    list_");
         out.push_str(&table_ident);
         out.push_str("() -> List<");
@@ -62,6 +67,7 @@ pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
 struct Table {
     name: String,
     columns: Vec<Column>,
+    foreign_keys: Vec<ForeignKey>,
 }
 
 impl Table {
@@ -78,6 +84,57 @@ struct Column {
     ty: String,
     nullable: bool,
     primary_key: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ForeignKey {
+    columns: Vec<String>,
+    referenced_table: String,
+    referenced_columns: Vec<String>,
+}
+
+impl ForeignKey {
+    fn comment(&self, table: &str, columns: &[Column]) -> String {
+        let source_columns = self
+            .columns
+            .iter()
+            .map(|column| {
+                format!(
+                    "`{}.{}`",
+                    sanitize_comment_text(table),
+                    sanitize_comment_text(column)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let referenced_columns = if self.referenced_columns.is_empty() {
+            format!("`{}`", sanitize_comment_text(&self.referenced_table))
+        } else {
+            self.referenced_columns
+                .iter()
+                .map(|column| {
+                    format!(
+                        "`{}.{}`",
+                        sanitize_comment_text(&self.referenced_table),
+                        sanitize_comment_text(column)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let nullable = if self.columns.iter().any(|foreign_key_column| {
+            columns
+                .iter()
+                .find(|column| column.name.eq_ignore_ascii_case(foreign_key_column))
+                .is_some_and(|column| column.nullable)
+        }) {
+            "nullable"
+        } else {
+            "required"
+        };
+
+        format!("SQL relation {source_columns} references {referenced_columns}; {nullable} foreign-key hint only, runtime relation loading is not generated yet")
+    }
 }
 
 fn parse_tables(source: &str) -> Vec<Table> {
@@ -103,9 +160,13 @@ fn parse_tables(source: &str) -> Vec<Table> {
             break;
         };
         let body = &after_open[..close];
+        let items = split_sql_items(body);
+        let columns = parse_columns(&items);
+        let foreign_keys = parse_foreign_keys(&items, &columns);
         tables.push(Table {
             name,
-            columns: parse_columns(body),
+            columns,
+            foreign_keys,
         });
         rest = after_open[close + 1..].to_string();
     }
@@ -114,11 +175,10 @@ fn parse_tables(source: &str) -> Vec<Table> {
     tables
 }
 
-fn parse_columns(body: &str) -> Vec<Column> {
-    let items = split_sql_items(body);
+fn parse_columns(items: &[String]) -> Vec<Column> {
     let primary_key_names = table_primary_key_names(&items);
     items
-        .into_iter()
+        .iter()
         .filter_map(|item| parse_column(&item))
         .map(|mut column| {
             if primary_key_names
@@ -167,6 +227,106 @@ fn table_primary_key_names(items: &[String]) -> Vec<String> {
         .filter_map(|item| primary_key_columns_from_constraint(item))
         .next()
         .unwrap_or_default()
+}
+
+fn parse_foreign_keys(items: &[String], columns: &[Column]) -> Vec<ForeignKey> {
+    let mut foreign_keys = Vec::new();
+
+    for item in items {
+        if let Some(foreign_key) = table_foreign_key_from_constraint(item) {
+            foreign_keys.push(foreign_key);
+            continue;
+        }
+
+        if let Some(foreign_key) = inline_foreign_key_from_column(item, columns) {
+            foreign_keys.push(foreign_key);
+        }
+    }
+
+    foreign_keys.sort_by(|left, right| {
+        left.columns
+            .cmp(&right.columns)
+            .then(left.referenced_table.cmp(&right.referenced_table))
+            .then(left.referenced_columns.cmp(&right.referenced_columns))
+    });
+    foreign_keys
+}
+
+fn inline_foreign_key_from_column(item: &str, columns: &[Column]) -> Option<ForeignKey> {
+    let item = item.trim();
+    if item.is_empty() || is_table_constraint(item) {
+        return None;
+    }
+
+    let column_name = clean_sql_ident(item.split_whitespace().next()?)?;
+    let lower = item.to_ascii_lowercase();
+    let references_start = lower.find("references")?;
+    let after_references = &item[references_start + "references".len()..];
+    let (referenced_table, referenced_columns) = parse_reference_target(after_references)?;
+    columns
+        .iter()
+        .any(|column| column.name.eq_ignore_ascii_case(&column_name))
+        .then_some(ForeignKey {
+            columns: vec![column_name],
+            referenced_table,
+            referenced_columns,
+        })
+}
+
+fn table_foreign_key_from_constraint(item: &str) -> Option<ForeignKey> {
+    let lower = item.to_ascii_lowercase();
+    let foreign_key_start = lower.find("foreign key")?;
+    let after_foreign_key = &item[foreign_key_start + "foreign key".len()..];
+    let open = after_foreign_key.find('(')?;
+    let after_open = &after_foreign_key[open + 1..];
+    let close = find_matching_paren(after_open)?;
+    let columns = split_sql_items(&after_open[..close])
+        .into_iter()
+        .filter_map(|column| clean_sql_ident(&column))
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return None;
+    }
+
+    let after_columns = &after_open[close + 1..];
+    let lower_after_columns = after_columns.to_ascii_lowercase();
+    let references_start = lower_after_columns.find("references")?;
+    let after_references = &after_columns[references_start + "references".len()..];
+    let (referenced_table, referenced_columns) = parse_reference_target(after_references)?;
+
+    Some(ForeignKey {
+        columns,
+        referenced_table,
+        referenced_columns,
+    })
+}
+
+fn parse_reference_target(source: &str) -> Option<(String, Vec<String>)> {
+    let source = source.trim_start();
+    let mut table_end = 0usize;
+    for (index, ch) in source.char_indices() {
+        if ch.is_whitespace() || ch == '(' {
+            break;
+        }
+        table_end = index + ch.len_utf8();
+    }
+    if table_end == 0 {
+        return None;
+    }
+
+    let referenced_table = clean_sql_ident(source[..table_end].rsplit('.').next()?)?;
+    let after_table = source[table_end..].trim_start();
+    let referenced_columns = if let Some(after_open) = after_table.strip_prefix('(') {
+        let close = find_matching_paren(after_open)?;
+        split_sql_items(&after_open[..close])
+            .into_iter()
+            .filter_map(|column| clean_sql_ident(&column))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    Some((referenced_table, referenced_columns))
 }
 
 fn primary_key_columns_from_constraint(item: &str) -> Option<Vec<String>> {
@@ -343,6 +503,21 @@ fn strip_sql_comments(source: &str) -> String {
         .join("\n")
 }
 
+fn sanitize_comment_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            '`' => '\'',
+            ch if ch.is_control() => ' ',
+            ch => ch,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn to_type_name(value: &str) -> String {
     let mut output = String::new();
     for part in identifier_parts(value) {
@@ -496,6 +671,81 @@ CREATE TABLE ledger_entries (
         assert!(rendered.contains("accountId: Uuid"));
         assert!(rendered.contains("sequenceNo: Int"));
         assert!(!rendered.contains("find_ledgerEntries_by_"));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_inline_foreign_key_relation_hints() {
+        let source = r#"
+CREATE TABLE payments (
+    id UUID PRIMARY KEY
+);
+
+CREATE TABLE refunds (
+    id UUID PRIMARY KEY,
+    payment_id UUID NOT NULL REFERENCES payments(id),
+    note TEXT
+);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+
+        assert!(rendered.contains(
+            "// SQL relation `refunds.payment_id` references `payments.id`; required foreign-key hint only, runtime relation loading is not generated yet"
+        ));
+        assert!(rendered.contains("list_refunds() -> List<Refunds>"));
+        assert!(rendered.contains("insert_refunds(row: Refunds) -> Refunds"));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_table_level_foreign_key_relation_hints() {
+        let source = r#"
+CREATE TABLE customers (
+    id UUID PRIMARY KEY
+);
+
+CREATE TABLE orders (
+    id UUID PRIMARY KEY,
+    customer_id UUID,
+    CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+
+        assert!(rendered.contains(
+            "// SQL relation `orders.customer_id` references `customers.id`; nullable foreign-key hint only, runtime relation loading is not generated yet"
+        ));
+        assert!(rendered.contains("customerId: Option<Uuid>"));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_composite_foreign_key_relation_hints_deterministically() {
+        let source = r#"
+CREATE TABLE order_lines (
+    order_id UUID,
+    line_no INTEGER,
+    sku TEXT NOT NULL,
+    PRIMARY KEY (order_id, line_no)
+);
+
+CREATE TABLE shipment_lines (
+    shipment_id UUID,
+    order_id UUID NOT NULL,
+    line_no INTEGER NOT NULL,
+    FOREIGN KEY (order_id, line_no) REFERENCES order_lines(order_id, line_no)
+);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+        let rendered_again = render_sql_schema(source, Some("generated.db"));
+
+        assert_eq!(rendered, rendered_again);
+        assert!(rendered.contains(
+            "// SQL relation `shipment_lines.order_id`, `shipment_lines.line_no` references `order_lines.order_id`, `order_lines.line_no`; required foreign-key hint only, runtime relation loading is not generated yet"
+        ));
         assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
     }
 }

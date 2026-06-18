@@ -472,8 +472,8 @@ Implemented:
   comments, and unsupported callback/link preservation comments.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
   columns, common scalar types, nullable columns, inline primary keys, table
-  types, single-column table-level primary keys, and basic database connector
-  methods.
+  types, single-column table-level primary keys, basic foreign-key relation
+  hint comments, and basic database connector methods.
 - runtime in-memory database connector executor for generated `database`
   connector methods: `list_<table>`, `find_<table>_by_<primary_key>`, and
   `insert_<table>`.
@@ -491,9 +491,9 @@ Not yet implemented:
   termination;
 - full OpenAPI coverage such as executable authentication bindings,
   `allOf`/`oneOf`, executable callbacks/links, and generated runtime clients.
-- full SQL/database import coverage such as foreign-key relation typing,
-  indexes, migrations, dialect-specific features, and composite primary-key
-  finder methods.
+- full SQL/database import coverage such as executable foreign-key relation
+  loading, indexes, migrations, dialect-specific features, and composite
+  primary-key finder methods.
 
 ### Policies
 
