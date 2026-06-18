@@ -18,6 +18,7 @@
 
 ### Patch
 
+- Added bash and fish shell completions alongside the existing zsh script.
 - Added target-specific deploy plan validation for required/recommended
   `[deployment]` fields, including JSON metadata in materialized bundles.
 - Added YAML and YML input support to `num import openapi` while preserving

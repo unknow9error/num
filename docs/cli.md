@@ -871,10 +871,15 @@ implemented yet.
 Print shell completion scripts.
 
 ```bash
+num completions bash
+num completions fish
 num completions zsh
 ```
 
-Only zsh completion is supported in v0.3.0.
+Supported shells are bash, fish, and zsh. The generated scripts complete the
+top-level command set, nested command groups such as `registry`, `workflow`,
+`connector`, `import`, and `completions`, and common file arguments such as
+`.num` sources and audit `.jsonl` reports.
 
 ### `lsp`
 

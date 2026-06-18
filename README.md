@@ -57,7 +57,7 @@ contains:
 - the `num` CLI and language server;
 - a VS Code extension package;
 - macOS/Linux and Windows installer scripts;
-- shell completion support for zsh on macOS/Linux.
+- shell completion support for bash, fish, and zsh on macOS/Linux.
 
 macOS and Linux:
 
@@ -81,6 +81,14 @@ From source:
 cargo build -p num
 export PATH="$PWD/target/debug:$PATH"
 num version
+```
+
+Shell completions:
+
+```bash
+num completions bash > ~/.local/share/bash-completion/completions/num
+num completions fish > ~/.config/fish/completions/num.fish
+num completions zsh > ~/.zfunc/_num
 ```
 
 ## Quick Start

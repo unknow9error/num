@@ -655,7 +655,7 @@ fn run() -> Result<(), String> {
         "completions" => {
             let shell = args
                 .next()
-                .ok_or_else(|| "usage: num completions <zsh>".to_string())?;
+                .ok_or_else(|| "usage: num completions <bash|fish|zsh>".to_string())?;
             print_completions(&shell)
         }
         "lsp" => num_lsp::run_server(),
@@ -1359,22 +1359,125 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <zsh>                        Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply]      Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json]            Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
 
 fn print_completions(shell: &str) -> Result<(), String> {
+    print!("{}", completion_script(shell)?);
+    Ok(())
+}
+
+fn completion_script(shell: &str) -> Result<&'static str, String> {
     match shell {
-        "zsh" => {
-            print!("{ZSH_COMPLETION}");
-            Ok(())
-        }
+        "bash" => Ok(BASH_COMPLETION),
+        "fish" => Ok(FISH_COMPLETION),
+        "zsh" => Ok(ZSH_COMPLETION),
         other => Err(format!(
-            "unsupported shell `{other}`\n\nSupported shells:\n  zsh"
+            "unsupported shell `{other}`\n\nSupported shells:\n  bash\n  fish\n  zsh"
         )),
     }
 }
+
+const BASH_COMPLETION: &str = r#"# bash completion for num
+
+_num()
+{
+    local cur words cword
+    COMPREPLY=()
+    words=("${COMP_WORDS[@]}")
+    cword=$COMP_CWORD
+    cur="${COMP_WORDS[COMP_CWORD]}"
+
+    local commands="check lint fmt ir run test trace debug deploy compat migrate upgrade-version bench release-plan version registry workflow connector connector-sdk cost-report audit-report workflow-report route serve serve-once new lock import completions lsp help"
+
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+        return
+    fi
+
+    case "${words[1]}" in
+        registry)
+            COMPREPLY=( $(compgen -W "publish list index install" -- "$cur") )
+            ;;
+        workflow)
+            COMPREPLY=( $(compgen -W "enqueue drain lease-heartbeat" -- "$cur") )
+            ;;
+        connector)
+            COMPREPLY=( $(compgen -W "probe" -- "$cur") )
+            ;;
+        import)
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "openapi sql" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -f -- "$cur") )
+            fi
+            ;;
+        completions)
+            COMPREPLY=( $(compgen -W "bash fish zsh" -- "$cur") )
+            ;;
+        audit-report)
+            COMPREPLY=( $(compgen -f -X '!*.jsonl' -- "$cur") )
+            ;;
+        workflow-report|new)
+            COMPREPLY=( $(compgen -d -- "$cur") )
+            ;;
+        check|lint|fmt|ir|run|test|trace|debug|deploy|compat|migrate|upgrade-version|bench|release-plan|connector-sdk|cost-report|route|serve|serve-once|lock)
+            COMPREPLY=( $(compgen -f -X '!*.num' -- "$cur") $(compgen -d -- "$cur") )
+            ;;
+        *)
+            COMPREPLY=( $(compgen -f -- "$cur") )
+            ;;
+    esac
+}
+complete -F _num num
+"#;
+
+const FISH_COMPLETION: &str = r#"# fish completion for num
+
+complete -c num -f -n "__fish_use_subcommand" -a "check" -d "Parse and validate num source"
+complete -c num -f -n "__fish_use_subcommand" -a "lint" -d "Run project quality/security lints"
+complete -c num -f -n "__fish_use_subcommand" -a "fmt" -d "Format source or verify formatting"
+complete -c num -f -n "__fish_use_subcommand" -a "ir" -d "Print lowered IR"
+complete -c num -f -n "__fish_use_subcommand" -a "run" -d "Validate and workflow runtime dry-run"
+complete -c num -f -n "__fish_use_subcommand" -a "test" -d "Run .num test declarations"
+complete -c num -f -n "__fish_use_subcommand" -a "trace" -d "Run workflow and print runtime trace JSON"
+complete -c num -f -n "__fish_use_subcommand" -a "debug" -d "Run workflow with scripted breakpoints"
+complete -c num -f -n "__fish_use_subcommand" -a "deploy" -d "Build deployment artifacts"
+complete -c num -f -n "__fish_use_subcommand" -a "compat" -d "Check language/schema compatibility"
+complete -c num -f -n "__fish_use_subcommand" -a "migrate" -d "Plan or apply manifest/source migrations"
+complete -c num -f -n "__fish_use_subcommand" -a "upgrade-version" -d "Plan or apply manifest version upgrades"
+complete -c num -f -n "__fish_use_subcommand" -a "bench" -d "Benchmark fixtures"
+complete -c num -f -n "__fish_use_subcommand" -a "release-plan" -d "Compute SemVer release bump"
+complete -c num -f -n "__fish_use_subcommand" -a "version" -d "Print CLI/language/schema versions"
+complete -c num -f -n "__fish_use_subcommand" -a "registry" -d "Manage local package registries"
+complete -c num -f -n "__fish_use_subcommand" -a "workflow" -d "Queue and drain durable workflow events"
+complete -c num -f -n "__fish_use_subcommand" -a "connector" -d "Probe process connector bindings"
+complete -c num -f -n "__fish_use_subcommand" -a "connector-sdk" -d "Generate connector implementation SDKs"
+complete -c num -f -n "__fish_use_subcommand" -a "cost-report" -d "Summarize action costs"
+complete -c num -f -n "__fish_use_subcommand" -a "audit-report" -d "Summarize audit JSONL events"
+complete -c num -f -n "__fish_use_subcommand" -a "workflow-report" -d "Summarize workflow state files"
+complete -c num -f -n "__fish_use_subcommand" -a "route" -d "Dry-run a service route"
+complete -c num -f -n "__fish_use_subcommand" -a "serve" -d "Serve HTTP requests"
+complete -c num -f -n "__fish_use_subcommand" -a "serve-once" -d "Serve one HTTP request"
+complete -c num -f -n "__fish_use_subcommand" -a "new" -d "Create a new num project"
+complete -c num -f -n "__fish_use_subcommand" -a "lock" -d "Generate, validate, or migrate num.lock"
+complete -c num -f -n "__fish_use_subcommand" -a "import" -d "Generate num source from external schemas"
+complete -c num -f -n "__fish_use_subcommand" -a "completions" -d "Print shell completion script"
+complete -c num -f -n "__fish_use_subcommand" -a "lsp" -d "Start the language server"
+complete -c num -f -n "__fish_use_subcommand" -a "help" -d "Show help"
+
+complete -c num -f -n "__fish_seen_subcommand_from registry" -a "publish list index install"
+complete -c num -f -n "__fish_seen_subcommand_from workflow" -a "enqueue drain lease-heartbeat"
+complete -c num -f -n "__fish_seen_subcommand_from connector" -a "probe"
+complete -c num -f -n "__fish_seen_subcommand_from import" -a "openapi sql"
+complete -c num -f -n "__fish_seen_subcommand_from completions" -a "bash fish zsh"
+
+complete -c num -n "__fish_seen_subcommand_from check lint fmt ir run test trace debug deploy compat migrate upgrade-version bench release-plan connector-sdk cost-report route serve serve-once lock" -a "(__fish_complete_suffix .num)"
+complete -c num -n "__fish_seen_subcommand_from audit-report" -a "(__fish_complete_suffix .jsonl)"
+complete -c num -n "__fish_seen_subcommand_from workflow-report new" -a "(__fish_complete_directories)"
+"#;
 
 const ZSH_COMPLETION: &str = r#"#compdef num
 
@@ -1462,7 +1565,7 @@ _num() {
       _values 'connector command' probe
       ;;
     completions)
-      _values 'shell' zsh
+      _values 'shell' bash fish zsh
       ;;
     new)
       _files -/
@@ -1786,6 +1889,30 @@ service Api {
             compatibility::CURRENT_MANIFEST_SCHEMA
         );
         assert_eq!(payload["lockfile_schema"], package::CURRENT_LOCKFILE_SCHEMA);
+    }
+
+    #[test]
+    fn completions_support_bash_fish_and_zsh() {
+        let bash = completion_script("bash").unwrap();
+        let fish = completion_script("fish").unwrap();
+        let zsh = completion_script("zsh").unwrap();
+
+        assert!(bash.contains("complete -F _num num"));
+        assert!(bash.contains("bash fish zsh"));
+        assert!(fish.contains("complete -c num"));
+        assert!(fish.contains("bash fish zsh"));
+        assert!(zsh.contains("#compdef num"));
+        assert!(zsh.contains("_values 'shell' bash fish zsh"));
+    }
+
+    #[test]
+    fn completions_reject_unknown_shells_clearly() {
+        let err = completion_script("powershell").unwrap_err();
+
+        assert!(err.contains("unsupported shell `powershell`"));
+        assert!(err.contains("bash"));
+        assert!(err.contains("fish"));
+        assert!(err.contains("zsh"));
     }
 
     #[test]
