@@ -464,7 +464,7 @@ Implemented:
 - arity diagnostics;
 - argument type diagnostics for known binding/field/literal types;
 - connector result compatibility with explicit `let` binding types;
-- OpenAPI JSON import for a focused connector-contract subset:
+- OpenAPI JSON/YAML import for a focused connector-contract subset:
   `components.schemas`, `paths`, operation parameters, JSON request bodies, and
   JSON success response schemas.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
@@ -486,8 +486,8 @@ Not yet implemented:
 - generated database clients;
 - managed/network connector cancellation beyond local process timeout
   termination;
-- full OpenAPI coverage such as YAML input, security schemes, `allOf`/`oneOf`,
-  callbacks, links, and generated runtime clients.
+- full OpenAPI coverage such as security schemes, `allOf`/`oneOf`, callbacks,
+  links, and generated runtime clients.
 - full SQL/database import coverage such as foreign-key relation typing,
   indexes, migrations, dialect-specific features, and composite primary-key
   finder methods.

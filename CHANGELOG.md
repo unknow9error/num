@@ -18,6 +18,8 @@
 
 ### Patch
 
+- Added YAML and YML input support to `num import openapi` while preserving
+  existing JSON import behavior.
 - Added `num fmt --write` and `num fmt --check` modes with stable directory
   traversal for `.num` files while preserving stdout formatting for single-file
   usage.

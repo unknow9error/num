@@ -812,13 +812,15 @@ aligned before merge.
 
 ### `import openapi`
 
-Generate `.num` type and connector declarations from an OpenAPI JSON document.
+Generate `.num` type and connector declarations from an OpenAPI JSON or YAML
+document.
 
 ```bash
 num import openapi openapi.json generated.billing > src/billing_api.num
+num import openapi openapi.yaml generated.billing > src/billing_api.num
 ```
 
-The importer currently handles a focused OpenAPI 3 JSON subset:
+The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
 
 - `components.schemas` object schemas become `type` declarations;
 - `paths` operations become connector methods;
@@ -827,8 +829,8 @@ The importer currently handles a focused OpenAPI 3 JSON subset:
 - JSON success responses become method result types;
 - scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, and `List<T>`.
 
-YAML input, authentication/security schemes, `allOf`/`oneOf` composition,
-pagination conventions, and generated runtime clients are not implemented yet.
+Authentication/security schemes, `allOf`/`oneOf` composition, pagination
+conventions, and generated runtime clients are not implemented yet.
 
 ### `import sql`
 
