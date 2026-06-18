@@ -67,6 +67,11 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
     out.push_str("connector ");
     out.push_str(&connector_name);
     out.push_str(" {\n");
+    for metadata in security_scheme_metadata(document) {
+        out.push_str("    // ");
+        out.push_str(&metadata.comment());
+        out.push('\n');
+    }
     for operation in operations(document) {
         for metadata in &operation.unsupported_metadata {
             out.push_str("    // ");
@@ -109,6 +114,10 @@ struct OperationParam {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum UnsupportedOpenApiMetadata {
+    SecurityRequirement {
+        operation: String,
+        requirements: String,
+    },
     Callback {
         operation: String,
         name: String,
@@ -117,6 +126,27 @@ enum UnsupportedOpenApiMetadata {
         operation: String,
         response: String,
         name: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OpenApiSecuritySchemeMetadata {
+    ApiKey {
+        name: String,
+        location: String,
+        parameter: String,
+    },
+    Http {
+        name: String,
+        scheme: String,
+    },
+    OAuth2 {
+        name: String,
+        flows: String,
+    },
+    Unsupported {
+        name: String,
+        detail: String,
     },
 }
 
@@ -160,6 +190,7 @@ fn render_type(out: &mut String, name: &str, schema: &Value) {
 
 fn operations(document: &Value) -> Vec<Operation> {
     let mut operations = Vec::new();
+    let global_security = document.get("security");
     let Some(paths) = document.get("paths").and_then(Value::as_object) else {
         return operations;
     };
@@ -179,7 +210,11 @@ fn operations(document: &Value) -> Vec<Operation> {
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| fallback_operation_name(method, path));
             operations.push(Operation {
-                unsupported_metadata: unsupported_operation_metadata(operation, &name),
+                unsupported_metadata: unsupported_operation_metadata(
+                    operation,
+                    &name,
+                    global_security,
+                ),
                 name,
                 params: operation_params(operation),
                 result: operation_result(operation),
@@ -194,8 +229,20 @@ fn operations(document: &Value) -> Vec<Operation> {
 fn unsupported_operation_metadata(
     operation: &Value,
     operation_name: &str,
+    global_security: Option<&Value>,
 ) -> Vec<UnsupportedOpenApiMetadata> {
     let mut metadata = Vec::new();
+
+    if let Some(requirements) = operation
+        .get("security")
+        .or(global_security)
+        .and_then(security_requirements_comment)
+    {
+        metadata.push(UnsupportedOpenApiMetadata::SecurityRequirement {
+            operation: operation_name.to_string(),
+            requirements,
+        });
+    }
 
     if let Some(callbacks) = operation.get("callbacks").and_then(Value::as_object) {
         let mut callbacks = callbacks.keys().collect::<Vec<_>>();
@@ -233,6 +280,12 @@ fn unsupported_operation_metadata(
 impl UnsupportedOpenApiMetadata {
     fn comment(&self) -> String {
         match self {
+            Self::SecurityRequirement {
+                operation,
+                requirements,
+            } => format!(
+                "OpenAPI security requirement for operation `{operation}`: {requirements}; authentication binding is not generated yet"
+            ),
             Self::Callback { operation, name } => format!(
                 "OpenAPI callback `{name}` on operation `{operation}` is preserved as unsupported metadata; runtime generation is not implemented yet"
             ),
@@ -244,6 +297,167 @@ impl UnsupportedOpenApiMetadata {
                 "OpenAPI link `{name}` on operation `{operation}` response `{response}` is preserved as unsupported metadata; runtime generation is not implemented yet"
             ),
         }
+    }
+}
+
+impl OpenApiSecuritySchemeMetadata {
+    fn comment(&self) -> String {
+        match self {
+            Self::ApiKey {
+                name,
+                location,
+                parameter,
+            } => format!(
+                "OpenAPI security scheme `{name}` uses apiKey in `{location}` parameter `{parameter}`; authentication binding is not generated yet"
+            ),
+            Self::Http { name, scheme } => format!(
+                "OpenAPI security scheme `{name}` uses HTTP `{scheme}` authentication; authentication binding is not generated yet"
+            ),
+            Self::OAuth2 { name, flows } => format!(
+                "OpenAPI security scheme `{name}` uses OAuth2 flows `{flows}`; OAuth runtime generation is not implemented yet"
+            ),
+            Self::Unsupported { name, detail } => format!(
+                "OpenAPI security scheme `{name}` is preserved as unsupported metadata ({detail}); authentication binding is not generated yet"
+            ),
+        }
+    }
+}
+
+fn security_scheme_metadata(document: &Value) -> Vec<OpenApiSecuritySchemeMetadata> {
+    let mut schemes = document
+        .pointer("/components/securitySchemes")
+        .and_then(Value::as_object)
+        .map(|schemes| {
+            schemes
+                .iter()
+                .map(|(name, scheme)| security_scheme_metadata_entry(name, scheme))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    schemes.sort_by(|left, right| left.name().cmp(right.name()));
+    schemes
+}
+
+fn security_scheme_metadata_entry(name: &str, scheme: &Value) -> OpenApiSecuritySchemeMetadata {
+    let name = sanitize_comment_text(name);
+    let Some(scheme) = scheme.as_object() else {
+        return OpenApiSecuritySchemeMetadata::Unsupported {
+            name,
+            detail: "scheme value is not an object".to_string(),
+        };
+    };
+
+    match scheme.get("type").and_then(Value::as_str) {
+        Some("apiKey") => OpenApiSecuritySchemeMetadata::ApiKey {
+            name,
+            location: scheme
+                .get("in")
+                .and_then(Value::as_str)
+                .map(sanitize_comment_text)
+                .unwrap_or_else(|| "unknown".to_string()),
+            parameter: scheme
+                .get("name")
+                .and_then(Value::as_str)
+                .map(sanitize_comment_text)
+                .unwrap_or_else(|| "unknown".to_string()),
+        },
+        Some("http") => OpenApiSecuritySchemeMetadata::Http {
+            name,
+            scheme: scheme
+                .get("scheme")
+                .and_then(Value::as_str)
+                .map(sanitize_comment_text)
+                .unwrap_or_else(|| "unknown".to_string()),
+        },
+        Some("oauth2") => OpenApiSecuritySchemeMetadata::OAuth2 {
+            name,
+            flows: oauth2_flows_comment(scheme.get("flows")),
+        },
+        Some(kind) => OpenApiSecuritySchemeMetadata::Unsupported {
+            name,
+            detail: format!(
+                "type `{}` is not represented by the current importer",
+                sanitize_comment_text(kind)
+            ),
+        },
+        None => OpenApiSecuritySchemeMetadata::Unsupported {
+            name,
+            detail: "missing type".to_string(),
+        },
+    }
+}
+
+impl OpenApiSecuritySchemeMetadata {
+    fn name(&self) -> &str {
+        match self {
+            Self::ApiKey { name, .. }
+            | Self::Http { name, .. }
+            | Self::OAuth2 { name, .. }
+            | Self::Unsupported { name, .. } => name,
+        }
+    }
+}
+
+fn oauth2_flows_comment(flows: Option<&Value>) -> String {
+    let Some(flows) = flows.and_then(Value::as_object) else {
+        return "unknown".to_string();
+    };
+    let mut names = flows
+        .keys()
+        .map(|flow| sanitize_comment_text(flow))
+        .collect::<Vec<_>>();
+    names.sort();
+    if names.is_empty() {
+        "unknown".to_string()
+    } else {
+        names.join(", ")
+    }
+}
+
+fn security_requirements_comment(security: &Value) -> Option<String> {
+    let requirements = security.as_array()?;
+    if requirements.is_empty() {
+        return Some("none".to_string());
+    }
+
+    let mut alternatives = Vec::new();
+    for requirement in requirements {
+        let Some(requirement) = requirement.as_object() else {
+            alternatives.push("unsupported requirement shape".to_string());
+            continue;
+        };
+        if requirement.is_empty() {
+            alternatives.push("anonymous".to_string());
+            continue;
+        }
+
+        let mut schemes = requirement.iter().collect::<Vec<_>>();
+        schemes.sort_by(|left, right| left.0.cmp(right.0));
+        let schemes = schemes
+            .into_iter()
+            .map(|(scheme, scopes)| security_requirement_scheme_comment(scheme, scopes))
+            .collect::<Vec<_>>();
+        alternatives.push(schemes.join(" and "));
+    }
+
+    (!alternatives.is_empty()).then(|| alternatives.join(" or "))
+}
+
+fn security_requirement_scheme_comment(scheme: &str, scopes: &Value) -> String {
+    let scheme = sanitize_comment_text(scheme);
+    let Some(scopes) = scopes.as_array() else {
+        return format!("`{scheme}` with unsupported scopes");
+    };
+    let mut scopes = scopes
+        .iter()
+        .filter_map(Value::as_str)
+        .map(sanitize_comment_text)
+        .collect::<Vec<_>>();
+    scopes.sort();
+    if scopes.is_empty() {
+        format!("`{scheme}`")
+    } else {
+        format!("`{scheme}` scopes [{}]", scopes.join(", "))
     }
 }
 
@@ -626,6 +840,130 @@ paths:
         ));
         assert!(rendered.contains(
             "// OpenAPI link `getRefund` on operation `create_refund` response `201` is preserved as unsupported metadata; runtime generation is not implemented yet"
+        ));
+        assert!(rendered.contains("create_refund() -> Unit"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_global_openapi_security_metadata_comments() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Billing API", "version": "1.0.0" },
+  "components": {
+    "securitySchemes": {
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    { "apiKeyAuth": [] },
+    { "bearerAuth": [] }
+  ],
+  "paths": {
+    "/refunds": {
+      "get": {
+        "operationId": "list_refunds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.billing"));
+
+        assert!(rendered.contains(
+            "// OpenAPI security scheme `apiKeyAuth` uses apiKey in `header` parameter `X-API-Key`; authentication binding is not generated yet"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI security scheme `bearerAuth` uses HTTP `bearer` authentication; authentication binding is not generated yet"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI security requirement for operation `list_refunds`: `apiKeyAuth` or `bearerAuth`; authentication binding is not generated yet"
+        ));
+        assert!(rendered.contains("list_refunds() -> List<Text>"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_operation_openapi_security_metadata_comments() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Billing API", "version": "1.0.0" },
+  "components": {
+    "securitySchemes": {
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://auth.example.test/token",
+            "scopes": {
+              "refunds:read": "Read refunds",
+              "refunds:write": "Write refunds"
+            }
+          }
+        }
+      },
+      "mutualTls": {
+        "type": "mutualTLS"
+      }
+    }
+  },
+  "paths": {
+    "/refunds": {
+      "post": {
+        "operationId": "create_refund",
+        "security": [
+          { "oauth": ["refunds:write", "refunds:read"] }
+        ],
+        "responses": {
+          "201": {
+            "description": "created"
+          }
+        }
+      }
+    }
+  }
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.billing"));
+
+        assert!(rendered.contains(
+            "// OpenAPI security scheme `oauth` uses OAuth2 flows `clientCredentials`; OAuth runtime generation is not implemented yet"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI security scheme `mutualTls` is preserved as unsupported metadata (type `mutualTLS` is not represented by the current importer); authentication binding is not generated yet"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI security requirement for operation `create_refund`: `oauth` scopes [refunds:read, refunds:write]; authentication binding is not generated yet"
         ));
         assert!(rendered.contains("create_refund() -> Unit"));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());

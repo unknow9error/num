@@ -833,13 +833,17 @@ The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
 - `operationId` becomes the method name when present;
 - JSON request bodies become a `body` parameter;
 - JSON success responses become method result types;
+- `components.securitySchemes` and effective operation `security` requirements
+  are preserved as generated comments for `apiKey`, HTTP, OAuth2, and
+  unsupported security shapes;
 - operation callbacks and response links are preserved as generated comments
   that name the unsupported metadata and source operation;
 - scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, and `List<T>`.
 
-Authentication/security schemes, `allOf`/`oneOf` composition, pagination
+Executable authentication bindings, `allOf`/`oneOf` composition, pagination
 conventions, executable callbacks/links, and generated runtime clients are not
-implemented yet.
+implemented yet. Unsupported security schemes are emitted as comments rather
+than silently dropped.
 
 ### `import sql`
 

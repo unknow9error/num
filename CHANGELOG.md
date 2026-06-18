@@ -18,6 +18,8 @@
 
 ### Patch
 
+- Preserved OpenAPI security schemes and operation requirements as generated
+  metadata comments during `num import openapi` generation.
 - Preserved OpenAPI callbacks and links as unsupported metadata comments during
   `num import openapi` generation.
 - Added bash and fish shell completions alongside the existing zsh script.
