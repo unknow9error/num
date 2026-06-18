@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -59,6 +60,9 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
     out.push_str(module_name);
     out.push_str("\n\n");
 
+    let operations = operations(document);
+    render_permission_scaffold(&mut out, &connector_name, &operations);
+
     for (name, schema) in component_schemas(document) {
         render_type(&mut out, name, schema);
         out.push('\n');
@@ -72,7 +76,15 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
         out.push_str(&metadata.comment());
         out.push('\n');
     }
-    for operation in operations(document) {
+    for operation in &operations {
+        out.push_str("    // ");
+        out.push_str(&operation.permission.comment());
+        out.push('\n');
+        for placeholder in &operation.policy_placeholders {
+            out.push_str("    // ");
+            out.push_str(placeholder);
+            out.push('\n');
+        }
         for metadata in &operation.unsupported_metadata {
             out.push_str("    // ");
             out.push_str(&metadata.comment());
@@ -103,6 +115,8 @@ struct Operation {
     name: String,
     params: Vec<OperationParam>,
     result: String,
+    permission: OpenApiPermissionScaffold,
+    policy_placeholders: Vec<String>,
     unsupported_metadata: Vec<UnsupportedOpenApiMetadata>,
 }
 
@@ -110,6 +124,12 @@ struct Operation {
 struct OperationParam {
     name: String,
     ty: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenApiPermissionScaffold {
+    name: String,
+    source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,6 +229,8 @@ fn operations(document: &Value) -> Vec<Operation> {
                 .map(to_identifier)
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| fallback_operation_name(method, path));
+            let tags = operation_tags(operation);
+            let permission = operation_permission_scaffold(operation, method, path, &name, &tags);
             operations.push(Operation {
                 unsupported_metadata: unsupported_operation_metadata(
                     operation,
@@ -216,6 +238,15 @@ fn operations(document: &Value) -> Vec<Operation> {
                     global_security,
                 ),
                 name,
+                policy_placeholders: operation_policy_placeholders(
+                    operation,
+                    method,
+                    path,
+                    &permission,
+                    document,
+                    global_security,
+                ),
+                permission,
                 params: operation_params(operation),
                 result: operation_result(operation),
             });
@@ -224,6 +255,36 @@ fn operations(document: &Value) -> Vec<Operation> {
 
     operations.sort_by(|left, right| left.name.cmp(&right.name));
     operations
+}
+
+fn render_permission_scaffold(out: &mut String, connector_name: &str, operations: &[Operation]) {
+    if operations.is_empty() {
+        return;
+    }
+
+    out.push_str("// OpenAPI review-required permission candidates. Generated names are scaffolding; review scopes before wiring them into roles or service routes.\n");
+    let mut permissions = operations
+        .iter()
+        .map(|operation| operation.permission.name.as_str())
+        .collect::<Vec<_>>();
+    permissions.sort();
+    permissions.dedup();
+    for permission in permissions {
+        out.push_str("permission ");
+        out.push_str(permission);
+        out.push('\n');
+    }
+    out.push_str("// OpenAPI review-required policy scaffold for connector `");
+    out.push_str(connector_name);
+    out.push_str("`:\n");
+    out.push_str("// policy OpenApi");
+    out.push_str(&to_type_name(connector_name));
+    out.push_str("DataSharing {\n");
+    out.push_str("//     // Add narrow allow rules only after reviewing request/response fields and authentication requirements.\n");
+    out.push_str("//     // Example: allow private UserInput -> ");
+    out.push_str(connector_name);
+    out.push_str(".<method>\n");
+    out.push_str("// }\n\n");
 }
 
 fn unsupported_operation_metadata(
@@ -443,6 +504,229 @@ fn security_requirements_comment(security: &Value) -> Option<String> {
     (!alternatives.is_empty()).then(|| alternatives.join(" or "))
 }
 
+fn operation_tags(operation: &Value) -> Vec<String> {
+    let mut tags = operation
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(to_identifier)
+                .filter(|tag| !tag.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+fn operation_permission_scaffold(
+    operation: &Value,
+    method: &str,
+    path: &str,
+    operation_name: &str,
+    tags: &[String],
+) -> OpenApiPermissionScaffold {
+    if operation
+        .get("operationId")
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        return OpenApiPermissionScaffold {
+            name: to_permission_name(operation_name),
+            source: "operationId".to_string(),
+        };
+    }
+
+    if let Some(tag) = tags.first() {
+        return OpenApiPermissionScaffold {
+            name: to_permission_name(&format!("{tag}_{operation_name}")),
+            source: "tag and method/path".to_string(),
+        };
+    }
+
+    OpenApiPermissionScaffold {
+        name: to_permission_name(&fallback_operation_name(method, path)),
+        source: "method/path".to_string(),
+    }
+}
+
+fn operation_policy_placeholders(
+    operation: &Value,
+    method: &str,
+    path: &str,
+    permission: &OpenApiPermissionScaffold,
+    document: &Value,
+    global_security: Option<&Value>,
+) -> Vec<String> {
+    let mut placeholders = Vec::new();
+    let operation_name = operation
+        .get("operationId")
+        .and_then(Value::as_str)
+        .map(to_identifier)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| fallback_operation_name(method, path));
+
+    if let Some(requirements) = operation
+        .get("security")
+        .or(global_security)
+        .and_then(security_requirements_comment)
+    {
+        placeholders.push(format!(
+            "OpenAPI review-required policy placeholder for `{operation_name}`: security requirements {requirements} suggest checking permission `{}` before connector use",
+            permission.name
+        ));
+    }
+
+    let field_hints = sensitive_field_hints(operation, document);
+    if !field_hints.is_empty() {
+        placeholders.push(format!(
+            "OpenAPI review-required policy placeholder for `{operation_name}`: fields [{}] look private/auth-related; review a narrow policy such as `allow private UserInput -> <connector>.{operation_name}` before sending user data",
+            field_hints.join(", ")
+        ));
+    }
+
+    if placeholders.is_empty() {
+        placeholders.push(format!(
+            "OpenAPI review-required policy placeholder for `{operation_name}`: no obvious private/auth fields were detected; still review data classification before allowing connector calls"
+        ));
+    }
+
+    placeholders
+}
+
+impl OpenApiPermissionScaffold {
+    fn comment(&self) -> String {
+        format!(
+            "OpenAPI review-required permission candidate `{}` inferred from {}; add it to roles/routes only after reviewing the imported operation",
+            self.name, self.source
+        )
+    }
+}
+
+fn sensitive_field_hints(operation: &Value, document: &Value) -> Vec<String> {
+    let mut fields = BTreeSet::new();
+    collect_sensitive_schema_fields(
+        operation.pointer("/requestBody/content/application~1json/schema"),
+        "requestBody",
+        document,
+        &mut fields,
+    );
+    collect_sensitive_schema_fields(
+        operation.pointer("/requestBody/content/application~1x-www-form-urlencoded/schema"),
+        "requestBody",
+        document,
+        &mut fields,
+    );
+    if let Some(parameters) = operation.get("parameters").and_then(Value::as_array) {
+        for parameter in parameters {
+            if let Some(name) = parameter.get("name").and_then(Value::as_str) {
+                collect_sensitive_name(name, "parameter", &mut fields);
+            }
+            collect_sensitive_schema_fields(
+                parameter.get("schema"),
+                "parameter",
+                document,
+                &mut fields,
+            );
+        }
+    }
+    if let Some(responses) = operation.get("responses").and_then(Value::as_object) {
+        for (code, response) in responses {
+            collect_sensitive_schema_fields(
+                response.pointer("/content/application~1json/schema"),
+                &format!("response {code}"),
+                document,
+                &mut fields,
+            );
+        }
+    }
+    fields.into_iter().collect()
+}
+
+fn collect_sensitive_schema_fields(
+    schema: Option<&Value>,
+    context: &str,
+    document: &Value,
+    fields: &mut BTreeSet<String>,
+) {
+    let Some(schema) = schema else {
+        return;
+    };
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        collect_sensitive_name(
+            reference.rsplit('/').next().unwrap_or(reference),
+            context,
+            fields,
+        );
+        if let Some(resolved) = resolve_local_ref(document, reference) {
+            collect_sensitive_schema_fields(Some(resolved), context, document, fields);
+        }
+    }
+    if let Some(title) = schema.get("title").and_then(Value::as_str) {
+        collect_sensitive_name(title, context, fields);
+    }
+    if let Some(format) = schema.get("format").and_then(Value::as_str) {
+        collect_sensitive_name(format, context, fields);
+    }
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (field, schema) in properties {
+            collect_sensitive_name(field, context, fields);
+            collect_sensitive_schema_fields(Some(schema), field, document, fields);
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        collect_sensitive_schema_fields(Some(items), context, document, fields);
+    }
+    for key in ["allOf", "oneOf", "anyOf"] {
+        if let Some(items) = schema.get(key).and_then(Value::as_array) {
+            for item in items {
+                collect_sensitive_schema_fields(Some(item), context, document, fields);
+            }
+        }
+    }
+}
+
+fn resolve_local_ref<'a>(document: &'a Value, reference: &str) -> Option<&'a Value> {
+    let pointer = reference.strip_prefix('#')?;
+    document.pointer(pointer)
+}
+
+fn collect_sensitive_name(name: &str, context: &str, fields: &mut BTreeSet<String>) {
+    if is_sensitive_name(name) {
+        fields.insert(format!(
+            "{}:{}",
+            sanitize_comment_text(context),
+            sanitize_comment_text(name)
+        ));
+    }
+}
+
+fn is_sensitive_name(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    [
+        "auth",
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "session",
+        "cookie",
+        "email",
+        "phone",
+        "user",
+        "customer",
+        "tenant",
+        "owner",
+        "identity",
+        "private",
+        "ssn",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
 fn security_requirement_scheme_comment(scheme: &str, scopes: &Value) -> String {
     let scheme = sanitize_comment_text(scheme);
     let Some(scopes) = scopes.as_array() else {
@@ -550,6 +834,14 @@ fn fallback_operation_name(method: &str, path: &str) -> String {
         }
         name.push('_');
         name.push_str(&to_identifier(part));
+    }
+    name
+}
+
+fn to_permission_name(value: &str) -> String {
+    let mut name = to_type_name(&value.replace('_', " "));
+    if name.is_empty() {
+        name = "OpenApiOperation".to_string();
     }
     name
 }
@@ -966,6 +1258,37 @@ paths:
             "// OpenAPI security requirement for operation `create_refund`: `oauth` scopes [refunds:read, refunds:write]; authentication binding is not generated yet"
         ));
         assert!(rendered.contains("create_refund() -> Unit"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_review_required_permission_and_policy_scaffolding() {
+        let document: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/openapi/customer_portal.json"
+        ))
+        .unwrap();
+        let expected = include_str!("../tests/fixtures/openapi/customer_portal.expected.num");
+
+        let rendered = render_openapi_connector(&document, Some("generated.customer"));
+
+        assert_eq!(rendered, expected);
+        assert!(rendered.contains("permission UpdateCustomer"));
+        assert!(rendered.contains(
+            "// OpenAPI review-required permission candidate `UpdateCustomer` inferred from operationId; add it to roles/routes only after reviewing the imported operation"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI review-required policy scaffold for connector `customerPortal`:"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI review-required policy placeholder for `update_customer`: security requirements `bearerAuth` suggest checking permission `UpdateCustomer` before connector use"
+        ));
+        assert!(rendered.contains("fields ["));
+        assert!(rendered.contains("parameter:customer_id"));
+        assert!(rendered.contains("requestBody:UpdateCustomerRequest"));
+        assert!(rendered.contains("requestBody:customer_email"));
+        assert!(rendered.contains(
+            "update_customer(customer_id: Text, body: UpdateCustomerRequest) -> CustomerProfile"
+        ));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());
     }
 }

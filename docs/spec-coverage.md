@@ -469,7 +469,9 @@ Implemented:
 - OpenAPI JSON/YAML import for a focused connector-contract subset:
   `components.schemas`, `paths`, operation parameters, JSON request bodies,
   JSON success response schemas, security scheme/requirement preservation
-  comments, and unsupported callback/link preservation comments.
+  comments, review-required permission candidates, review-required policy
+  placeholder comments for security/private-field hints, and unsupported
+  callback/link preservation comments.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
   columns, common scalar types, nullable columns, inline primary keys, table
   types, single-column and composite table-level primary keys, basic
@@ -490,7 +492,8 @@ Not yet implemented:
 - managed/network connector cancellation beyond local process timeout
   termination;
 - full OpenAPI coverage such as executable authentication bindings,
-  `allOf`/`oneOf`, executable callbacks/links, and generated runtime clients.
+  automatically correct production policies, `allOf`/`oneOf`, executable
+  callbacks/links, and generated runtime clients.
 - full SQL/database import coverage such as executable foreign-key relation
   loading, indexes, migrations, dialect-specific features, and generated runtime
   clients.

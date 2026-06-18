@@ -1,0 +1,29 @@
+module generated.customer
+
+// OpenAPI review-required permission candidates. Generated names are scaffolding; review scopes before wiring them into roles or service routes.
+permission UpdateCustomer
+// OpenAPI review-required policy scaffold for connector `customerPortal`:
+// policy OpenApiCustomerPortalDataSharing {
+//     // Add narrow allow rules only after reviewing request/response fields and authentication requirements.
+//     // Example: allow private UserInput -> customerPortal.<method>
+// }
+
+type CustomerProfile {
+    email: Text
+    id: Text
+}
+
+type UpdateCustomerRequest {
+    customer_email: Text
+    display_name: Text
+    tenant_id: Text
+}
+
+connector customerPortal {
+    // OpenAPI security scheme `bearerAuth` uses HTTP `bearer` authentication; authentication binding is not generated yet
+    // OpenAPI review-required permission candidate `UpdateCustomer` inferred from operationId; add it to roles/routes only after reviewing the imported operation
+    // OpenAPI review-required policy placeholder for `update_customer`: security requirements `bearerAuth` suggest checking permission `UpdateCustomer` before connector use
+    // OpenAPI review-required policy placeholder for `update_customer`: fields [customer_email:email, parameter:customer_id, requestBody:UpdateCustomerRequest, requestBody:customer_email, requestBody:tenant_id, response 200:CustomerProfile, response 200:email] look private/auth-related; review a narrow policy such as `allow private UserInput -> <connector>.update_customer` before sending user data
+    // OpenAPI security requirement for operation `update_customer`: `bearerAuth`; authentication binding is not generated yet
+    update_customer(customer_id: Text, body: UpdateCustomerRequest) -> CustomerProfile
+}
