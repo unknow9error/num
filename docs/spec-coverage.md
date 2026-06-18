@@ -571,13 +571,19 @@ Action declarations can carry raw `cost` and `timeout` metadata. Runtime data
 types include cost-limit and timeout errors, and the demo interpreter enforces
 action timeout budgets, pre-authorizes declared action cost against active
 budget scopes, and records successful action costs in a cost ledger.
+`num cost-report --json` exposes a versioned `num.cost_dashboard.v1` read model
+with stable totals by currency, action, connector, model, workflow, route,
+actor, and tenant plus raw drill-down entries. Dimensions that are not yet
+emitted by the current runtime path stay present as empty aggregates rather than
+changing the JSON shape.
 
 Not yet implemented:
 
 - distributed rate-limit persistence across runtime processes;
 - distributed timeout propagation;
 - interactive and persisted cost dashboards;
-- per-model or per-connector cost accounting.
+- runtime-produced per-model or per-connector cost entries beyond the stable
+  dashboard read-model fields.
 
 ## Not Covered Yet
 

@@ -1,0 +1,189 @@
+{
+  "by_action": {
+    "call_model": {
+      "USD": 200
+    }
+  },
+  "by_currency": {
+    "USD": 200
+  },
+  "conditional_fields": {
+    "actor": "present when a cost entry is emitted with actor context",
+    "connector": "present when a cost entry is emitted from a connector-aware runtime boundary",
+    "model": "present when a cost entry is emitted from an AI/model-aware runtime boundary",
+    "route": "present when a cost entry is emitted with service route context",
+    "tenant": "present when a cost entry is emitted with tenant context",
+    "time_window": "start_unix_ms and end_unix_ms are present when raw entries carry timestamps",
+    "workflow": "present when a cost entry is emitted with workflow context"
+  },
+  "entries": [
+    {
+      "action": "call_model",
+      "amount": {
+        "currency": "USD",
+        "minor_units": 125
+      },
+      "dimensions": {
+        "actor": "user_1",
+        "connector": "ai.complete",
+        "model": "gpt-4.1-mini",
+        "route": null,
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "recorded_at_unix_ms": 1700000000000
+    },
+    {
+      "action": "call_model",
+      "amount": {
+        "currency": "USD",
+        "minor_units": 75
+      },
+      "dimensions": {
+        "actor": "user_2",
+        "connector": "ai.complete",
+        "model": "gpt-4.1-mini",
+        "route": null,
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "recorded_at_unix_ms": 1700000000500
+    }
+  ],
+  "raw_entries": [
+    {
+      "action": "call_model",
+      "amount": {
+        "currency": "USD",
+        "minor_units": 125
+      },
+      "dimensions": {
+        "actor": "user_1",
+        "connector": "ai.complete",
+        "model": "gpt-4.1-mini",
+        "route": null,
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "index": 0,
+      "recorded_at_unix_ms": 1700000000000
+    },
+    {
+      "action": "call_model",
+      "amount": {
+        "currency": "USD",
+        "minor_units": 75
+      },
+      "dimensions": {
+        "actor": "user_2",
+        "connector": "ai.complete",
+        "model": "gpt-4.1-mini",
+        "route": null,
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "index": 1,
+      "recorded_at_unix_ms": 1700000000500
+    }
+  ],
+  "schema_version": "num.cost_dashboard.v1",
+  "stable_dimensions": [
+    "currency",
+    "action",
+    "connector",
+    "model",
+    "workflow",
+    "route",
+    "actor",
+    "tenant"
+  ],
+  "time_window": {
+    "end_unix_ms": 1700000000500,
+    "start_unix_ms": 1700000000000
+  },
+  "total_entries": 2,
+  "totals": {
+    "by_action": [
+      {
+        "key": "call_model",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      }
+    ],
+    "by_actor": [
+      {
+        "key": "user_1",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 125
+          }
+        ]
+      },
+      {
+        "key": "user_2",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 75
+          }
+        ]
+      }
+    ],
+    "by_connector": [
+      {
+        "key": "ai.complete",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      }
+    ],
+    "by_currency": [
+      {
+        "currency": "USD",
+        "minor_units": 200
+      }
+    ],
+    "by_model": [
+      {
+        "key": "gpt-4.1-mini",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      }
+    ],
+    "by_route": [],
+    "by_tenant": [
+      {
+        "key": "tenant_a",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      }
+    ],
+    "by_workflow": [
+      {
+        "key": "refund",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      }
+    ]
+  }
+}
