@@ -191,6 +191,8 @@ Implemented:
 - `num serve`
 - `num serve-once`
 - `num new`
+- `num completions bash`
+- `num completions fish`
 - `num completions zsh`
 - `num lsp`
 - `num.toml` source and entry manifest loading for CLI project commands;
