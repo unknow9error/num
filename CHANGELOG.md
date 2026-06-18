@@ -18,6 +18,8 @@
 
 ### Patch
 
+- Preserved SQL inline and table-level foreign-key relationships as generated
+  relation hint comments during `num import sql` generation.
 - Preserved OpenAPI security schemes and operation requirements as generated
   metadata comments during `num import openapi` generation.
 - Preserved OpenAPI callbacks and links as unsupported metadata comments during

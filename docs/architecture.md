@@ -189,8 +189,8 @@ manifest-configured `[connectors]` bindings.
 `openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON
 and YAML, including preservation comments for authentication metadata,
 unsupported callbacks, and links.
-`sql_schema.rs` owns generation of `.num` table types and database connector
-contracts from SQL schema files.
+`sql_schema.rs` owns generation of `.num` table types, foreign-key relation
+hint comments, and database connector contracts from SQL schema files.
 
 The compiler's `lint.rs` module owns project quality/security lint rules. Lints
 are run by `num lint` and intentionally stay separate from semantic errors used
