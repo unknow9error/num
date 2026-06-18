@@ -5,9 +5,44 @@ use std::path::Path;
 pub fn import_openapi(path: &Path, module_name: Option<&str>) -> Result<String, String> {
     let source = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let document: Value = serde_json::from_str(&source)
-        .map_err(|err| format!("failed to parse OpenAPI JSON: {err}"))?;
+    let document = parse_openapi_document(path, &source)?;
     Ok(render_openapi_connector(&document, module_name))
+}
+
+fn parse_openapi_document(path: &Path, source: &str) -> Result<Value, String> {
+    if looks_like_json(path, source) {
+        return serde_json::from_str(source)
+            .map_err(|err| format!("failed to parse OpenAPI JSON {}: {err}", path.display()));
+    }
+
+    match serde_yaml::from_str::<Value>(source) {
+        Ok(value) => Ok(value),
+        Err(yaml_error) if path.extension().is_none_or(|extension| !is_yaml_extension(extension)) => {
+            serde_json::from_str(source).map_err(|json_error| {
+                format!(
+                    "failed to parse OpenAPI document {} as YAML ({yaml_error}) or JSON ({json_error})",
+                    path.display()
+                )
+            })
+        }
+        Err(err) => Err(format!(
+            "failed to parse OpenAPI YAML {}: {err}",
+            path.display()
+        )),
+    }
+}
+
+fn looks_like_json(path: &Path, source: &str) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        || source.trim_start().starts_with(['{', '['])
+}
+
+fn is_yaml_extension(extension: &std::ffi::OsStr) -> bool {
+    extension
+        .to_str()
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "yaml" | "yml"))
 }
 
 pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> String {
@@ -297,11 +332,21 @@ fn lower_first(part: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
-    fn renders_components_and_connector_methods() {
-        let document: Value = serde_json::from_str(
-            r##"
+    fn temp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("num_openapi_{name}_{stamp}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    const BASIC_OPENAPI_JSON: &str = r##"
 {
   "openapi": "3.0.0",
   "info": { "title": "Billing API", "version": "1.0.0" },
@@ -347,9 +392,49 @@ mod tests {
     }
   }
 }
-"##,
-        )
-        .unwrap();
+"##;
+
+    const BASIC_OPENAPI_YAML: &str = r##"
+openapi: 3.0.0
+info:
+  title: Billing API
+  version: 1.0.0
+components:
+  schemas:
+    RefundRequest:
+      type: object
+      properties:
+        payment_id:
+          type: string
+        amount:
+          type: number
+    RefundResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        approved:
+          type: boolean
+paths:
+  /refunds:
+    post:
+      operationId: create_refund
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+"##;
+
+    #[test]
+    fn renders_components_and_connector_methods() {
+        let document: Value = serde_json::from_str(BASIC_OPENAPI_JSON).unwrap();
 
         let rendered = render_openapi_connector(&document, Some("generated.billing"));
 
@@ -359,5 +444,47 @@ mod tests {
         assert!(rendered.contains("connector billingApi"));
         assert!(rendered.contains("create_refund(body: RefundRequest) -> RefundResponse"));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn parses_yaml_and_json_to_equivalent_output() {
+        let json = parse_openapi_document(Path::new("billing.json"), BASIC_OPENAPI_JSON).unwrap();
+        let yaml = parse_openapi_document(Path::new("billing.yaml"), BASIC_OPENAPI_YAML).unwrap();
+
+        assert_eq!(
+            render_openapi_connector(&json, Some("generated.billing")),
+            render_openapi_connector(&yaml, Some("generated.billing"))
+        );
+    }
+
+    #[test]
+    fn imports_yaml_and_yml_openapi_files() {
+        let root = temp_dir("yaml_import");
+        let yaml_path = root.join("billing.yaml");
+        let yml_path = root.join("billing.yml");
+        fs::write(&yaml_path, BASIC_OPENAPI_YAML).unwrap();
+        fs::write(&yml_path, BASIC_OPENAPI_YAML).unwrap();
+
+        let yaml_rendered = import_openapi(&yaml_path, Some("generated.billing")).unwrap();
+        let yml_rendered = import_openapi(&yml_path, Some("generated.billing")).unwrap();
+
+        assert_eq!(yaml_rendered, yml_rendered);
+        assert!(yaml_rendered.contains("module generated.billing"));
+        assert!(yaml_rendered.contains("connector billingApi"));
+        assert!(yaml_rendered.contains("create_refund(body: RefundRequest) -> RefundResponse"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_yaml_reports_clear_error() {
+        let root = temp_dir("invalid_yaml");
+        let path = root.join("broken.yaml");
+        fs::write(&path, "openapi: [").unwrap();
+
+        let err = import_openapi(&path, Some("generated.broken")).unwrap_err();
+
+        assert!(err.contains("failed to parse OpenAPI YAML"));
+        assert!(err.contains("broken.yaml"));
+        fs::remove_dir_all(root).unwrap();
     }
 }
