@@ -68,6 +68,11 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
     out.push_str(&connector_name);
     out.push_str(" {\n");
     for operation in operations(document) {
+        for metadata in &operation.unsupported_metadata {
+            out.push_str("    // ");
+            out.push_str(&metadata.comment());
+            out.push('\n');
+        }
         out.push_str("    ");
         out.push_str(&operation.name);
         out.push('(');
@@ -93,12 +98,26 @@ struct Operation {
     name: String,
     params: Vec<OperationParam>,
     result: String,
+    unsupported_metadata: Vec<UnsupportedOpenApiMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct OperationParam {
     name: String,
     ty: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UnsupportedOpenApiMetadata {
+    Callback {
+        operation: String,
+        name: String,
+    },
+    Link {
+        operation: String,
+        response: String,
+        name: String,
+    },
 }
 
 fn component_schemas(document: &Value) -> Vec<(&str, &Value)> {
@@ -153,13 +172,15 @@ fn operations(document: &Value) -> Vec<Operation> {
             let Some(operation) = methods.get(method) else {
                 continue;
             };
+            let name = operation
+                .get("operationId")
+                .and_then(Value::as_str)
+                .map(to_identifier)
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| fallback_operation_name(method, path));
             operations.push(Operation {
-                name: operation
-                    .get("operationId")
-                    .and_then(Value::as_str)
-                    .map(to_identifier)
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| fallback_operation_name(method, path)),
+                unsupported_metadata: unsupported_operation_metadata(operation, &name),
+                name,
                 params: operation_params(operation),
                 result: operation_result(operation),
             });
@@ -168,6 +189,62 @@ fn operations(document: &Value) -> Vec<Operation> {
 
     operations.sort_by(|left, right| left.name.cmp(&right.name));
     operations
+}
+
+fn unsupported_operation_metadata(
+    operation: &Value,
+    operation_name: &str,
+) -> Vec<UnsupportedOpenApiMetadata> {
+    let mut metadata = Vec::new();
+
+    if let Some(callbacks) = operation.get("callbacks").and_then(Value::as_object) {
+        let mut callbacks = callbacks.keys().collect::<Vec<_>>();
+        callbacks.sort();
+        for callback in callbacks {
+            metadata.push(UnsupportedOpenApiMetadata::Callback {
+                operation: operation_name.to_string(),
+                name: sanitize_comment_text(callback),
+            });
+        }
+    }
+
+    if let Some(responses) = operation.get("responses").and_then(Value::as_object) {
+        let mut responses = responses.iter().collect::<Vec<_>>();
+        responses.sort_by(|left, right| left.0.cmp(right.0));
+        for (response_code, response) in responses {
+            let Some(links) = response.get("links").and_then(Value::as_object) else {
+                continue;
+            };
+            let mut links = links.keys().collect::<Vec<_>>();
+            links.sort();
+            for link in links {
+                metadata.push(UnsupportedOpenApiMetadata::Link {
+                    operation: operation_name.to_string(),
+                    response: sanitize_comment_text(response_code),
+                    name: sanitize_comment_text(link),
+                });
+            }
+        }
+    }
+
+    metadata
+}
+
+impl UnsupportedOpenApiMetadata {
+    fn comment(&self) -> String {
+        match self {
+            Self::Callback { operation, name } => format!(
+                "OpenAPI callback `{name}` on operation `{operation}` is preserved as unsupported metadata; runtime generation is not implemented yet"
+            ),
+            Self::Link {
+                operation,
+                response,
+                name,
+            } => format!(
+                "OpenAPI link `{name}` on operation `{operation}` response `{response}` is preserved as unsupported metadata; runtime generation is not implemented yet"
+            ),
+        }
+    }
 }
 
 fn operation_params(operation: &Value) -> Vec<OperationParam> {
@@ -329,6 +406,21 @@ fn lower_first(part: &str) -> String {
     output
 }
 
+fn sanitize_comment_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            '`' => '\'',
+            ch if ch.is_control() => ' ',
+            ch => ch,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +578,56 @@ paths:
         assert!(err.contains("failed to parse OpenAPI YAML"));
         assert!(err.contains("broken.yaml"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preserves_callbacks_and_links_as_unsupported_metadata_comments() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Billing API", "version": "1.0.0" },
+  "paths": {
+    "/refunds": {
+      "post": {
+        "operationId": "create_refund",
+        "callbacks": {
+          "refundStatusChanged": {
+            "{$request.body#/callbackUrl}": {
+              "post": {
+                "responses": { "200": { "description": "ok" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "links": {
+              "getRefund": {
+                "operationId": "get_refund",
+                "parameters": { "refundId": "$response.body#/id" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.billing"));
+
+        assert!(rendered.contains(
+            "// OpenAPI callback `refundStatusChanged` on operation `create_refund` is preserved as unsupported metadata; runtime generation is not implemented yet"
+        ));
+        assert!(rendered.contains(
+            "// OpenAPI link `getRefund` on operation `create_refund` response `201` is preserved as unsupported metadata; runtime generation is not implemented yet"
+        ));
+        assert!(rendered.contains("create_refund() -> Unit"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
     }
 }
