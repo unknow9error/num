@@ -860,22 +860,24 @@ The importer currently handles a focused SQL subset:
 - column declarations with common SQL scalar types;
 - nullable columns as `Option<T>`;
 - inline `PRIMARY KEY` columns;
-- single-column table-level `PRIMARY KEY (...)` constraints, including named
-  constraints;
+- single-column and composite table-level `PRIMARY KEY (...)` constraints,
+  including named constraints;
 - inline `REFERENCES` columns and table-level `FOREIGN KEY (...) REFERENCES`
   constraints as generated relation hint comments;
 - generated `database` connector methods: `list_<table>`,
-  `find_<table>_by_<primary_key>`, and `insert_<table>`.
+  `find_<table>_by_<primary_key>`, composite
+  `find_<table>_by_<key1>_and_<key2>`, and `insert_<table>`.
 
 The runtime crate includes an in-memory executor for these generated
 `database.*` method names. It is intended for contract tests and demos, not for
 production database access.
 
-Indexes, executable relation loading, composite primary-key finder methods,
-migrations, SQL dialect-specific features such as `ALTER TABLE ... ADD
+Composite finder method names preserve SQL primary-key column order and join
+identifier-normalized column names with `_and_`. Indexes, executable relation
+loading, migrations, SQL dialect-specific features such as `ALTER TABLE ... ADD
 CONSTRAINT`, and generated runtime clients are not implemented yet. Unsupported
-foreign-key forms are documented as outside the current import subset rather
-than represented as runnable relations.
+foreign-key forms are documented as outside the current import subset rather than
+represented as runnable relations.
 
 ### `completions`
 
