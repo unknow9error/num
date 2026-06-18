@@ -337,13 +337,17 @@ Supported fields:
 `num deploy` validates the project and renders these values together with the
 compiled workflows, actions, service routes, connectors, dependencies, runtime
 metadata, environment validation metadata, target profile metadata, deployment
-warnings, and security metadata. Target profiles classify `local`, `container`/`docker`/`oci`,
-`kubernetes`/`k8s`, `cloud`/`aws`/`gcp`/`azure`, and custom targets, then record
-the expected external execution boundary and required artifacts. `num deploy
---apply` also materializes a local/CI deployment bundle. By default, the bundle
-directory is derived from `artifact` by removing the file extension; `--dir
-<artifact-dir>` overrides that path, and `--replace` allows an existing bundle
-directory to be overwritten.
+warnings, and security metadata. Target profiles classify `local`,
+`container`/`docker`/`oci`, `kubernetes`/`k8s`,
+`cloud`/`aws`/`gcp`/`azure`, and custom targets, then record the expected
+external execution boundary, required artifacts, and target-specific validation
+result. Container targets recommend `[deployment].service`; Kubernetes and cloud
+targets require `[deployment].service` and `[deployment].region`; custom targets
+record that execution needs a custom runner. `num deploy --apply` also
+materializes a local/CI deployment bundle. By default, the bundle directory is
+derived from `artifact` by removing the file extension; `--dir <artifact-dir>`
+overrides that path, and `--replace` allows an existing bundle directory to be
+overwritten.
 
 ## Current Boundary
 
@@ -375,7 +379,8 @@ Implemented:
   through `num deploy --apply`;
 - container and Kubernetes deploy scaffolds generated inside deployment bundles
   for compatible `[deployment].target` values;
-- deployment target profile classification and deploy-time warnings;
+- deployment target profile classification plus target-specific validation
+  status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
 - process connector timeout metadata in manifests, runtime execution, and
   deploy plans.
