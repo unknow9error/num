@@ -18,10 +18,23 @@ impl InMemoryDatabaseConnector {
         name: impl Into<String>,
         primary_key: Option<impl Into<String>>,
     ) {
+        self.register_table_with_primary_key(
+            name,
+            primary_key
+                .map(|primary_key| vec![primary_key.into()])
+                .unwrap_or_default(),
+        );
+    }
+
+    pub fn register_table_with_primary_key(
+        &mut self,
+        name: impl Into<String>,
+        primary_key: impl IntoIterator<Item = impl Into<String>>,
+    ) {
         self.tables.borrow_mut().insert(
             name.into(),
             InMemoryTable {
-                primary_key: primary_key.map(Into::into),
+                primary_key: primary_key.into_iter().map(Into::into).collect(),
                 rows: Vec::new(),
             },
         );
@@ -47,22 +60,39 @@ impl InMemoryDatabaseConnector {
         Ok(Value::List(table_state.rows.clone()))
     }
 
-    pub fn find_by(&self, table: &str, column: &str, key: &Value) -> Result<Value, String> {
+    pub fn find_by(
+        &self,
+        table: &str,
+        columns: &[String],
+        keys: &[Value],
+    ) -> Result<Value, String> {
         let tables = self.tables.borrow();
         let table_state = tables
             .get(table)
             .ok_or_else(|| format!("unknown database table '{table}'"))?;
-        if let Some(primary_key) = &table_state.primary_key {
-            if primary_key != column {
-                return Err(format!(
-                    "database.find_{table}_by_{column} does not match primary key '{primary_key}'"
-                ));
-            }
+        if !table_state.primary_key.is_empty() && table_state.primary_key != columns {
+            return Err(format!(
+                "database.find_{table}_by_{} does not match primary key '{}'",
+                columns.join("_and_"),
+                table_state.primary_key.join(", ")
+            ));
+        }
+        if columns.len() != keys.len() {
+            return Err(format!(
+                "database.find_{table}_by_{} expects {} key arguments",
+                columns.join("_and_"),
+                columns.len()
+            ));
         }
         Ok(table_state
             .rows
             .iter()
-            .find(|row| struct_field(row, column) == Some(key))
+            .find(|row| {
+                columns
+                    .iter()
+                    .zip(keys.iter())
+                    .all(|(column, key)| struct_field(row, column) == Some(key))
+            })
             .cloned()
             .unwrap_or(Value::Null))
     }
@@ -95,13 +125,18 @@ impl ConnectorExecutor for InMemoryDatabaseConnector {
                     "invalid database finder method '{method}'"
                 ))));
             };
-            let Some(key) = args.first() else {
+            let columns = column
+                .split("_and_")
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if args.len() != columns.len() {
                 return Some(Err(ConnectorError::execution(format!(
-                    "database.{method} expects one key argument"
+                    "database.{method} expects {} key arguments",
+                    columns.len()
                 ))));
-            };
+            }
             return Some(
-                self.find_by(table, column, key)
+                self.find_by(table, &columns, args)
                     .map_err(ConnectorError::execution),
             );
         }
@@ -111,7 +146,7 @@ impl ConnectorExecutor for InMemoryDatabaseConnector {
 
 #[derive(Debug, Clone, Default)]
 struct InMemoryTable {
-    primary_key: Option<String>,
+    primary_key: Vec<String>,
     rows: Vec<Value>,
 }
 
@@ -168,6 +203,67 @@ mod tests {
     }
 
     #[test]
+    fn database_connector_finds_rows_by_composite_primary_key() {
+        let mut database = InMemoryDatabaseConnector::new();
+        database.register_table_with_primary_key("ledgerEntries", ["accountId", "sequenceNo"]);
+        let row = ledger_entry_row("acct_1", 42, "refund");
+
+        database.insert("ledgerEntries", row.clone()).unwrap();
+
+        let found = database
+            .call(
+                "database.find_ledgerEntries_by_accountId_and_sequenceNo",
+                &[Value::String("acct_1".to_string()), Value::Int(42)],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(found, row);
+
+        let missing = database
+            .call(
+                "database.find_ledgerEntries_by_accountId_and_sequenceNo",
+                &[Value::String("acct_1".to_string()), Value::Int(43)],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(missing, Value::Null);
+    }
+
+    #[test]
+    fn database_connector_rejects_wrong_composite_primary_key_method() {
+        let mut database = InMemoryDatabaseConnector::new();
+        database.register_table_with_primary_key("ledgerEntries", ["accountId", "sequenceNo"]);
+
+        let error = database
+            .call(
+                "database.find_ledgerEntries_by_sequenceNo_and_accountId",
+                &[Value::Int(42), Value::String("acct_1".to_string())],
+            )
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(error.code, "execution_failed");
+        assert!(error.message.contains("does not match primary key"));
+    }
+
+    #[test]
+    fn database_connector_rejects_wrong_composite_key_arity() {
+        let mut database = InMemoryDatabaseConnector::new();
+        database.register_table_with_primary_key("ledgerEntries", ["accountId", "sequenceNo"]);
+
+        let error = database
+            .call(
+                "database.find_ledgerEntries_by_accountId_and_sequenceNo",
+                &[Value::String("acct_1".to_string())],
+            )
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(error.code, "execution_failed");
+        assert!(error.message.contains("expects 2 key arguments"));
+    }
+
+    #[test]
     fn database_connector_rejects_unknown_tables() {
         let database = InMemoryDatabaseConnector::new();
         let error = database
@@ -184,5 +280,16 @@ mod tests {
         fields.insert("id".to_string(), Value::String(id.to_string()));
         fields.insert("name".to_string(), Value::String(name.to_string()));
         Value::Struct("Users".to_string(), fields)
+    }
+
+    fn ledger_entry_row(account_id: &str, sequence_no: i64, memo: &str) -> Value {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "accountId".to_string(),
+            Value::String(account_id.to_string()),
+        );
+        fields.insert("sequenceNo".to_string(), Value::Int(sequence_no));
+        fields.insert("memo".to_string(), Value::String(memo.to_string()));
+        Value::Struct("LedgerEntries".to_string(), fields)
     }
 }

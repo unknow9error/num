@@ -36,15 +36,26 @@ pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
         out.push_str(&table_type);
         out.push_str(">\n");
 
-        if let Some(primary_key) = table.primary_key_column() {
+        if let Some(primary_keys) = table.primary_key_columns() {
             out.push_str("    find_");
             out.push_str(&table_ident);
             out.push_str("_by_");
-            out.push_str(&to_identifier(&primary_key.name));
+            out.push_str(
+                &primary_keys
+                    .iter()
+                    .map(|column| to_identifier(&column.name))
+                    .collect::<Vec<_>>()
+                    .join("_and_"),
+            );
             out.push('(');
-            out.push_str(&to_identifier(&primary_key.name));
-            out.push_str(": ");
-            out.push_str(&primary_key.ty);
+            for (index, primary_key) in primary_keys.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&to_identifier(&primary_key.name));
+                out.push_str(": ");
+                out.push_str(&primary_key.ty);
+            }
             out.push_str(") -> Option<");
             out.push_str(&table_type);
             out.push_str(">\n");
@@ -71,10 +82,13 @@ struct Table {
 }
 
 impl Table {
-    fn primary_key_column(&self) -> Option<&Column> {
-        let mut primary_keys = self.columns.iter().filter(|column| column.primary_key);
-        let primary_key = primary_keys.next()?;
-        primary_keys.next().is_none().then_some(primary_key)
+    fn primary_key_columns(&self) -> Option<Vec<&Column>> {
+        let primary_keys = self
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .collect::<Vec<_>>();
+        (!primary_keys.is_empty()).then_some(primary_keys)
     }
 }
 
@@ -656,7 +670,7 @@ CREATE TABLE users (
     }
 
     #[test]
-    fn composite_table_level_primary_key_does_not_generate_single_key_finder() {
+    fn renders_composite_table_level_primary_key_finder() {
         let source = r#"
 CREATE TABLE ledger_entries (
     account_id UUID,
@@ -667,10 +681,34 @@ CREATE TABLE ledger_entries (
 "#;
 
         let rendered = render_sql_schema(source, Some("generated.db"));
+        let rendered_again = render_sql_schema(source, Some("generated.db"));
 
+        assert_eq!(rendered, rendered_again);
         assert!(rendered.contains("accountId: Uuid"));
         assert!(rendered.contains("sequenceNo: Int"));
-        assert!(!rendered.contains("find_ledgerEntries_by_"));
+        assert!(rendered.contains(
+            "find_ledgerEntries_by_accountId_and_sequenceNo(accountId: Uuid, sequenceNo: Int) -> Option<LedgerEntries>"
+        ));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_three_column_primary_key_finder() {
+        let source = r#"
+CREATE TABLE entitlement_grants (
+    tenant_id UUID,
+    actor_id UUID,
+    permission_code TEXT,
+    granted_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (tenant_id, actor_id, permission_code)
+);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+
+        assert!(rendered.contains(
+            "find_entitlementGrants_by_tenantId_and_actorId_and_permissionCode(tenantId: Uuid, actorId: Uuid, permissionCode: Text) -> Option<EntitlementGrants>"
+        ));
         assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
     }
 

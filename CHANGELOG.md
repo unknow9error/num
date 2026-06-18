@@ -18,6 +18,8 @@
 
 ### Patch
 
+- Added deterministic SQL composite primary-key finder methods and in-memory
+  database lookup support for `num import sql` generated contracts.
 - Preserved SQL inline and table-level foreign-key relationships as generated
   relation hint comments during `num import sql` generation.
 - Preserved OpenAPI security schemes and operation requirements as generated
