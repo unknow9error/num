@@ -18,6 +18,9 @@
 
 ### Patch
 
+- Added review-required OpenAPI import permission candidates and policy
+  placeholders for generated connector operations with security or
+  private-field hints.
 - Added a versioned `num.cost_dashboard.v1` JSON read model for
   `num cost-report --json`, including stable cost dashboard totals, raw entries,
   time-window fields, and documented conditional dimensions.

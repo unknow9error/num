@@ -846,14 +846,21 @@ The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
 - `components.securitySchemes` and effective operation `security` requirements
   are preserved as generated comments for `apiKey`, HTTP, OAuth2, and
   unsupported security shapes;
+- operations emit review-required candidate `permission` declarations inferred
+  from `operationId`, tags, method/path fallbacks, and security metadata;
+- generated comments include review-required policy placeholders for auth
+  requirements and obvious private/user-input field names such as email, token,
+  tenant, customer, session, or password. These placeholders do not grant access
+  or claim correctness; review and edit them before wiring roles, routes, or
+  policy allow rules;
 - operation callbacks and response links are preserved as generated comments
   that name the unsupported metadata and source operation;
 - scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, and `List<T>`.
 
 Executable authentication bindings, `allOf`/`oneOf` composition, pagination
-conventions, executable callbacks/links, and generated runtime clients are not
-implemented yet. Unsupported security schemes are emitted as comments rather
-than silently dropped.
+conventions, executable callbacks/links, generated runtime clients, and
+automatically correct production policies are not implemented yet. Unsupported
+security schemes are emitted as comments rather than silently dropped.
 
 ### `import sql`
 
