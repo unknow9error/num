@@ -467,8 +467,9 @@ Implemented:
 - argument type diagnostics for known binding/field/literal types;
 - connector result compatibility with explicit `let` binding types;
 - OpenAPI JSON/YAML import for a focused connector-contract subset:
-  `components.schemas`, `paths`, operation parameters, JSON request bodies, and
-  JSON success response schemas.
+  `components.schemas`, `paths`, operation parameters, JSON request bodies,
+  JSON success response schemas, and unsupported callback/link preservation
+  comments.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
   columns, common scalar types, nullable columns, inline primary keys, table
   types, single-column table-level primary keys, and basic database connector
@@ -488,8 +489,8 @@ Not yet implemented:
 - generated database clients;
 - managed/network connector cancellation beyond local process timeout
   termination;
-- full OpenAPI coverage such as security schemes, `allOf`/`oneOf`, callbacks,
-  links, and generated runtime clients.
+- full OpenAPI coverage such as security schemes, `allOf`/`oneOf`, executable
+  callbacks/links, and generated runtime clients.
 - full SQL/database import coverage such as foreign-key relation typing,
   indexes, migrations, dialect-specific features, and composite primary-key
   finder methods.

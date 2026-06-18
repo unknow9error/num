@@ -187,7 +187,7 @@ output for `num connector-sdk`.
 `connector_cli.rs` owns direct process connector probing for
 manifest-configured `[connectors]` bindings.
 `openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON
-and YAML.
+and YAML, including preservation comments for unsupported callbacks and links.
 `sql_schema.rs` owns generation of `.num` table types and database connector
 contracts from SQL schema files.
 

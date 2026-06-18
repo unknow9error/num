@@ -18,6 +18,8 @@
 
 ### Patch
 
+- Preserved OpenAPI callbacks and links as unsupported metadata comments during
+  `num import openapi` generation.
 - Added bash and fish shell completions alongside the existing zsh script.
 - Added target-specific deploy plan validation for required/recommended
   `[deployment]` fields, including JSON metadata in materialized bundles.
