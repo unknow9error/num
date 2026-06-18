@@ -647,13 +647,19 @@ num deploy examples/refund_workflow --apply --replace --json
 ```
 
 The plan includes package name/version, deployment target metadata, a checked
-target profile with execution class, required artifacts, and deployment
-warnings, environment validation status from `[environment]`, runtime store
-metadata, security mode, compiled module count, workflows, actions, service
-routes, connectors, process connector bindings, and direct dependencies. It
-also embeds the manifest language/schema compatibility contract. Process
-connector bindings include method, command, args, cwd, and timeout metadata for
-future deployment runners.
+target profile with execution class, required artifacts, target-specific
+validation status, validation errors/warnings, environment validation status
+from `[environment]`, runtime store metadata, security mode, compiled module
+count, workflows, actions, service routes, connectors, process connector
+bindings, and direct dependencies. It also embeds the manifest language/schema
+compatibility contract. Process connector bindings include method, command,
+args, cwd, and timeout metadata for future deployment runners.
+
+Target validation records required and recommended `[deployment]` fields for
+the selected target. `container` targets recommend `service`; `kubernetes`/`k8s`
+and `cloud`/`aws`/`gcp`/`azure` targets require both `service` and `region`.
+Custom targets stay valid as custom handoff plans, but their profile records the
+explicit external runner boundary.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
@@ -664,8 +670,8 @@ bundle. The bundle includes:
 - `modules/` - source module snapshot used for compilation;
 - the manifest `[project].source` tree snapshot, so the artifact can be run by
   the `num` CLI without depending on the original workspace checkout;
-- `manifest.json` - artifact metadata, target profile, environment status, and
-  module map;
+- `manifest.json` - artifact metadata, target profile validation, environment
+  status, and module map;
 - `RUNBOOK.md` - operations boundary, environment status, and handoff notes.
 
 For `[deployment].target = "container"` or compatible targets such as `docker`

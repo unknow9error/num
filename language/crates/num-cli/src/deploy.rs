@@ -66,7 +66,25 @@ pub struct DeploymentTargetProfile {
     pub class: String,
     pub execution: String,
     pub required_artifacts: Vec<String>,
+    pub validation: DeploymentTargetValidation,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentTargetValidation {
+    pub status: String,
+    pub required: Vec<DeploymentTargetField>,
+    pub recommended: Vec<DeploymentTargetField>,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub boundary: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentTargetField {
+    pub name: String,
+    pub present: bool,
+    pub description: String,
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +298,10 @@ impl DeploymentPlan {
             "Target profile: class={}, execution={}\n",
             self.target_profile.class, self.target_profile.execution
         ));
+        out.push_str(&format!(
+            "Target validation: status={}\n",
+            self.target_profile.validation.status
+        ));
         if let Some(service) = &self.service {
             out.push_str(&format!("Service: {service}\n"));
         }
@@ -326,10 +348,21 @@ impl DeploymentPlan {
                 self.process_connectors.join(", ")
             ));
         }
-        if !self.target_profile.warnings.is_empty() {
+        if !self.target_profile.validation.errors.is_empty() {
+            out.push_str("Deployment validation errors:\n");
+            for error in &self.target_profile.validation.errors {
+                out.push_str(&format!("  - {error}\n"));
+            }
+        }
+        if !self.target_profile.validation.warnings.is_empty()
+            || self.target_profile.validation.boundary.is_some()
+        {
             out.push_str("Deployment warnings:\n");
-            for warning in &self.target_profile.warnings {
+            for warning in &self.target_profile.validation.warnings {
                 out.push_str(&format!("  - {warning}\n"));
+            }
+            if let Some(boundary) = &self.target_profile.validation.boundary {
+                out.push_str(&format!("  - {boundary}\n"));
             }
         }
         if !self.environment.missing_required.is_empty() {
@@ -347,21 +380,26 @@ impl DeploymentTargetProfile {
         let target = manifest.deployment.target.trim();
         let service = manifest.deployment.service.as_deref();
         let region = manifest.deployment.region.as_deref();
-        let mut warnings = Vec::new();
 
-        let (class, execution, required_artifacts) = match normalize_target(target).as_str() {
+        let (class, execution, required_artifacts, validation) = match normalize_target(target)
+            .as_str()
+        {
             "local" => (
                 "local",
                 "local-ci-bundle",
                 vec!["num-deploy.json", "num.toml", "modules/"],
+                DeploymentTargetValidation::new(vec![], vec![], None),
             ),
             "container" | "docker" | "oci" => {
-                if service.is_none() {
-                    warnings.push(
-                        "container targets should set [deployment].service for route entrypoint selection"
-                            .to_string(),
-                    );
-                }
+                let validation = DeploymentTargetValidation::new(
+                    vec![],
+                    vec![DeploymentTargetField::new(
+                        "[deployment].service",
+                        service.is_some(),
+                        "service route entrypoint for container serve commands",
+                    )],
+                    None,
+                );
                 (
                     "container",
                     "external-container-runner",
@@ -374,21 +412,26 @@ impl DeploymentTargetProfile {
                         "deploy/Dockerfile",
                         "deploy/compose.yaml",
                     ],
+                    validation,
                 )
             }
             "kubernetes" | "k8s" => {
-                if service.is_none() {
-                    warnings.push(
-                        "kubernetes targets should set [deployment].service before execution"
-                            .to_string(),
-                    );
-                }
-                if region.is_none() {
-                    warnings.push(
-                        "kubernetes targets should set [deployment].region or cluster context before execution"
-                            .to_string(),
-                    );
-                }
+                let validation = DeploymentTargetValidation::new(
+                    vec![
+                        DeploymentTargetField::new(
+                            "[deployment].service",
+                            service.is_some(),
+                            "service route entrypoint for generated Kubernetes workload args",
+                        ),
+                        DeploymentTargetField::new(
+                            "[deployment].region",
+                            region.is_some(),
+                            "cluster context or region label for Kubernetes handoff",
+                        ),
+                    ],
+                    vec![],
+                    None,
+                );
                 (
                     "orchestrator",
                     "external-kubernetes-applier",
@@ -401,42 +444,56 @@ impl DeploymentTargetProfile {
                         "deploy/Dockerfile",
                         "deploy/kubernetes.yaml",
                     ],
+                    validation,
                 )
             }
             "cloud" | "aws" | "gcp" | "azure" => {
-                if service.is_none() {
-                    warnings.push(
-                        "cloud targets should set [deployment].service before execution"
-                            .to_string(),
-                    );
-                }
-                if region.is_none() {
-                    warnings.push(
-                        "cloud targets should set [deployment].region before execution".to_string(),
-                    );
-                }
+                let validation = DeploymentTargetValidation::new(
+                    vec![
+                        DeploymentTargetField::new(
+                            "[deployment].service",
+                            service.is_some(),
+                            "service route entrypoint for the external cloud deployer",
+                        ),
+                        DeploymentTargetField::new(
+                            "[deployment].region",
+                            region.is_some(),
+                            "cloud region for the external cloud deployer",
+                        ),
+                    ],
+                    vec![],
+                    None,
+                );
                 (
                     "cloud",
                     "external-cloud-deployer",
                     vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                    validation,
                 )
             }
             _ => {
-                warnings.push(format!(
-                    "deployment target `{target}` is preserved as a custom target; execution requires a custom runner"
-                ));
+                let validation = DeploymentTargetValidation::new(
+                    vec![],
+                    vec![],
+                    Some(format!(
+                        "deployment target `{target}` is preserved as a custom target; execution requires a custom runner"
+                    )),
+                );
                 (
                     "custom",
                     "external-custom-runner",
                     vec!["num-deploy.json", "num.toml", "modules/", "RUNBOOK.md"],
+                    validation,
                 )
             }
         };
+        let warnings = validation.messages();
 
         Self {
             class: class.to_string(),
             execution: execution.to_string(),
             required_artifacts: required_artifacts.into_iter().map(str::to_string).collect(),
+            validation,
             warnings,
         }
     }
@@ -446,7 +503,83 @@ impl DeploymentTargetProfile {
             "class": self.class,
             "execution": self.execution,
             "required_artifacts": self.required_artifacts,
+            "validation": self.validation.to_json(),
             "warnings": self.warnings,
+        })
+    }
+}
+
+impl DeploymentTargetValidation {
+    fn new(
+        required: Vec<DeploymentTargetField>,
+        recommended: Vec<DeploymentTargetField>,
+        boundary: Option<String>,
+    ) -> Self {
+        let errors = required
+            .iter()
+            .filter(|field| !field.present)
+            .map(|field| format!("{} is required: {}", field.name, field.description))
+            .collect::<Vec<_>>();
+        let warnings = recommended
+            .iter()
+            .filter(|field| !field.present)
+            .map(|field| format!("{} is recommended: {}", field.name, field.description))
+            .collect::<Vec<_>>();
+        let status = if !errors.is_empty() {
+            "missing-required"
+        } else if !warnings.is_empty() {
+            "missing-recommended"
+        } else if boundary.is_some() {
+            "custom-boundary"
+        } else {
+            "ready"
+        };
+
+        Self {
+            status: status.to_string(),
+            required,
+            recommended,
+            errors,
+            warnings,
+            boundary,
+        }
+    }
+
+    fn messages(&self) -> Vec<String> {
+        self.errors
+            .iter()
+            .chain(self.warnings.iter())
+            .cloned()
+            .chain(self.boundary.iter().cloned())
+            .collect()
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "status": self.status,
+            "required": self.required.iter().map(DeploymentTargetField::to_json).collect::<Vec<_>>(),
+            "recommended": self.recommended.iter().map(DeploymentTargetField::to_json).collect::<Vec<_>>(),
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "boundary": self.boundary,
+        })
+    }
+}
+
+impl DeploymentTargetField {
+    fn new(name: &str, present: bool, description: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            present,
+            description: description.to_string(),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "name": self.name,
+            "present": self.present,
+            "description": self.description,
         })
     }
 }
@@ -962,15 +1095,47 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
         "Execution: `{}`\n\n",
         plan.target_profile.execution
     ));
+    out.push_str(&format!(
+        "Validation: `{}`\n\n",
+        plan.target_profile.validation.status
+    ));
     out.push_str("Required artifacts:\n\n");
     for artifact in &plan.target_profile.required_artifacts {
         out.push_str(&format!("- `{artifact}`\n"));
     }
     out.push('\n');
-    if !plan.target_profile.warnings.is_empty() {
+    if !plan.target_profile.validation.required.is_empty() {
+        out.push_str("Required target fields:\n\n");
+        for field in &plan.target_profile.validation.required {
+            let status = if field.present { "present" } else { "missing" };
+            out.push_str(&format!("- `{}` - {status}\n", field.name));
+        }
+        out.push('\n');
+    }
+    if !plan.target_profile.validation.recommended.is_empty() {
+        out.push_str("Recommended target fields:\n\n");
+        for field in &plan.target_profile.validation.recommended {
+            let status = if field.present { "present" } else { "missing" };
+            out.push_str(&format!("- `{}` - {status}\n", field.name));
+        }
+        out.push('\n');
+    }
+    if !plan.target_profile.validation.errors.is_empty() {
+        out.push_str("Validation errors:\n\n");
+        for error in &plan.target_profile.validation.errors {
+            out.push_str(&format!("- {error}\n"));
+        }
+        out.push('\n');
+    }
+    if !plan.target_profile.validation.warnings.is_empty()
+        || plan.target_profile.validation.boundary.is_some()
+    {
         out.push_str("Warnings:\n\n");
-        for warning in &plan.target_profile.warnings {
+        for warning in &plan.target_profile.validation.warnings {
             out.push_str(&format!("- {warning}\n"));
+        }
+        if let Some(boundary) = &plan.target_profile.validation.boundary {
+            out.push_str(&format!("- {boundary}\n"));
         }
         out.push('\n');
     }
@@ -1120,6 +1285,7 @@ service BillingApi {
             .target_profile
             .required_artifacts
             .contains(&"deploy/compose.yaml".to_string()));
+        assert_eq!(plan.target_profile.validation.status, "ready");
         assert!(plan.target_profile.warnings.is_empty());
         assert_eq!(plan.runtime.workflow_store, "file:.num-state");
         assert_eq!(
@@ -1151,9 +1317,9 @@ service BillingApi {
     }
 
     #[test]
-    fn deployment_plan_warns_for_incomplete_cloud_target_profile() {
+    fn deployment_plan_reports_target_validation() {
         let root = Path::new("/workspace/app");
-        let manifest = PackageManifest::parse(
+        let cloud_manifest = PackageManifest::parse(
             root,
             &root.join("num.toml"),
             r#"
@@ -1167,21 +1333,94 @@ target = "cloud"
         );
         let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
 
-        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let cloud_plan = build_deployment_plan(&cloud_manifest, &compilation.module, 1);
 
-        assert_eq!(plan.target_profile.class, "cloud");
-        assert_eq!(plan.target_profile.execution, "external-cloud-deployer");
-        assert!(plan
+        assert_eq!(cloud_plan.target_profile.class, "cloud");
+        assert_eq!(
+            cloud_plan.target_profile.execution,
+            "external-cloud-deployer"
+        );
+        assert_eq!(
+            cloud_plan.target_profile.validation.status,
+            "missing-required"
+        );
+        assert_eq!(cloud_plan.target_profile.validation.errors.len(), 2);
+        assert!(cloud_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("[deployment].service")));
+        assert!(cloud_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("[deployment].region")));
+        assert!(cloud_plan
             .target_profile
             .warnings
             .iter()
             .any(|warning| warning.contains("[deployment].service")));
-        assert!(plan
+        assert_eq!(
+            cloud_plan.to_json()["deployment"]["profile"]["validation"]["status"],
+            "missing-required"
+        );
+        assert!(cloud_plan
+            .render_text()
+            .contains("Deployment validation errors"));
+
+        let container_manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "container"
+"#,
+        );
+        let container_plan = build_deployment_plan(&container_manifest, &compilation.module, 1);
+        assert_eq!(
+            container_plan.target_profile.validation.status,
+            "missing-recommended"
+        );
+        assert_eq!(container_plan.target_profile.validation.errors.len(), 0);
+        assert!(container_plan
             .target_profile
+            .validation
             .warnings
             .iter()
-            .any(|warning| warning.contains("[deployment].region")));
-        assert!(plan.render_text().contains("Deployment warnings"));
+            .any(|warning| warning.contains("[deployment].service")));
+        assert!(container_plan.render_text().contains("Deployment warnings"));
+
+        let custom_manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "edge-custom"
+"#,
+        );
+        let custom_plan = build_deployment_plan(&custom_manifest, &compilation.module, 1);
+        assert_eq!(custom_plan.target_profile.class, "custom");
+        assert_eq!(
+            custom_plan.target_profile.validation.status,
+            "custom-boundary"
+        );
+        assert!(custom_plan
+            .target_profile
+            .validation
+            .boundary
+            .as_deref()
+            .unwrap()
+            .contains("custom runner"));
     }
 
     #[test]
@@ -1303,6 +1542,9 @@ artifact = "dist/num-deploy.json"
         assert!(fs::read_to_string(&report.metadata_path)
             .unwrap()
             .contains("\"target_profile\""));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"validation\""));
         assert!(fs::read_to_string(&report.metadata_path)
             .unwrap()
             .contains("\"environment\""));
@@ -1435,6 +1677,8 @@ service BillingApi {
             .target_profile
             .required_artifacts
             .contains(&"deploy/kubernetes.yaml".to_string()));
+        assert_eq!(plan.target_profile.validation.status, "ready");
+        assert!(plan.target_profile.validation.errors.is_empty());
 
         let report = materialize_deployment_artifact(
             &plan,
