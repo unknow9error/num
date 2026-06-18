@@ -18,6 +18,9 @@
 
 ### Patch
 
+- Added a versioned `num.cost_dashboard.v1` JSON read model for
+  `num cost-report --json`, including stable cost dashboard totals, raw entries,
+  time-window fields, and documented conditional dimensions.
 - Added deterministic SQL composite primary-key finder methods and in-memory
   database lookup support for `num import sql` generated contracts.
 - Preserved SQL inline and table-level foreign-key relationships as generated

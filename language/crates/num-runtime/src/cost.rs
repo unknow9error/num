@@ -5,6 +5,29 @@ use std::collections::BTreeMap;
 pub struct CostEntry {
     pub action: String,
     pub amount: Money,
+    pub dimensions: CostDimensions,
+    pub recorded_at_unix_ms: Option<i128>,
+}
+
+impl CostEntry {
+    pub fn action_charge(action: impl Into<String>, amount: Money) -> Self {
+        Self {
+            action: action.into(),
+            amount,
+            dimensions: CostDimensions::default(),
+            recorded_at_unix_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CostDimensions {
+    pub connector: Option<String>,
+    pub model: Option<String>,
+    pub workflow: Option<String>,
+    pub route: Option<String>,
+    pub actor: Option<String>,
+    pub tenant: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -82,10 +105,7 @@ impl CostLedger {
         self.check_budget_scopes(&amount.currency, next)?;
 
         self.spent.insert(amount.currency.clone(), next);
-        self.entries.push(CostEntry {
-            action: action.into(),
-            amount,
-        });
+        self.entries.push(CostEntry::action_charge(action, amount));
         Ok(())
     }
 
