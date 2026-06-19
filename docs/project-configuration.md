@@ -369,15 +369,18 @@ compiled workflows, actions, service routes, connectors, dependencies, runtime
 metadata, environment validation metadata, target profile metadata, deployment
 warnings, and security metadata. Target profiles classify `local`,
 `container`/`docker`/`oci`, `kubernetes`/`k8s`,
-`cloud`/`aws`/`gcp`/`azure`, and custom targets, then record the expected
-external execution boundary, required artifacts, and target-specific validation
-result. Container targets recommend `[deployment].service`; Kubernetes and cloud
-targets require `[deployment].service` and `[deployment].region`; custom targets
-record that execution needs a custom runner. `num deploy --apply` also
-materializes a local/CI deployment bundle. By default, the bundle directory is
-derived from `artifact` by removing the file extension; `--dir <artifact-dir>`
-overrides that path, and `--replace` allows an existing bundle directory to be
-overwritten.
+`cloud`/`aws`/`gcp`/`azure`, `bare-metal`/`systemd`/`host`, and custom targets,
+then record the expected external execution boundary, required artifacts, and
+target-specific validation result. Container targets recommend
+`[deployment].service`; Kubernetes and cloud targets require
+`[deployment].service` and `[deployment].region`; bare-metal targets require
+`[deployment].service`, recommend `[deployment].region` as a host inventory
+label, and generate `deploy/num.service` plus `deploy/num.env` as runbook
+artifacts. Custom targets record that execution needs a custom runner.
+`num deploy --apply` also materializes a local/CI deployment bundle. By default,
+the bundle directory is derived from `artifact` by removing the file extension;
+`--dir <artifact-dir>` overrides that path, and `--replace` allows an existing
+bundle directory to be overwritten.
 
 ## Current Boundary
 
@@ -407,8 +410,8 @@ Implemented:
   graphs, including content-hash pins for resolved local-registry packages;
 - deployment plan generation and local/CI deployment bundle materialization
   through `num deploy --apply`;
-- container and Kubernetes deploy scaffolds generated inside deployment bundles
-  for compatible `[deployment].target` values;
+- container, Kubernetes, and bare-metal deploy scaffolds generated inside
+  deployment bundles for compatible `[deployment].target` values;
 - deployment target profile classification plus target-specific validation
   status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
@@ -422,4 +425,5 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- image publishing, cluster credential management, and cloud rollout execution.
+- image publishing, cluster credential management, SSH/host provisioning,
+  `systemctl` execution, and cloud rollout execution.

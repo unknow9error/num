@@ -694,8 +694,10 @@ args, cwd, and timeout metadata for future deployment runners.
 Target validation records required and recommended `[deployment]` fields for
 the selected target. `container` targets recommend `service`; `kubernetes`/`k8s`
 and `cloud`/`aws`/`gcp`/`azure` targets require both `service` and `region`.
-Custom targets stay valid as custom handoff plans, but their profile records the
-explicit external runner boundary.
+`bare-metal`/`systemd` targets require `service`, recommend `region` as a host
+inventory label, and record that host provisioning remains an external operator
+step. Custom targets stay valid as custom handoff plans, but their profile
+records the explicit external runner boundary.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
@@ -716,14 +718,19 @@ and `oci`, the bundle also includes `deploy/Dockerfile` and
 `num serve . 0.0.0.0:4000 <service>` when `[deployment].service` is set, or
 `num run . --json` for workflow-only artifacts. For `kubernetes`/`k8s` targets,
 the bundle includes `deploy/Dockerfile` and `deploy/kubernetes.yaml` with a
-deployment/service scaffold.
+deployment/service scaffold. For `bare-metal`, `baremetal`, `systemd`, or
+`host` targets, the bundle includes `deploy/num.service` and `deploy/num.env`:
+the service unit is a systemd-style draft, and the environment file template
+lists `NUM_DEPLOY_PLAN`, runtime store expectations, and required/optional
+manifest environment variables without secret values.
 
 The default bundle directory is derived from `[deployment].artifact` by removing
 the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
 `--replace` to overwrite them. This is deployment artifact materialization plus
-runtime scaffolding; image publishing, cluster credentials, and cloud rollout
-execution remain external deployment steps.
+runtime scaffolding; image publishing, cluster credentials, SSH access, host
+package installation, `systemctl` execution, and cloud rollout execution remain
+external deployment steps.
 
 ### `compat`
 
