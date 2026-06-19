@@ -18,6 +18,9 @@
   stable JSON output suitable for CI artifacts.
 - Added opt-in `num bench --compare <baseline.json>` regression gates with
   percentage and absolute parse/check timing thresholds for CI.
+- Added bare-metal deployment bundles with a systemd-style service unit draft,
+  host environment template, runtime store expectations, and operator runbook
+  warnings.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 

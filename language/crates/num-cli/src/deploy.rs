@@ -471,6 +471,38 @@ impl DeploymentTargetProfile {
                     validation,
                 )
             }
+            "bare-metal" | "baremetal" | "systemd" | "host" => {
+                let validation = DeploymentTargetValidation::new(
+                    vec![DeploymentTargetField::new(
+                        "[deployment].service",
+                        service.is_some(),
+                        "service route entrypoint for the generated systemd unit",
+                    )],
+                    vec![DeploymentTargetField::new(
+                        "[deployment].region",
+                        region.is_some(),
+                        "host group, datacenter, or inventory label for operator handoff",
+                    )],
+                    Some(
+                        "bare-metal bundles are runbook artifacts only; SSH provisioning, package installation, and systemctl execution stay external"
+                            .to_string(),
+                    ),
+                );
+                (
+                    "host",
+                    "external-systemd-operator",
+                    vec![
+                        "num-deploy.json",
+                        "num.toml",
+                        "modules/",
+                        "src/",
+                        "RUNBOOK.md",
+                        "deploy/num.service",
+                        "deploy/num.env",
+                    ],
+                    validation,
+                )
+            }
             _ => {
                 let validation = DeploymentTargetValidation::new(
                     vec![],
@@ -487,7 +519,10 @@ impl DeploymentTargetProfile {
                 )
             }
         };
-        let warnings = validation.messages();
+        let mut warnings = validation.messages();
+        if class == "host" {
+            warnings.extend(bare_metal_external_service_warnings(manifest));
+        }
 
         Self {
             class: class.to_string(),
@@ -582,6 +617,73 @@ impl DeploymentTargetField {
             "description": self.description,
         })
     }
+}
+
+fn bare_metal_external_service_warnings(manifest: &PackageManifest) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !manifest.connectors.is_empty() {
+        let methods = manifest
+            .connectors
+            .iter()
+            .map(|connector| connector.method.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "bare-metal bundle includes process connectors [{methods}]; install their binaries, working directories, network access, and credentials on each host"
+        ));
+    }
+    if !manifest.runtime.workflow_store.starts_with("file:")
+        && manifest.runtime.workflow_store != "memory"
+    {
+        warnings.push(format!(
+            "bare-metal workflow_store `{}` may require an external service; document and provision it outside this bundle",
+            sanitize_warning_value(&manifest.runtime.workflow_store)
+        ));
+    }
+    if !manifest.runtime.audit_store.starts_with("file:")
+        && manifest.runtime.audit_store != "stdout"
+    {
+        warnings.push(format!(
+            "bare-metal audit_store `{}` may require an external service; document and provision it outside this bundle",
+            sanitize_warning_value(&manifest.runtime.audit_store)
+        ));
+    }
+    let secret_like_vars = manifest
+        .environment
+        .required
+        .iter()
+        .chain(manifest.environment.optional.iter())
+        .filter(|name| is_secret_service_env_name(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !secret_like_vars.is_empty() {
+        warnings.push(format!(
+            "bare-metal environment variables [{}] look secret-store or key-provider related; fill deploy/num.env on the host without committing values",
+            secret_like_vars.join(", ")
+        ));
+    }
+    warnings
+}
+
+fn sanitize_warning_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            ch if ch.is_control() => ' ',
+            ch => ch,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_secret_service_env_name(name: &str) -> bool {
+    let normalized = name.to_ascii_uppercase();
+    ["SECRET", "VAULT", "KMS", "TOKEN", "KEY"]
+        .iter()
+        .any(|needle| normalized.contains(needle))
 }
 
 impl DeploymentEnvironment {
@@ -974,6 +1076,25 @@ fn materialize_runtime_artifacts(
             )?;
             artifacts.push(relative_to(&kubernetes, artifact_root)?);
         }
+        "host" => {
+            let service = artifact_root.join("deploy/num.service");
+            write_text(
+                &service,
+                &render_systemd_service(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&service, artifact_root)?);
+
+            let environment = artifact_root.join("deploy/num.env");
+            write_text(
+                &environment,
+                &render_systemd_environment(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&environment, artifact_root)?);
+        }
         _ => {}
     }
     Ok(artifacts)
@@ -1015,6 +1136,59 @@ fn render_kubernetes_manifest(plan: &DeploymentPlan) -> String {
     )
 }
 
+fn render_systemd_service(plan: &DeploymentPlan) -> String {
+    let command = runtime_command(plan).join(" ");
+    format!(
+        "# Generated by num deploy. Review paths, user, and environment before installing.\n\
+[Unit]\n\
+Description=Num service for {package}\n\
+After=network-online.target\n\
+Wants=network-online.target\n\
+\n\
+[Service]\n\
+Type=simple\n\
+WorkingDirectory=/opt/num/{package}\n\
+EnvironmentFile=/etc/num/{package}.env\n\
+Environment=NUM_DEPLOY_PLAN=/opt/num/{package}/num-deploy.json\n\
+ExecStart=/usr/bin/env {command}\n\
+Restart=on-failure\n\
+RestartSec=5s\n\
+NoNewPrivileges=true\n\
+PrivateTmp=true\n\
+\n\
+[Install]\n\
+WantedBy=multi-user.target\n",
+        package = systemd_identifier(&plan.package_name),
+        command = command
+    )
+}
+
+fn render_systemd_environment(plan: &DeploymentPlan) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "# Generated by num deploy. Fill values on the target host; do not commit secrets.\n",
+    );
+    out.push_str(&format!(
+        "NUM_DEPLOY_PLAN=/opt/num/{}/num-deploy.json\n",
+        systemd_identifier(&plan.package_name)
+    ));
+    out.push_str(&format!(
+        "NUM_WORKFLOW_STORE={}\n",
+        shell_env_value(&plan.runtime.workflow_store)
+    ));
+    out.push_str(&format!(
+        "NUM_AUDIT_STORE={}\n",
+        shell_env_value(&plan.runtime.audit_store)
+    ));
+    for variable in &plan.environment.required {
+        out.push_str(&format!("{}=\n", variable.name));
+    }
+    for variable in &plan.environment.optional {
+        out.push_str(&format!("# {}=\n", variable.name));
+    }
+    out
+}
+
 fn runtime_command(plan: &DeploymentPlan) -> Vec<String> {
     if let Some(service) = &plan.service {
         vec![
@@ -1032,6 +1206,38 @@ fn runtime_command(plan: &DeploymentPlan) -> Vec<String> {
             "--json".to_string(),
         ]
     }
+}
+
+fn systemd_identifier(name: &str) -> String {
+    let mut out = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while out.contains("--") {
+        out = out.replace("--", "-");
+    }
+    out = out.trim_matches('-').to_string();
+    if out.is_empty() {
+        "num-app".to_string()
+    } else {
+        out
+    }
+}
+
+fn shell_env_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\n' | '\r' | '\0' => '_',
+            ch => ch,
+        })
+        .collect()
 }
 
 fn runtime_image_name(plan: &DeploymentPlan) -> String {
@@ -1189,10 +1395,37 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
                 "- `deploy/kubernetes.yaml` provides a deployment and service scaffold\n\n",
             );
         }
+        "host" => {
+            out.push_str("## Bare-Metal Runtime\n\n");
+            out.push_str("- `deploy/num.service` is a systemd-style service unit draft\n");
+            out.push_str(
+                "- `deploy/num.env` is an environment file template for host-local values\n",
+            );
+            out.push_str("- install the artifact under `/opt/num/<package>` or edit the generated paths before running `systemctl`\n\n");
+            out.push_str("Runtime stores:\n\n");
+            out.push_str(&format!(
+                "- workflow store: `{}`\n",
+                plan.runtime.workflow_store
+            ));
+            out.push_str(&format!(
+                "- audit store: `{}`\n\n",
+                plan.runtime.audit_store
+            ));
+            if !plan.process_connector_bindings.is_empty() {
+                out.push_str("Process connector host requirements:\n\n");
+                for connector in &plan.process_connector_bindings {
+                    out.push_str(&format!(
+                        "- `{}` uses command `{}`; install command dependencies, cwd, network access, and credentials on each host\n",
+                        connector.method, connector.command
+                    ));
+                }
+                out.push('\n');
+            }
+        }
         _ => {}
     }
     out.push_str("## Operations Boundary\n\n");
-    out.push_str("This bundle is a reproducible local/CI deployment artifact with generated runtime scaffolding for supported targets. Production image publishing, cluster credentials, and cloud rollout execution stay outside the artifact boundary.\n");
+    out.push_str("This bundle is a reproducible local/CI deployment artifact with generated runtime scaffolding for supported targets. Production image publishing, cluster credentials, host provisioning, SSH access, package installation, systemctl execution, and cloud rollout execution stay outside the artifact boundary.\n");
     out
 }
 
@@ -1704,6 +1937,129 @@ service BillingApi {
         assert!(fs::read_to_string(&report.runbook_path)
             .unwrap()
             .contains("## Kubernetes Runtime"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materializes_bare_metal_runbook_bundle() {
+        let root = temp_dir("bundle_bare_metal_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.3.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing-api"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "file:.num-state"
+audit_store = "file:audit/events.jsonl"
+
+[environment]
+required = ["VAULT_TOKEN"]
+optional = ["PAYMENTS_URL"]
+
+[deployment]
+target = "bare-metal"
+service = "BillingApi"
+region = "rack-a"
+
+[connectors]
+"payments.find" = { command = "node", args = "connectors/payments-find.js", cwd = "ops", timeout_ms = "2000" }
+"#,
+        )
+        .unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: r#"module app.main
+
+permission IssueRefund
+
+connector payments {
+    find(id: Text) -> Text
+}
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit("refund")
+    }
+}
+"#
+            .to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        assert_eq!(plan.target_profile.class, "host");
+        assert_eq!(plan.target_profile.execution, "external-systemd-operator");
+        assert_eq!(plan.target_profile.validation.status, "custom-boundary");
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/num.service".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/num.env".to_string()));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("process connectors [payments.find]")));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("VAULT_TOKEN")));
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.runtime_artifacts,
+            vec![
+                "deploy/num.service".to_string(),
+                "deploy/num.env".to_string()
+            ]
+        );
+        assert_eq!(report.files.len(), 8);
+        let service = fs::read_to_string(artifact_root.join("deploy/num.service")).unwrap();
+        assert!(service.contains("Description=Num service for billing-api"));
+        assert!(service.contains("WorkingDirectory=/opt/num/billing-api"));
+        assert!(service.contains("EnvironmentFile=/etc/num/billing-api.env"));
+        assert!(service.contains("ExecStart=/usr/bin/env num serve . 0.0.0.0:4000 BillingApi"));
+
+        let env_file = fs::read_to_string(artifact_root.join("deploy/num.env")).unwrap();
+        assert!(env_file.contains("NUM_DEPLOY_PLAN=/opt/num/billing-api/num-deploy.json"));
+        assert!(env_file.contains("NUM_WORKFLOW_STORE=file:.num-state"));
+        assert!(env_file.contains("NUM_AUDIT_STORE=file:audit/events.jsonl"));
+        assert!(env_file.contains("VAULT_TOKEN=\n"));
+        assert!(env_file.contains("# PAYMENTS_URL=\n"));
+
+        let runbook = fs::read_to_string(&report.runbook_path).unwrap();
+        assert!(runbook.contains("## Bare-Metal Runtime"));
+        assert!(runbook.contains("workflow store: `file:.num-state`"));
+        assert!(runbook.contains("audit store: `file:audit/events.jsonl`"));
+        assert!(runbook.contains("Process connector host requirements"));
+        assert!(runbook.contains("SSH access"));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"external-systemd-operator\""));
 
         fs::remove_dir_all(root).unwrap();
     }
