@@ -476,8 +476,10 @@ Implemented:
   `components.schemas`, `paths`, operation parameters, JSON request bodies,
   JSON success response schemas, security scheme/requirement preservation
   comments, review-required permission candidates, review-required policy
-  placeholder comments for security/private-field hints, and unsupported
-  callback/link preservation comments.
+  placeholder comments for security/private-field hints, review-required
+  pagination convention metadata comments for simple limit/offset, page/pageSize,
+  cursor, and next-link response hints, and unsupported callback/link
+  preservation comments.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
   columns, common scalar types, nullable columns, inline primary keys, table
   types, single-column and composite table-level primary keys, basic
@@ -501,7 +503,7 @@ Not yet implemented:
   termination;
 - full OpenAPI coverage such as executable authentication bindings,
   automatically correct production policies, `allOf`/`oneOf`, executable
-  callbacks/links, and generated runtime clients.
+  paginated clients, executable callbacks/links, and generated runtime clients.
 - full SQL/database import coverage such as executable foreign-key relation
   loading, indexes, migrations, dialect-specific features, and generated runtime
   clients.

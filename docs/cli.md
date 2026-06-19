@@ -923,14 +923,20 @@ The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
   tenant, customer, session, or password. These placeholders do not grant access
   or claim correctness; review and edit them before wiring roles, routes, or
   policy allow rules;
+- simple pagination conventions are preserved as review-required connector
+  comments when the importer sees `limit`/`offset`, `page` plus `pageSize`-like
+  parameters, cursor-like parameters, or JSON response fields such as `next`,
+  `next_cursor`, `nextPageToken`, `next_url`, or `hasNextPage`;
 - operation callbacks and response links are preserved as generated comments
   that name the unsupported metadata and source operation;
 - scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, and `List<T>`.
 
-Executable authentication bindings, `allOf`/`oneOf` composition, pagination
-conventions, executable callbacks/links, generated runtime clients, and
-automatically correct production policies are not implemented yet. Unsupported
-security schemes are emitted as comments rather than silently dropped.
+Executable authentication bindings, `allOf`/`oneOf` composition, executable
+paginated clients, executable callbacks/links, generated runtime clients, and
+automatically correct production policies are not implemented yet. Pagination
+comments are review metadata only: edit generated connector wrappers, policies,
+and runtime code before relying on them in production. Unsupported security
+schemes are emitted as comments rather than silently dropped.
 
 ### `import sql`
 

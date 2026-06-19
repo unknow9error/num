@@ -85,6 +85,11 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
             out.push_str(placeholder);
             out.push('\n');
         }
+        for pagination in &operation.pagination_metadata {
+            out.push_str("    // ");
+            out.push_str(&pagination.comment());
+            out.push('\n');
+        }
         for metadata in &operation.unsupported_metadata {
             out.push_str("    // ");
             out.push_str(&metadata.comment());
@@ -117,6 +122,7 @@ struct Operation {
     result: String,
     permission: OpenApiPermissionScaffold,
     policy_placeholders: Vec<String>,
+    pagination_metadata: Vec<OpenApiPaginationMetadata>,
     unsupported_metadata: Vec<UnsupportedOpenApiMetadata>,
 }
 
@@ -130,6 +136,13 @@ struct OperationParam {
 struct OpenApiPermissionScaffold {
     name: String,
     source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenApiPaginationMetadata {
+    operation: String,
+    style: String,
+    hints: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,12 +245,6 @@ fn operations(document: &Value) -> Vec<Operation> {
             let tags = operation_tags(operation);
             let permission = operation_permission_scaffold(operation, method, path, &name, &tags);
             operations.push(Operation {
-                unsupported_metadata: unsupported_operation_metadata(
-                    operation,
-                    &name,
-                    global_security,
-                ),
-                name,
                 policy_placeholders: operation_policy_placeholders(
                     operation,
                     method,
@@ -246,6 +253,13 @@ fn operations(document: &Value) -> Vec<Operation> {
                     document,
                     global_security,
                 ),
+                pagination_metadata: operation_pagination_metadata(operation, &name, document),
+                unsupported_metadata: unsupported_operation_metadata(
+                    operation,
+                    &name,
+                    global_security,
+                ),
+                name,
                 permission,
                 params: operation_params(operation),
                 result: operation_result(operation),
@@ -359,6 +373,182 @@ impl UnsupportedOpenApiMetadata {
             ),
         }
     }
+}
+
+impl OpenApiPaginationMetadata {
+    fn comment(&self) -> String {
+        format!(
+            "OpenAPI review-required pagination metadata for operation `{}`: {} pagination hints [{}]; generated connector is not an executable paginated client yet",
+            self.operation,
+            self.style,
+            self.hints.join(", ")
+        )
+    }
+}
+
+fn operation_pagination_metadata(
+    operation: &Value,
+    operation_name: &str,
+    document: &Value,
+) -> Vec<OpenApiPaginationMetadata> {
+    let mut parameter_names = BTreeSet::new();
+    if let Some(parameters) = operation.get("parameters").and_then(Value::as_array) {
+        for parameter in parameters {
+            if let Some(name) = parameter.get("name").and_then(Value::as_str) {
+                parameter_names.insert(name.to_ascii_lowercase());
+            }
+        }
+    }
+
+    let mut metadata = Vec::new();
+    let mut offset_hints = Vec::new();
+    for name in ["limit", "offset"] {
+        if parameter_names.contains(name) {
+            offset_hints.push(format!("parameter:{name}"));
+        }
+    }
+    if !offset_hints.is_empty() && parameter_names.contains("limit") {
+        metadata.push(OpenApiPaginationMetadata {
+            operation: operation_name.to_string(),
+            style: "limit/offset".to_string(),
+            hints: offset_hints,
+        });
+    }
+
+    let mut page_hints = Vec::new();
+    for name in ["page", "page_size", "pagesize", "per_page", "perpage"] {
+        if parameter_names.contains(name) {
+            page_hints.push(format!("parameter:{name}"));
+        }
+    }
+    if page_hints.iter().any(|hint| hint == "parameter:page") && page_hints.len() > 1 {
+        metadata.push(OpenApiPaginationMetadata {
+            operation: operation_name.to_string(),
+            style: "page/pageSize".to_string(),
+            hints: page_hints,
+        });
+    }
+
+    let mut cursor_hints = Vec::new();
+    for name in [
+        "cursor",
+        "after",
+        "before",
+        "starting_after",
+        "ending_before",
+    ] {
+        if parameter_names.contains(name) {
+            cursor_hints.push(format!("parameter:{name}"));
+        }
+    }
+    let mut response_hints = BTreeSet::new();
+    collect_pagination_response_hints(operation, document, &mut response_hints);
+    for hint in &response_hints {
+        if is_cursor_response_hint(hint) {
+            cursor_hints.push(hint.clone());
+        }
+    }
+    if !cursor_hints.is_empty() {
+        metadata.push(OpenApiPaginationMetadata {
+            operation: operation_name.to_string(),
+            style: "cursor/next-link".to_string(),
+            hints: cursor_hints,
+        });
+    } else if !response_hints.is_empty() {
+        metadata.push(OpenApiPaginationMetadata {
+            operation: operation_name.to_string(),
+            style: "response next-link".to_string(),
+            hints: response_hints.into_iter().collect(),
+        });
+    }
+
+    metadata
+}
+
+fn collect_pagination_response_hints(
+    operation: &Value,
+    document: &Value,
+    hints: &mut BTreeSet<String>,
+) {
+    let Some(responses) = operation.get("responses").and_then(Value::as_object) else {
+        return;
+    };
+    for (code, response) in responses {
+        collect_pagination_schema_hints(
+            response.pointer("/content/application~1json/schema"),
+            &format!("response {code}"),
+            document,
+            hints,
+        );
+    }
+}
+
+fn collect_pagination_schema_hints(
+    schema: Option<&Value>,
+    context: &str,
+    document: &Value,
+    hints: &mut BTreeSet<String>,
+) {
+    let Some(schema) = schema else {
+        return;
+    };
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        if let Some(resolved) = resolve_local_ref(document, reference) {
+            collect_pagination_schema_hints(Some(resolved), context, document, hints);
+        }
+    }
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (field, schema) in properties {
+            if is_pagination_response_field(field) {
+                hints.insert(format!(
+                    "{}:{}",
+                    sanitize_comment_text(context),
+                    sanitize_comment_text(field)
+                ));
+            }
+            collect_pagination_schema_hints(Some(schema), field, document, hints);
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        collect_pagination_schema_hints(Some(items), context, document, hints);
+    }
+    for key in ["allOf", "oneOf", "anyOf"] {
+        if let Some(items) = schema.get(key).and_then(Value::as_array) {
+            for item in items {
+                collect_pagination_schema_hints(Some(item), context, document, hints);
+            }
+        }
+    }
+}
+
+fn is_pagination_response_field(name: &str) -> bool {
+    let normalized = normalize_pagination_name(name);
+    matches!(
+        normalized.as_str(),
+        "next"
+            | "nextlink"
+            | "nexturl"
+            | "nextpage"
+            | "nextpageurl"
+            | "nextpagetoken"
+            | "nexttoken"
+            | "nextcursor"
+            | "cursor"
+            | "endcursor"
+            | "hasnextpage"
+    )
+}
+
+fn is_cursor_response_hint(hint: &str) -> bool {
+    let normalized = normalize_pagination_name(hint);
+    normalized.contains("cursor") || normalized.contains("token") || normalized.contains("next")
+}
+
+fn normalize_pagination_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 impl OpenApiSecuritySchemeMetadata {
@@ -1289,6 +1479,42 @@ paths:
         assert!(rendered.contains(
             "update_customer(customer_id: Text, body: UpdateCustomerRequest) -> CustomerProfile"
         ));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_review_required_offset_pagination_metadata() {
+        let document: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/openapi/offset_pagination.json"
+        ))
+        .unwrap();
+        let expected = include_str!("../tests/fixtures/openapi/offset_pagination.expected.num");
+
+        let rendered = render_openapi_connector(&document, Some("generated.catalog"));
+
+        assert_eq!(rendered, expected);
+        assert!(
+            rendered.contains("limit/offset pagination hints [parameter:limit, parameter:offset]")
+        );
+        assert!(rendered.contains("generated connector is not an executable paginated client yet"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_review_required_cursor_pagination_metadata() {
+        let document: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/openapi/cursor_pagination.json"
+        ))
+        .unwrap();
+        let expected = include_str!("../tests/fixtures/openapi/cursor_pagination.expected.num");
+
+        let rendered = render_openapi_connector(&document, Some("generated.catalog"));
+
+        assert_eq!(rendered, expected);
+        assert!(rendered.contains(
+            "cursor/next-link pagination hints [parameter:cursor, response 200:next_cursor]"
+        ));
+        assert!(rendered.contains("generated connector is not an executable paginated client yet"));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());
     }
 }
