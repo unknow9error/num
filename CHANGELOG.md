@@ -23,6 +23,9 @@
 
 ### Patch
 
+- Preserved simple OpenAPI pagination conventions as review-required connector
+  metadata comments for limit/offset, page/pageSize, cursor, and next-link
+  response hints during `num import openapi` generation.
 - Added review-required OpenAPI import permission candidates and policy
   placeholders for generated connector operations with security or
   private-field hints.

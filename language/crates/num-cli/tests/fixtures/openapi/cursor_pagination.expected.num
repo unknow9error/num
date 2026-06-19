@@ -1,0 +1,26 @@
+module generated.catalog
+
+// OpenAPI review-required permission candidates. Generated names are scaffolding; review scopes before wiring them into roles or service routes.
+permission SearchItems
+// OpenAPI review-required policy scaffold for connector `catalogApi`:
+// policy OpenApiCatalogApiDataSharing {
+//     // Add narrow allow rules only after reviewing request/response fields and authentication requirements.
+//     // Example: allow private UserInput -> catalogApi.<method>
+// }
+
+type CatalogItem {
+    id: Text
+    name: Text
+}
+
+type CursorPage {
+    data: List<CatalogItem>
+    next_cursor: Text
+}
+
+connector catalogApi {
+    // OpenAPI review-required permission candidate `SearchItems` inferred from operationId; add it to roles/routes only after reviewing the imported operation
+    // OpenAPI review-required policy placeholder for `search_items`: no obvious private/auth fields were detected; still review data classification before allowing connector calls
+    // OpenAPI review-required pagination metadata for operation `search_items`: cursor/next-link pagination hints [parameter:cursor, response 200:next_cursor]; generated connector is not an executable paginated client yet
+    search_items(cursor: Text, pageSize: Int) -> CursorPage
+}
