@@ -16,6 +16,8 @@
   JavaScript consumers.
 - Added `num bench` for checked-in lexer/parser/checker benchmark fixtures with
   stable JSON output suitable for CI artifacts.
+- Added opt-in `num bench --compare <baseline.json>` regression gates with
+  percentage and absolute parse/check timing thresholds for CI.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 

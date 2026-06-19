@@ -173,6 +173,8 @@ Implemented:
 - `num migrate`
 - `num upgrade-version`
 - `num bench`
+- `num bench --compare <baseline.json>` opt-in parse/check regression gates
+  with percentage and absolute thresholds;
 - `num release-plan`
 - `num version`
 - `num registry publish`
