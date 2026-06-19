@@ -811,6 +811,7 @@ projects.
 num bench
 num bench --json
 num bench --iterations 10 --json
+num bench --compare bench-baseline.json --json
 num bench language/crates/num-cli/tests/fixtures/benchmarks/medium --json
 ```
 
@@ -818,10 +819,53 @@ Without an explicit path, the command uses the benchmark fixtures bundled with
 the CLI crate. A path may point at one fixture project, one `.num` file, or a
 directory containing fixture projects.
 
-The JSON output is intended for CI artifacts. It includes a stable
+The JSON output is intended for CI artifacts and baseline files. It includes a stable
 `schema_version`, the iteration count, fixture names, input sizes, diagnostic
 counts, and median `lex_nanos`, `parse_nanos`, and `check_nanos` timings. These
-numbers are observability data only; the command does not enforce timing gates.
+numbers are observability data only unless `--compare` is enabled.
+
+`--compare <baseline.json>` reads a prior `num bench --json` payload and adds a
+`comparison` block to JSON output, or a comparison table to text output. The
+command exits non-zero only when a parse or check timing exceeds both the
+percentage threshold and the absolute nanosecond threshold. This keeps tiny
+timing noise from breaking CI while still catching meaningful regressions.
+
+Supported threshold flags:
+
+```bash
+num bench \
+  --compare bench-baseline.json \
+  --max-parse-regression-pct 25 \
+  --max-check-regression-pct 25 \
+  --max-parse-regression-nanos 5000000 \
+  --max-check-regression-nanos 5000000 \
+  --json
+```
+
+The default thresholds are 25% and 5,000,000ns for parse and check phases. Lex
+timings remain informational because the regression gate is scoped to parser and
+checker cost.
+
+A CI job can keep the baseline as an uploaded artifact and opt into failure only
+for meaningful regressions:
+
+```yaml
+- name: Benchmark
+  run: num bench --iterations 10 --json > bench-current.json
+
+- name: Compare benchmark baseline
+  run: |
+    if [ -f bench-baseline.json ]; then
+      num bench --iterations 10 --compare bench-baseline.json --json > bench-comparison.json
+    fi
+
+- uses: actions/upload-artifact@v4
+  with:
+    name: num-benchmarks
+    path: |
+      bench-current.json
+      bench-comparison.json
+```
 
 ### `version`
 
