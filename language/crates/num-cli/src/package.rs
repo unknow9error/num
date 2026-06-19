@@ -20,6 +20,7 @@ pub struct PackageManifest {
     pub deployment: PackageDeployment,
     pub security: PackageSecurity,
     pub connectors: Vec<PackageConnectorProcess>,
+    pub javascript: Vec<PackageJavaScriptModule>,
     pub dependencies: Vec<PackageDependency>,
 }
 
@@ -90,6 +91,15 @@ pub struct PackageConnectorProcess {
     pub method: String,
     pub command: String,
     pub args: Vec<String>,
+    pub cwd: Option<String>,
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageJavaScriptModule {
+    pub method: String,
+    pub module: String,
+    pub export: String,
     pub cwd: Option<String>,
     pub timeout_ms: Option<u64>,
 }
@@ -191,6 +201,7 @@ impl PackageManifest {
         let mut policy_mode = None;
         let mut tenant_isolation = None;
         let mut connectors = Vec::new();
+        let mut javascript = Vec::new();
         let mut dependencies = Vec::new();
 
         for raw_line in source.lines() {
@@ -253,6 +264,11 @@ impl PackageManifest {
                         connectors.push(connector);
                     }
                 }
+                "javascript" => {
+                    if let Some(module) = parse_javascript_module(&key, value) {
+                        javascript.push(module);
+                    }
+                }
                 "security" => match key.as_str() {
                     "policy_mode" => policy_mode = parse_toml_string(value),
                     "tenant_isolation" => tenant_isolation = parse_toml_bool(value),
@@ -263,6 +279,7 @@ impl PackageManifest {
         }
 
         connectors.sort_by(|left, right| left.method.cmp(&right.method));
+        javascript.sort_by(|left, right| left.method.cmp(&right.method));
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
 
         Self {
@@ -307,6 +324,7 @@ impl PackageManifest {
                 tenant_isolation: tenant_isolation.unwrap_or(false),
             },
             connectors,
+            javascript,
             dependencies,
         }
     }
@@ -1003,6 +1021,27 @@ fn connector_from_parts(
     })
 }
 
+fn parse_javascript_module(method: &str, value: &str) -> Option<PackageJavaScriptModule> {
+    let fields = parse_inline_table(value)?;
+    let module = fields.get("module")?.clone();
+    if method.trim().is_empty() || module.trim().is_empty() {
+        return None;
+    }
+    let timeout_ms = fields
+        .get("timeout_ms")
+        .and_then(|value| value.parse::<u64>().ok());
+    Some(PackageJavaScriptModule {
+        method: method.to_string(),
+        module,
+        export: fields
+            .get("export")
+            .cloned()
+            .unwrap_or_else(|| "default".to_string()),
+        cwd: fields.get("cwd").cloned(),
+        timeout_ms,
+    })
+}
+
 fn parse_dependency(name: &str, value: &str) -> Option<PackageDependency> {
     if let Some(version) = parse_toml_string(value) {
         return Some(PackageDependency {
@@ -1407,6 +1446,34 @@ version = "0.1.0"
         );
         assert_eq!(manifest.connectors[1].cwd, Some("ops".to_string()));
         assert_eq!(manifest.connectors[1].timeout_ms, Some(1500));
+    }
+
+    #[test]
+    fn manifest_reads_javascript_modules() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[javascript]
+"risk.score" = { module = "interop/risk.cjs", export = "score", cwd = "ops", timeout_ms = "1500" }
+"profile.enrich" = { module = "interop/profile.cjs" }
+"#,
+        );
+
+        assert_eq!(manifest.javascript.len(), 2);
+        assert_eq!(manifest.javascript[0].method, "profile.enrich");
+        assert_eq!(manifest.javascript[0].module, "interop/profile.cjs");
+        assert_eq!(manifest.javascript[0].export, "default");
+        assert_eq!(manifest.javascript[1].method, "risk.score");
+        assert_eq!(manifest.javascript[1].module, "interop/risk.cjs");
+        assert_eq!(manifest.javascript[1].export, "score");
+        assert_eq!(manifest.javascript[1].cwd, Some("ops".to_string()));
+        assert_eq!(manifest.javascript[1].timeout_ms, Some(1500));
     }
 
     #[test]

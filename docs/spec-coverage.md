@@ -325,6 +325,10 @@ Implemented:
 - manifest-configured process connector execution for `num run`, `num test`,
   `num trace`, `num cost-report`, `num route`, `num serve`, and
   `num serve-once`;
+- manifest-configured JavaScript callable-module execution through
+  `[javascript]` bindings for local Node modules, reusing connector JSON value
+  conversion and connector egress context for actor, tenant, request id,
+  correlation id, policy marker, and argument labels;
 - direct process connector probing through `num connector probe`, without demo
   connector fallback;
 - manifest-configured process connector timeout budgets with runtime
@@ -488,6 +492,8 @@ Not yet implemented:
 - generated network-native runtime clients;
 - connector SDK targets beyond TypeScript declarations;
 - connector authentication/secrets;
+- full JavaScript runtime embedding, generated JS host SDKs, npm package
+  management, and network-native JS worker hosting;
 - generated database clients;
 - managed/network connector cancellation beyond local process timeout
   termination;

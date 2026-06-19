@@ -30,6 +30,7 @@ use num_runtime::{
     cost_report,
     debugger::{BreakpointSpec, DebugReport},
     http,
+    js_interop::{JavaScriptModuleConfig, JavaScriptModuleExecutor},
     process_connectors::{ProcessConnectorConfig, ProcessConnectorExecutor},
     service::ServiceRuntime,
     storage::FileStateStore,
@@ -707,11 +708,11 @@ fn connector_executor_for_path(
     let Some(manifest) = package::PackageManifest::discover(path)? else {
         return Ok(Arc::new(demo));
     };
-    if manifest.connectors.is_empty() {
+    if manifest.connectors.is_empty() && manifest.javascript.is_empty() {
         return Ok(Arc::new(demo));
     }
 
-    let configs = manifest
+    let process_configs = manifest
         .connectors
         .iter()
         .map(|connector| ProcessConnectorConfig {
@@ -728,11 +729,36 @@ fn connector_executor_for_path(
             timeout_ms: connector.timeout_ms,
         })
         .collect::<Vec<_>>();
-    let process = ProcessConnectorExecutor::new(configs);
-    Ok(Arc::new(ChainedConnectorExecutor::new(vec![
-        Box::new(process),
-        Box::new(demo),
-    ])))
+    let js_configs = manifest
+        .javascript
+        .iter()
+        .map(|module| JavaScriptModuleConfig {
+            method: module.method.clone(),
+            module: {
+                let path = manifest.root.join(&module.module);
+                path.canonicalize().unwrap_or(path)
+            },
+            export: module.export.clone(),
+            cwd: Some(
+                module
+                    .cwd
+                    .as_ref()
+                    .map(|cwd| manifest.root.join(cwd))
+                    .unwrap_or_else(|| manifest.root.clone()),
+            ),
+            timeout_ms: module.timeout_ms,
+        })
+        .collect::<Vec<_>>();
+
+    let mut executors: Vec<Box<dyn ConnectorExecutor>> = Vec::new();
+    if !js_configs.is_empty() {
+        executors.push(Box::new(JavaScriptModuleExecutor::new(js_configs)));
+    }
+    if !process_configs.is_empty() {
+        executors.push(Box::new(ProcessConnectorExecutor::new(process_configs)));
+    }
+    executors.push(Box::new(demo));
+    Ok(Arc::new(ChainedConnectorExecutor::new(executors)))
 }
 
 fn persist_interpreter_audits(
@@ -2071,6 +2097,55 @@ version = "0.1.0"
         let result = executor.call("echo.bool", &[]).unwrap().unwrap();
 
         assert_eq!(result, Value::Bool(true));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connector_executor_uses_manifest_javascript_module() {
+        let root = temp_cli_dir("javascript_module");
+        fs::create_dir_all(root.join("interop")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[javascript]
+"profile.enrich" = { module = "interop/profile.cjs", export = "enrich", timeout_ms = "1500" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("interop/profile.cjs"),
+            r#"
+exports.enrich = ({ args }) => ({
+  "$type": "Profile",
+  "name": args[0],
+  "source": "javascript"
+});
+"#,
+        )
+        .unwrap();
+
+        let executor = connector_executor_for_path(&root, true).unwrap();
+        let result = executor
+            .call("profile.enrich", &[Value::String("Aidar".to_string())])
+            .unwrap()
+            .unwrap();
+
+        let Value::Struct(name, fields) = result else {
+            panic!("expected struct result");
+        };
+        assert_eq!(name, "Profile");
+        assert_eq!(
+            fields.get("name"),
+            Some(&Value::String("Aidar".to_string()))
+        );
+        assert_eq!(
+            fields.get("source"),
+            Some(&Value::String("javascript".to_string()))
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

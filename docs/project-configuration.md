@@ -234,6 +234,36 @@ with field access support. Special object forms are available for richer values:
 { "$uncertain": { "$enum": "RiskLevel.Low" }, "confidence": 0.92 }
 ```
 
+### `[javascript]`
+
+Local JavaScript modules can back declared connector methods through a narrow
+callable-module bridge. The key is the declared connector method name:
+
+```toml
+[javascript]
+"profile.enrich" = { module = "interop/profile.cjs", export = "enrich", timeout_ms = "1500" }
+```
+
+`module` is resolved relative to the package root. `export` defaults to
+`default`, `cwd` defaults to the package root, and `timeout_ms` uses the same
+wall-clock timeout behavior as process connectors. Runtime commands call
+JavaScript bindings before generic process connectors and demo connectors.
+
+The JavaScript export receives one envelope with JSON-converted arguments and
+the same connector egress context used by process connectors:
+
+```js
+exports.enrich = async ({ args, context }) => {
+  return { "$type": "Profile", id: args[0], source: context.actor };
+};
+```
+
+Exceptions become structured connector errors such as `js_exception` or
+`js_export_missing` without raw stack traces by default. Use this for small
+local JS/TS integration points. Prefer `[connectors]` plus `num connector-sdk`
+when a production integration needs generated typed interfaces, auth/secrets,
+or a separately hosted worker.
+
 ### `[security]`
 
 Example:

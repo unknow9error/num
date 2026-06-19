@@ -643,6 +643,32 @@ methods. External workers should treat `capability`, `tenant`, `actor`,
 that leaves a single Num runtime instance. This is not managed connector
 hosting, auth/secrets binding, or a generated network client runtime yet.
 
+Projects can also bind a connector method directly to a local JavaScript module
+under `[javascript]` in `num.toml`:
+
+```toml
+[javascript]
+"profile.enrich" = { module = "interop/profile.cjs", export = "enrich", timeout_ms = "1500" }
+```
+
+Runtime commands invoke that module through Node as a narrow callable-module
+bridge. The exported function receives one envelope:
+
+```js
+exports.enrich = async ({ args, context }) => {
+  return { "$type": "EnrichedProfile", id: args[0], email: args[1] };
+};
+```
+
+`args` uses the same JSON conversion rules as process connectors, and `context`
+uses the same connector egress context shape shown above. JavaScript exceptions
+are converted to structured connector errors such as `js_exception` or
+`js_export_missing` without exposing raw stack traces by default. This bridge is
+appropriate for small local JS/TS integration points. Prefer a declared
+connector plus `num connector-sdk` for production integrations that need a
+stable typed implementation contract, generated interfaces, auth/secrets, or
+network-native hosting.
+
 ### `deploy`
 
 Validate a project and build a deployment plan artifact from `num.toml` and the
