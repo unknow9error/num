@@ -12,6 +12,7 @@ pub mod events;
 pub mod execution;
 pub mod http;
 pub mod interpreter;
+pub mod js_interop;
 pub mod json;
 pub mod observability;
 pub mod process_connectors;

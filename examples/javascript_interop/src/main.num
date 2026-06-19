@@ -1,0 +1,27 @@
+module examples.javascript_interop
+
+type Profile {
+    id: Text
+    email: Text
+}
+
+type EnrichedProfile {
+    id: Text
+    email: Text
+    source: Text
+}
+
+connector profile {
+    enrich(id: Text from UserInput private, email: Text from UserInput private) -> EnrichedProfile
+}
+
+policy JavaScriptInterop {
+    allow private UserInput -> profile.enrich
+}
+
+workflow enrich_profile() -> EnrichedProfile {
+    let id: Text from UserInput private = "user_1"
+    let email: Text from UserInput private = "customer@example.com"
+    let enriched: EnrichedProfile = profile.enrich(id, email)
+    return enriched
+}

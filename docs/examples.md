@@ -176,6 +176,26 @@ num connector-sdk examples/connector_echo_pipeline \
 num run examples/connector_echo_pipeline
 ```
 
+## `javascript_interop`
+
+Path: `examples/javascript_interop/`
+
+Demonstrates:
+
+- a `.num` connector method as the typed boundary;
+- a `[javascript]` manifest binding to a local CommonJS module;
+- runtime JSON argument conversion and connector egress context delivery to JS;
+- structured JS error mapping through the existing connector error boundary;
+- an explicit policy that permits the private `UserInput` flow into the JS
+  callable.
+
+Useful commands:
+
+```bash
+num check examples/javascript_interop
+num run examples/javascript_interop --json
+```
+
 ## Adding an Example
 
 Use this structure:

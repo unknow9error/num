@@ -4,6 +4,9 @@
 
 ### Minor
 
+- Added a manifest-configured JavaScript callable-module boundary for local
+  JS/TS interop, including runtime context passing, structured JS error
+  mapping, and a runnable `examples/javascript_interop` fixture.
 - Added a static async task model for the 0.4.0 language slice: `async <expr>`
   now produces `Task<T>`, `await <task>` unwraps `Task<T>`, and the checker
   rejects `await` on non-task values and bare async tasks without owners.
