@@ -731,14 +731,24 @@ Secret mappings before a real apply exists. For `bare-metal`, `baremetal`,
 file template lists `NUM_DEPLOY_PLAN`, runtime store expectations, and
 required/optional manifest environment variables without secret values.
 
+When `[deployment]` includes image publish fields such as `registry`, `image`,
+`tag_strategy`, or `credentials_ref`, container and Kubernetes bundles add
+`deploy/image-publish.json` and the deployment plan exposes `image_publish`.
+The handoff records the exact publish reference, for example
+`ghcr.io/acme/billing-api:1.2.3`, the tag strategy, validation status, and the
+registry `credentials_ref`. The generated Compose/Kubernetes scaffolds use that
+same image reference. Credential values are never read from or written to
+`num.toml`; CI or operators must resolve `credentials_ref` through their secret
+store and run `docker login`, build, tag, and push outside `num deploy`.
+
 The default bundle directory is derived from `[deployment].artifact` by removing
 the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
 `--replace` to overwrite them. This is deployment artifact materialization plus
-runtime scaffolding; image publishing, cluster credentials, SSH access, host
-package installation, `systemctl` execution, Kubernetes `kubectl apply` or
-API-server mutation, and cloud rollout execution remain external deployment
-steps.
+runtime scaffolding; image publishing execution, cluster credentials, SSH
+access, host package installation, `systemctl` execution, Kubernetes
+`kubectl apply` or API-server mutation, and cloud rollout execution remain
+external deployment steps.
 
 ### `compat`
 

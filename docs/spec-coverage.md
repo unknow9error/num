@@ -241,6 +241,9 @@ Implemented:
   checkout cache;
 - deployment environment validation metadata from `[environment]` in deploy
   plans, materialized artifact metadata, and generated runbooks;
+- explicit Docker registry image publish handoff metadata in deploy plans and
+  `deploy/image-publish.json`, including registry/image/tag strategy, publish
+  reference, and credentials references without credential values;
 - early project-command rejection for packages that require a future
   language/manifest schema version;
 - `[security].policy_mode = "strict"` enforcement for project commands, which
@@ -338,6 +341,9 @@ Implemented:
 - deploy artifact source-tree snapshots plus generated Docker Compose,
   Kubernetes, and bare-metal systemd-style runtime scaffolds for
   container/orchestrator/host targets;
+- container image publish handoff artifacts for configured registry/image
+  targets, with generated Compose/Kubernetes scaffolds pointing at the planned
+  image reference;
 - Kubernetes dry-run handoff output with generated deployment/service YAML,
   namespace/image/port validation, and secret-like environment reference
   warnings before cluster mutation support;
@@ -627,7 +633,7 @@ Major full-spec areas not implemented in v0.3.0:
 - interactive audit dashboard;
 - interactive cost dashboard;
 - cloud/container/bare-metal deployment execution model beyond generated
-  local/CI artifacts and Kubernetes dry-run handoffs;
+  local/CI artifacts, image publish handoffs, and Kubernetes dry-run handoffs;
 - CI/CD integrations beyond local deployment bundle generation and release
   packaging;
 - external-language interop;

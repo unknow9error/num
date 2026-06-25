@@ -68,6 +68,10 @@ pub struct PackageDeployment {
     pub service: Option<String>,
     pub region: Option<String>,
     pub artifact: String,
+    pub registry: Option<String>,
+    pub image: Option<String>,
+    pub tag_strategy: Option<String>,
+    pub credentials_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +202,10 @@ impl PackageManifest {
         let mut deployment_service = None;
         let mut deployment_region = None;
         let mut deployment_artifact = None;
+        let mut deployment_registry = None;
+        let mut deployment_image = None;
+        let mut deployment_tag_strategy = None;
+        let mut deployment_credentials_ref = None;
         let mut policy_mode = None;
         let mut tenant_isolation = None;
         let mut connectors = Vec::new();
@@ -257,6 +265,14 @@ impl PackageManifest {
                     "service" => deployment_service = parse_toml_string(value),
                     "region" => deployment_region = parse_toml_string(value),
                     "artifact" => deployment_artifact = parse_toml_string(value),
+                    "registry" | "registry_url" => deployment_registry = parse_toml_string(value),
+                    "image" | "image_name" => deployment_image = parse_toml_string(value),
+                    "tag_strategy" | "image_tag_strategy" => {
+                        deployment_tag_strategy = parse_toml_string(value)
+                    }
+                    "credentials_ref" | "registry_credentials_ref" => {
+                        deployment_credentials_ref = parse_toml_string(value)
+                    }
                     _ => {}
                 },
                 "connectors" => {
@@ -318,6 +334,10 @@ impl PackageManifest {
                 service: deployment_service,
                 region: deployment_region,
                 artifact: deployment_artifact.unwrap_or_else(|| "num-deploy.json".to_string()),
+                registry: deployment_registry,
+                image: deployment_image,
+                tag_strategy: deployment_tag_strategy,
+                credentials_ref: deployment_credentials_ref,
             },
             security: PackageSecurity {
                 policy_mode: policy_mode.unwrap_or_else(|| "strict".to_string()),
@@ -1536,6 +1556,10 @@ target = "container"
 service = "BillingApi"
 region = "eu-west-1"
 artifact = "dist/deploy.json"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
 "#,
         );
 
@@ -1545,6 +1569,19 @@ artifact = "dist/deploy.json"
         assert_eq!(manifest.deployment.service, Some("BillingApi".to_string()));
         assert_eq!(manifest.deployment.region, Some("eu-west-1".to_string()));
         assert_eq!(manifest.deployment.artifact, "dist/deploy.json");
+        assert_eq!(
+            manifest.deployment.registry,
+            Some("ghcr.io/acme".to_string())
+        );
+        assert_eq!(manifest.deployment.image, Some("billing-api".to_string()));
+        assert_eq!(
+            manifest.deployment.tag_strategy,
+            Some("version".to_string())
+        );
+        assert_eq!(
+            manifest.deployment.credentials_ref,
+            Some("secret://docker/ghcr".to_string())
+        );
     }
 
     #[test]

@@ -30,6 +30,7 @@ pub struct DeploymentPlan {
     pub process_connectors: Vec<String>,
     pub process_connector_bindings: Vec<ProcessConnectorDeployment>,
     pub dependencies: Vec<DependencyDeployment>,
+    pub image_publish: ImagePublishDeployment,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +124,26 @@ pub struct ProcessConnectorDeployment {
 }
 
 #[derive(Debug, Clone)]
+pub struct ImagePublishDeployment {
+    pub enabled: bool,
+    pub registry: Option<String>,
+    pub image: String,
+    pub tag_strategy: String,
+    pub tag: String,
+    pub reference: Option<String>,
+    pub credentials_ref: Option<String>,
+    pub validation: ImagePublishValidation,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImagePublishValidation {
+    pub status: String,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub boundary: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct DeploymentArtifactReport {
     pub artifact_root: PathBuf,
     pub plan_path: PathBuf,
@@ -188,6 +209,8 @@ pub fn build_deployment_plan(
     services.sort_by(|left, right| left.name.cmp(&right.name));
     connectors.sort();
 
+    let image_publish = ImagePublishDeployment::from_manifest(manifest);
+
     DeploymentPlan {
         package_name: manifest.project.name.clone(),
         package_version: manifest.project.version.clone(),
@@ -238,6 +261,7 @@ pub fn build_deployment_plan(
                 source: dependency_source_label(&dependency.source),
             })
             .collect(),
+        image_publish,
     }
 }
 
@@ -308,6 +332,7 @@ impl DeploymentPlan {
             "process_connectors": self.process_connectors,
             "process_connector_bindings": self.process_connector_bindings.iter().map(ProcessConnectorDeployment::to_json).collect::<Vec<_>>(),
             "dependencies": self.dependencies.iter().map(DependencyDeployment::to_json).collect::<Vec<_>>(),
+            "image_publish": self.image_publish.to_json(),
         })
     }
 
@@ -372,9 +397,25 @@ impl DeploymentPlan {
                 self.process_connectors.join(", ")
             ));
         }
+        if self.image_publish.enabled {
+            out.push_str(&format!(
+                "Image publish: status={}, reference={}\n",
+                self.image_publish.validation.status,
+                self.image_publish
+                    .reference
+                    .as_deref()
+                    .unwrap_or("<unresolved>")
+            ));
+        }
         if !self.target_profile.validation.errors.is_empty() {
             out.push_str("Deployment validation errors:\n");
             for error in &self.target_profile.validation.errors {
+                out.push_str(&format!("  - {error}\n"));
+            }
+        }
+        if self.image_publish.enabled && !self.image_publish.validation.errors.is_empty() {
+            out.push_str("Image publish validation errors:\n");
+            for error in &self.image_publish.validation.errors {
                 out.push_str(&format!("  - {error}\n"));
             }
         }
@@ -388,6 +429,16 @@ impl DeploymentPlan {
             if let Some(boundary) = &self.target_profile.validation.boundary {
                 out.push_str(&format!("  - {boundary}\n"));
             }
+        }
+        if self.image_publish.enabled
+            && (!self.image_publish.validation.warnings.is_empty()
+                || !self.image_publish.validation.boundary.is_empty())
+        {
+            out.push_str("Image publish warnings:\n");
+            for warning in &self.image_publish.validation.warnings {
+                out.push_str(&format!("  - {warning}\n"));
+            }
+            out.push_str(&format!("  - {}\n", self.image_publish.validation.boundary));
         }
         if !self.environment.missing_required.is_empty() {
             out.push_str("Environment warnings:\n");
@@ -543,6 +594,15 @@ impl DeploymentTargetProfile {
                 )
             }
         };
+        let mut required_artifacts = required_artifacts
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if deployment_image_publish_enabled(manifest)
+            && matches!(class, "container" | "orchestrator")
+        {
+            required_artifacts.push("deploy/image-publish.json".to_string());
+        }
         let mut warnings = validation.messages();
         if class == "host" {
             warnings.extend(bare_metal_external_service_warnings(manifest));
@@ -551,7 +611,7 @@ impl DeploymentTargetProfile {
         Self {
             class: class.to_string(),
             execution: execution.to_string(),
-            required_artifacts: required_artifacts.into_iter().map(str::to_string).collect(),
+            required_artifacts,
             validation,
             warnings,
         }
@@ -858,7 +918,7 @@ impl KubernetesDryRun {
 impl KubernetesDryRunValidation {
     fn for_plan(plan: &DeploymentPlan) -> Self {
         let namespace = kubernetes_namespace(plan);
-        let image = format!("{}:local", runtime_image_name(plan));
+        let image = runtime_image_reference(plan);
         let ports = vec![4000];
         let secret_references = plan
             .environment
@@ -1023,6 +1083,7 @@ pub fn materialize_deployment_artifact(
                 "target": plan.target,
                 "service": plan.service,
                 "target_profile": plan.target_profile.to_json(),
+                "image_publish": plan.image_publish.to_json(),
                 "environment": plan.environment.to_json(),
                 "modules": module_entries,
                 "sources": source_entries,
@@ -1097,6 +1158,156 @@ impl ProcessConnectorDeployment {
             "args": self.args,
             "cwd": self.cwd,
             "timeout_ms": self.timeout_ms,
+        })
+    }
+}
+
+impl ImagePublishDeployment {
+    fn from_manifest(manifest: &PackageManifest) -> Self {
+        let enabled = deployment_image_publish_enabled(manifest);
+        let registry = manifest
+            .deployment
+            .registry
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.trim_end_matches('/').to_string());
+        let image = manifest
+            .deployment
+            .image
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| default_runtime_image_name(&manifest.project.name));
+        let tag_strategy = manifest
+            .deployment
+            .tag_strategy
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("version")
+            .to_ascii_lowercase();
+        let tag = match tag_strategy.as_str() {
+            "version" => manifest.project.version.clone(),
+            "latest" => "latest".to_string(),
+            _ => manifest.project.version.clone(),
+        };
+        let credentials_ref = manifest
+            .deployment
+            .credentials_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let reference = if enabled {
+            registry
+                .as_ref()
+                .filter(|_| !image.is_empty())
+                .map(|registry| format!("{registry}/{image}:{tag}"))
+        } else {
+            None
+        };
+        let validation = ImagePublishValidation::for_metadata(
+            enabled,
+            registry.as_deref(),
+            &image,
+            &tag_strategy,
+            credentials_ref.as_deref(),
+        );
+
+        Self {
+            enabled,
+            registry,
+            image,
+            tag_strategy,
+            tag,
+            reference,
+            credentials_ref,
+            validation,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "enabled": self.enabled,
+            "registry": self.registry,
+            "image": self.image,
+            "tag_strategy": self.tag_strategy,
+            "tag": self.tag,
+            "reference": self.reference,
+            "credentials_ref": self.credentials_ref,
+            "validation": self.validation.to_json(),
+        })
+    }
+}
+
+impl ImagePublishValidation {
+    fn for_metadata(
+        enabled: bool,
+        registry: Option<&str>,
+        image: &str,
+        tag_strategy: &str,
+        credentials_ref: Option<&str>,
+    ) -> Self {
+        let boundary = "registry credentials stay behind the secret-store boundary; num deploy records only credentials_ref and never performs docker login, build, tag, or push"
+            .to_string();
+        if !enabled {
+            return Self {
+                status: "not-configured".to_string(),
+                errors: Vec::new(),
+                warnings: Vec::new(),
+                boundary,
+            };
+        }
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        if registry.is_none() {
+            errors.push("[deployment].registry is required for image publishing".to_string());
+        }
+        if image.trim().is_empty() || image.chars().any(char::is_whitespace) {
+            errors.push(
+                "[deployment].image must be a non-empty image name without whitespace".to_string(),
+            );
+        }
+        if !matches!(tag_strategy, "version" | "latest") {
+            errors.push(format!(
+                "[deployment].tag_strategy `{}` is unsupported; use `version` or `latest`",
+                sanitize_warning_value(tag_strategy)
+            ));
+        }
+        if credentials_ref.is_none() {
+            errors.push(
+                "[deployment].credentials_ref is required so registry credentials remain outside plain config"
+                    .to_string(),
+            );
+        }
+        if matches!(tag_strategy, "latest") {
+            warnings.push(
+                "[deployment].tag_strategy = \"latest\" is mutable; prefer `version` for audited releases"
+                    .to_string(),
+            );
+        }
+
+        Self {
+            status: if errors.is_empty() {
+                "ready".to_string()
+            } else {
+                "invalid".to_string()
+            },
+            errors,
+            warnings,
+            boundary,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "status": self.status,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "boundary": self.boundary,
         })
     }
 }
@@ -1207,6 +1418,12 @@ fn materialize_runtime_artifacts(
             write_text(&dockerfile, &render_dockerfile(plan), artifact_root, files)?;
             artifacts.push(relative_to(&dockerfile, artifact_root)?);
 
+            if let Some(image_publish) =
+                materialize_image_publish_artifact(plan, artifact_root, files)?
+            {
+                artifacts.push(image_publish);
+            }
+
             let compose = artifact_root.join("deploy/compose.yaml");
             write_text(&compose, &render_compose(plan), artifact_root, files)?;
             artifacts.push(relative_to(&compose, artifact_root)?);
@@ -1215,6 +1432,12 @@ fn materialize_runtime_artifacts(
             let dockerfile = artifact_root.join("deploy/Dockerfile");
             write_text(&dockerfile, &render_dockerfile(plan), artifact_root, files)?;
             artifacts.push(relative_to(&dockerfile, artifact_root)?);
+
+            if let Some(image_publish) =
+                materialize_image_publish_artifact(plan, artifact_root, files)?
+            {
+                artifacts.push(image_publish);
+            }
 
             let kubernetes = artifact_root.join("deploy/kubernetes.yaml");
             write_text(
@@ -1249,6 +1472,66 @@ fn materialize_runtime_artifacts(
     Ok(artifacts)
 }
 
+fn materialize_image_publish_artifact(
+    plan: &DeploymentPlan,
+    artifact_root: &Path,
+    files: &mut Vec<String>,
+) -> Result<Option<String>, String> {
+    if !plan.image_publish.enabled {
+        return Ok(None);
+    }
+    let path = artifact_root.join("deploy/image-publish.json");
+    write_text(
+        &path,
+        &render_image_publish_artifact(plan)?,
+        artifact_root,
+        files,
+    )?;
+    relative_to(&path, artifact_root).map(Some)
+}
+
+fn render_image_publish_artifact(plan: &DeploymentPlan) -> Result<String, String> {
+    let reference = plan.image_publish.reference.as_deref();
+    let commands = reference
+        .map(|reference| {
+            vec![
+                format!("docker build -t {reference} -f deploy/Dockerfile ."),
+                format!(
+                    "docker login {} using credentials_ref {}",
+                    plan.image_publish
+                        .registry
+                        .as_deref()
+                        .unwrap_or("<registry>"),
+                    plan.image_publish
+                        .credentials_ref
+                        .as_deref()
+                        .unwrap_or("<credentials_ref>")
+                ),
+                format!("docker push {reference}"),
+            ]
+        })
+        .unwrap_or_default();
+    serde_json::to_string_pretty(&json!({
+        "kind": "num.deploy.image_publish.v1",
+        "package": {
+            "name": plan.package_name,
+            "version": plan.package_version,
+        },
+        "target": plan.target,
+        "registry": plan.image_publish.registry,
+        "image": plan.image_publish.image,
+        "tag_strategy": plan.image_publish.tag_strategy,
+        "tag": plan.image_publish.tag,
+        "reference": plan.image_publish.reference,
+        "credentials_ref": plan.image_publish.credentials_ref,
+        "validation": plan.image_publish.validation.to_json(),
+        "commands": commands,
+        "execution": "handoff-only",
+    }))
+    .map(|json| format!("{json}\n"))
+    .map_err(|err| format!("failed to render image publish artifact JSON: {err}"))
+}
+
 fn render_dockerfile(plan: &DeploymentPlan) -> String {
     let command = runtime_command(plan);
     format!(
@@ -1266,23 +1549,23 @@ CMD [{}]\n",
 }
 
 fn render_compose(plan: &DeploymentPlan) -> String {
-    let image = runtime_image_name(plan);
+    let image = runtime_image_reference(plan);
     format!(
-        "services:\n  num:\n    build:\n      context: ..\n      dockerfile: deploy/Dockerfile\n    image: {image}:local\n    ports:\n      - \"4000:4000\"\n    environment:\n      NUM_DEPLOY_PLAN: /app/num-deploy.json\n"
+        "services:\n  num:\n    build:\n      context: ..\n      dockerfile: deploy/Dockerfile\n    image: {image}\n    ports:\n      - \"4000:4000\"\n    environment:\n      NUM_DEPLOY_PLAN: /app/num-deploy.json\n"
     )
 }
 
 fn render_kubernetes_manifest(plan: &DeploymentPlan) -> String {
     let name = kubernetes_name(&plan.package_name);
     let namespace = kubernetes_namespace(plan);
-    let image = runtime_image_name(plan);
+    let image = runtime_image_reference(plan);
     let args = runtime_command(plan)
         .into_iter()
         .map(|arg| format!("            - {}", yaml_string(&arg)))
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\n  namespace: {namespace}\n  labels:\n    app.kubernetes.io/name: {name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: {name}\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: {name}\n    spec:\n      containers:\n        - name: num\n          image: {image}:local\n          args:\n{args}\n          ports:\n            - containerPort: 4000\n          env:\n            - name: NUM_DEPLOY_PLAN\n              value: /app/num-deploy.json\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {name}\n  namespace: {namespace}\nspec:\n  selector:\n    app.kubernetes.io/name: {name}\n  ports:\n    - name: http\n      port: 4000\n      targetPort: 4000\n"
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\n  namespace: {namespace}\n  labels:\n    app.kubernetes.io/name: {name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: {name}\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: {name}\n    spec:\n      containers:\n        - name: num\n          image: {image}\n          args:\n{args}\n          ports:\n            - containerPort: 4000\n          env:\n            - name: NUM_DEPLOY_PLAN\n              value: /app/num-deploy.json\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {name}\n  namespace: {namespace}\nspec:\n  selector:\n    app.kubernetes.io/name: {name}\n  ports:\n    - name: http\n      port: 4000\n      targetPort: 4000\n"
     )
 }
 
@@ -1391,7 +1674,25 @@ fn shell_env_value(value: &str) -> String {
 }
 
 fn runtime_image_name(plan: &DeploymentPlan) -> String {
-    format!("num-{}", kubernetes_name(&plan.package_name))
+    default_runtime_image_name(&plan.package_name)
+}
+
+fn default_runtime_image_name(package_name: &str) -> String {
+    format!("num-{}", kubernetes_name(package_name))
+}
+
+fn runtime_image_reference(plan: &DeploymentPlan) -> String {
+    plan.image_publish
+        .reference
+        .clone()
+        .unwrap_or_else(|| format!("{}:local", runtime_image_name(plan)))
+}
+
+fn deployment_image_publish_enabled(manifest: &PackageManifest) -> bool {
+    manifest.deployment.registry.is_some()
+        || manifest.deployment.image.is_some()
+        || manifest.deployment.tag_strategy.is_some()
+        || manifest.deployment.credentials_ref.is_some()
 }
 
 fn kubernetes_namespace(plan: &DeploymentPlan) -> String {
@@ -1598,6 +1899,29 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
         }
         _ => {}
     }
+    if plan.image_publish.enabled {
+        out.push_str("## Container Image Publish Handoff\n\n");
+        out.push_str("- `deploy/image-publish.json` records the image publish artifact metadata\n");
+        out.push_str(&format!(
+            "- reference: `{}`\n",
+            plan.image_publish
+                .reference
+                .as_deref()
+                .unwrap_or("<unresolved>")
+        ));
+        out.push_str(&format!(
+            "- credentials reference: `{}`\n",
+            plan.image_publish
+                .credentials_ref
+                .as_deref()
+                .unwrap_or("<missing>")
+        ));
+        out.push_str(&format!(
+            "- validation: `{}`\n",
+            plan.image_publish.validation.status
+        ));
+        out.push_str("- publishing is a CI/operator handoff; this artifact does not contain registry secrets and `num deploy` does not run docker login/build/push\n\n");
+    }
     out.push_str("## Operations Boundary\n\n");
     out.push_str("This bundle is a reproducible local/CI deployment artifact with generated runtime scaffolding for supported targets. Production image publishing, cluster credentials, host provisioning, SSH access, package installation, systemctl execution, and cloud rollout execution stay outside the artifact boundary.\n");
     out
@@ -1642,6 +1966,10 @@ audit_store = "file:audit/events.jsonl"
 target = "container"
 service = "BillingApi"
 region = "eu-west-1"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
 
 [connectors]
 "payments.find" = { command = "node", args = "connectors/payments-find.js", cwd = "ops", timeout_ms = "2000" }
@@ -1692,8 +2020,22 @@ service BillingApi {
             .target_profile
             .required_artifacts
             .contains(&"deploy/compose.yaml".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/image-publish.json".to_string()));
         assert_eq!(plan.target_profile.validation.status, "ready");
         assert!(plan.target_profile.warnings.is_empty());
+        assert!(plan.image_publish.enabled);
+        assert_eq!(plan.image_publish.validation.status, "ready");
+        assert_eq!(
+            plan.image_publish.reference,
+            Some("ghcr.io/acme/billing-api:1.2.3".to_string())
+        );
+        assert_eq!(
+            plan.image_publish.credentials_ref,
+            Some("secret://docker/ghcr".to_string())
+        );
         assert_eq!(plan.runtime.workflow_store, "file:.num-state");
         assert_eq!(
             plan.dependencies[0].source,
@@ -1718,9 +2060,16 @@ service BillingApi {
             plan.to_json()["process_connector_bindings"][0]["timeout_ms"],
             2000
         );
+        assert_eq!(
+            plan.to_json()["image_publish"]["reference"],
+            "ghcr.io/acme/billing-api:1.2.3"
+        );
         assert!(plan
             .render_text()
             .contains("Deployment plan: billing 1.2.3"));
+        assert!(plan
+            .render_text()
+            .contains("Image publish: status=ready, reference=ghcr.io/acme/billing-api:1.2.3"));
     }
 
     #[test]
@@ -1831,6 +2180,47 @@ target = "edge-custom"
     }
 
     #[test]
+    fn deployment_plan_requires_registry_credentials_reference() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "container"
+registry = "ghcr.io/acme"
+image = "billing-api"
+"#,
+        );
+        let compilation = compile(
+            "main.num",
+            "module app.main\n\nworkflow main() {\n    audit(\"main\")\n}\n",
+        );
+
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        assert!(plan.image_publish.enabled);
+        assert_eq!(plan.image_publish.validation.status, "invalid");
+        assert!(plan
+            .image_publish
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("[deployment].credentials_ref")));
+        assert!(plan
+            .render_text()
+            .contains("registry credentials stay behind the secret-store boundary"));
+        assert_eq!(
+            plan.to_json()["image_publish"]["reference"],
+            "ghcr.io/acme/billing-api:1.2.3"
+        );
+    }
+
+    #[test]
     fn deployment_plan_reports_environment_validation() {
         env::set_var("NUM_TEST_DEPLOY_PRESENT", "set");
         env::remove_var("NUM_TEST_DEPLOY_MISSING");
@@ -1892,6 +2282,10 @@ entry = "src/main.num"
 [deployment]
 target = "container"
 artifact = "dist/num-deploy.json"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
 "#,
         )
         .unwrap();
@@ -1919,18 +2313,27 @@ artifact = "dist/num-deploy.json"
         assert!(report.metadata_path.is_file());
         assert!(artifact_root.join("src/main.num").is_file());
         assert!(artifact_root.join("deploy/Dockerfile").is_file());
+        assert!(artifact_root.join("deploy/image-publish.json").is_file());
         assert!(artifact_root.join("deploy/compose.yaml").is_file());
         assert_eq!(
             report.runtime_artifacts,
             vec![
                 "deploy/Dockerfile".to_string(),
+                "deploy/image-publish.json".to_string(),
                 "deploy/compose.yaml".to_string()
             ]
         );
-        assert_eq!(report.files.len(), 8);
+        assert_eq!(report.files.len(), 9);
         let compose = fs::read_to_string(artifact_root.join("deploy/compose.yaml")).unwrap();
         assert!(compose.contains("services:\n  num:\n    build:"));
+        assert!(compose.contains("    image: ghcr.io/acme/billing-api:1.2.3"));
         assert!(compose.contains("    environment:\n      NUM_DEPLOY_PLAN: /app/num-deploy.json"));
+        let image_publish =
+            fs::read_to_string(artifact_root.join("deploy/image-publish.json")).unwrap();
+        assert!(image_publish.contains("\"kind\": \"num.deploy.image_publish.v1\""));
+        assert!(image_publish.contains("\"reference\": \"ghcr.io/acme/billing-api:1.2.3\""));
+        assert!(image_publish.contains("\"credentials_ref\": \"secret://docker/ghcr\""));
+        assert!(!image_publish.contains("password"));
         assert!(artifact_root
             .join("modules")
             .read_dir()
@@ -1958,9 +2361,15 @@ artifact = "dist/num-deploy.json"
         assert!(fs::read_to_string(&report.metadata_path)
             .unwrap()
             .contains("\"runtime_artifacts\""));
+        assert!(fs::read_to_string(&report.metadata_path)
+            .unwrap()
+            .contains("\"image_publish\""));
         assert!(fs::read_to_string(&report.runbook_path)
             .unwrap()
             .contains("## Container Runtime"));
+        assert!(fs::read_to_string(&report.runbook_path)
+            .unwrap()
+            .contains("## Container Image Publish Handoff"));
         assert!(materialize_deployment_artifact(
             &plan,
             &manifest,
@@ -1974,7 +2383,7 @@ artifact = "dist/num-deploy.json"
         let replaced =
             materialize_deployment_artifact(&plan, &manifest, &[source], &artifact_root, true)
                 .unwrap();
-        assert_eq!(replaced.files.len(), 8);
+        assert_eq!(replaced.files.len(), 9);
         fs::remove_dir_all(root).unwrap();
     }
 
