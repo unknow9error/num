@@ -338,6 +338,9 @@ Implemented:
 - deploy artifact source-tree snapshots plus generated Docker Compose,
   Kubernetes, and bare-metal systemd-style runtime scaffolds for
   container/orchestrator/host targets;
+- Kubernetes dry-run handoff output with generated deployment/service YAML,
+  namespace/image/port validation, and secret-like environment reference
+  warnings before cluster mutation support;
 - connector error taxonomy at the runtime executor boundary with stable
   `code`, `message`, and `retryable` fields;
 - machine-readable connector failure reports in `num run --json` and
@@ -624,7 +627,7 @@ Major full-spec areas not implemented in v0.3.0:
 - interactive audit dashboard;
 - interactive cost dashboard;
 - cloud/container/bare-metal deployment execution model beyond generated
-  local/CI artifacts;
+  local/CI artifacts and Kubernetes dry-run handoffs;
 - CI/CD integrations beyond local deployment bundle generation and release
   packaging;
 - external-language interop;

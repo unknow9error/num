@@ -376,11 +376,15 @@ target-specific validation result. Container targets recommend
 `[deployment].service` and `[deployment].region`; bare-metal targets require
 `[deployment].service`, recommend `[deployment].region` as a host inventory
 label, and generate `deploy/num.service` plus `deploy/num.env` as runbook
-artifacts. Custom targets record that execution needs a custom runner.
-`num deploy --apply` also materializes a local/CI deployment bundle. By default,
-the bundle directory is derived from `artifact` by removing the file extension;
-`--dir <artifact-dir>` overrides that path, and `--replace` allows an existing
-bundle directory to be overwritten.
+artifacts. Kubernetes targets can also be inspected with
+`num deploy --kubernetes-dry-run`, which prints or writes the generated
+deployment/service resources plus validation for namespace, image, ports, and
+secret-like environment references before any cluster mutation exists. Custom
+targets record that execution needs a custom runner. `num deploy --apply` also
+materializes a local/CI deployment bundle. By default, the bundle directory is
+derived from `artifact` by removing the file extension; `--dir <artifact-dir>`
+overrides that path, and `--replace` allows an existing bundle directory to be
+overwritten.
 
 ## Current Boundary
 
@@ -412,6 +416,8 @@ Implemented:
   through `num deploy --apply`;
 - container, Kubernetes, and bare-metal deploy scaffolds generated inside
   deployment bundles for compatible `[deployment].target` values;
+- Kubernetes dry-run handoff output with namespace/image/port validation and
+  secret-like environment reference warnings before real apply support;
 - deployment target profile classification plus target-specific validation
   status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
@@ -425,5 +431,6 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- image publishing, cluster credential management, SSH/host provisioning,
-  `systemctl` execution, and cloud rollout execution.
+- image publishing, cluster credential management, Kubernetes apply/API-server
+  mutation, SSH/host provisioning, `systemctl` execution, and cloud rollout
+  execution.

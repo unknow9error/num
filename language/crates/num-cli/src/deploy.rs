@@ -135,6 +135,23 @@ pub struct DeploymentArtifactReport {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct KubernetesDryRun {
+    pub manifest: String,
+    pub validation: KubernetesDryRunValidation,
+}
+
+#[derive(Debug, Clone)]
+pub struct KubernetesDryRunValidation {
+    pub status: String,
+    pub namespace: String,
+    pub image: String,
+    pub ports: Vec<u16>,
+    pub secret_references: Vec<String>,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
 pub fn build_deployment_plan(
     manifest: &PackageManifest,
     module: &Module,
@@ -235,6 +252,13 @@ pub fn default_artifact_root(manifest: &PackageManifest) -> PathBuf {
         path.with_extension("")
     } else {
         path
+    }
+}
+
+pub fn build_kubernetes_dry_run(plan: &DeploymentPlan) -> KubernetesDryRun {
+    KubernetesDryRun {
+        manifest: render_kubernetes_manifest(plan),
+        validation: KubernetesDryRunValidation::for_plan(plan),
     }
 }
 
@@ -784,6 +808,131 @@ impl DeploymentArtifactReport {
     }
 }
 
+impl KubernetesDryRun {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "manifest": self.manifest,
+            "validation": self.validation.to_json(),
+        })
+    }
+
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str("Kubernetes dry-run handoff\n");
+        out.push_str(&format!("Validation: {}\n", self.validation.status));
+        out.push_str(&format!("Namespace: {}\n", self.validation.namespace));
+        out.push_str(&format!("Image: {}\n", self.validation.image));
+        out.push_str(&format!(
+            "Ports: {}\n",
+            self.validation
+                .ports
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        if !self.validation.secret_references.is_empty() {
+            out.push_str(&format!(
+                "Secret references: {}\n",
+                self.validation.secret_references.join(", ")
+            ));
+        }
+        if !self.validation.errors.is_empty() {
+            out.push_str("Validation errors:\n");
+            for error in &self.validation.errors {
+                out.push_str(&format!("  - {error}\n"));
+            }
+        }
+        if !self.validation.warnings.is_empty() {
+            out.push_str("Validation warnings:\n");
+            for warning in &self.validation.warnings {
+                out.push_str(&format!("  - {warning}\n"));
+            }
+        }
+        out.push_str("---\n");
+        out.push_str(&self.manifest);
+        out
+    }
+}
+
+impl KubernetesDryRunValidation {
+    fn for_plan(plan: &DeploymentPlan) -> Self {
+        let namespace = kubernetes_namespace(plan);
+        let image = format!("{}:local", runtime_image_name(plan));
+        let ports = vec![4000];
+        let secret_references = plan
+            .environment
+            .required
+            .iter()
+            .chain(plan.environment.optional.iter())
+            .filter(|variable| is_secret_service_env_name(&variable.name))
+            .map(|variable| variable.name.clone())
+            .collect::<Vec<_>>();
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        if plan.target_profile.class != "orchestrator" {
+            errors.push(format!(
+                "kubernetes dry-run requires [deployment].target = \"kubernetes\" or \"k8s\", got `{}`",
+                sanitize_warning_value(&plan.target)
+            ));
+        }
+        if !is_kubernetes_dns_label(&namespace) {
+            errors.push(format!(
+                "namespace `{namespace}` is not a valid Kubernetes DNS label"
+            ));
+        }
+        if image.trim().is_empty() || image.chars().any(char::is_whitespace) {
+            errors.push(format!("image `{image}` is empty or contains whitespace"));
+        }
+        if ports.iter().any(|port| *port == 0) {
+            errors.push("container ports must be between 1 and 65535".to_string());
+        }
+        if let Some(raw_namespace) = plan.region.as_deref() {
+            if raw_namespace != namespace {
+                warnings.push(format!(
+                    "[deployment].region `{}` was normalized to Kubernetes namespace `{namespace}`",
+                    sanitize_warning_value(raw_namespace)
+                ));
+            }
+        }
+        if !secret_references.is_empty() {
+            warnings.push(format!(
+                "environment variables [{}] look secret-like; create Kubernetes Secret mappings before real apply",
+                secret_references.join(", ")
+            ));
+        }
+
+        let status = if errors.is_empty() {
+            "ready"
+        } else {
+            "invalid"
+        };
+
+        Self {
+            status: status.to_string(),
+            namespace,
+            image,
+            ports,
+            secret_references,
+            errors,
+            warnings,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "status": self.status,
+            "namespace": self.namespace,
+            "image": self.image,
+            "ports": self.ports,
+            "secret_references": self.secret_references,
+            "errors": self.errors,
+            "warnings": self.warnings,
+        })
+    }
+}
+
 pub fn materialize_deployment_artifact(
     plan: &DeploymentPlan,
     manifest: &PackageManifest,
@@ -1125,6 +1274,7 @@ fn render_compose(plan: &DeploymentPlan) -> String {
 
 fn render_kubernetes_manifest(plan: &DeploymentPlan) -> String {
     let name = kubernetes_name(&plan.package_name);
+    let namespace = kubernetes_namespace(plan);
     let image = runtime_image_name(plan);
     let args = runtime_command(plan)
         .into_iter()
@@ -1132,7 +1282,7 @@ fn render_kubernetes_manifest(plan: &DeploymentPlan) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\n  labels:\n    app.kubernetes.io/name: {name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: {name}\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: {name}\n    spec:\n      containers:\n        - name: num\n          image: {image}:local\n          args:\n{args}\n          ports:\n            - containerPort: 4000\n          env:\n            - name: NUM_DEPLOY_PLAN\n              value: /app/num-deploy.json\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {name}\nspec:\n  selector:\n    app.kubernetes.io/name: {name}\n  ports:\n    - name: http\n      port: 4000\n      targetPort: 4000\n"
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\n  namespace: {namespace}\n  labels:\n    app.kubernetes.io/name: {name}\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: {name}\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: {name}\n    spec:\n      containers:\n        - name: num\n          image: {image}:local\n          args:\n{args}\n          ports:\n            - containerPort: 4000\n          env:\n            - name: NUM_DEPLOY_PLAN\n              value: /app/num-deploy.json\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: {name}\n  namespace: {namespace}\nspec:\n  selector:\n    app.kubernetes.io/name: {name}\n  ports:\n    - name: http\n      port: 4000\n      targetPort: 4000\n"
     )
 }
 
@@ -1244,6 +1394,14 @@ fn runtime_image_name(plan: &DeploymentPlan) -> String {
     format!("num-{}", kubernetes_name(&plan.package_name))
 }
 
+fn kubernetes_namespace(plan: &DeploymentPlan) -> String {
+    plan.region
+        .as_deref()
+        .map(kubernetes_name)
+        .filter(|namespace| !namespace.is_empty())
+        .unwrap_or_else(|| "default".to_string())
+}
+
 fn kubernetes_name(name: &str) -> String {
     let mut out = name
         .chars()
@@ -1264,6 +1422,22 @@ fn kubernetes_name(name: &str) -> String {
     } else {
         out
     }
+}
+
+fn is_kubernetes_dns_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+        && value
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        && value
+            .chars()
+            .last()
+            .is_some_and(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
 }
 
 fn json_string_array(items: &[String]) -> String {
@@ -1431,7 +1605,7 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_deployment_plan, materialize_deployment_artifact};
+    use super::{build_deployment_plan, build_kubernetes_dry_run, materialize_deployment_artifact};
     use crate::package::{write_lockfile, PackageManifest};
     use num_compiler::{compile, SourceFile};
     use std::env;
@@ -1932,13 +2106,82 @@ service BillingApi {
         let kubernetes = fs::read_to_string(artifact_root.join("deploy/kubernetes.yaml")).unwrap();
         assert!(kubernetes.contains("kind: Deployment"));
         assert!(kubernetes.contains("name: billing-api"));
+        assert!(kubernetes.contains("namespace: local"));
         assert!(kubernetes.contains("          args:\n            - \"num\""));
         assert!(kubernetes.contains("\"BillingApi\""));
         assert!(fs::read_to_string(&report.runbook_path)
             .unwrap()
             .contains("## Kubernetes Runtime"));
 
+        let dry_run = build_kubernetes_dry_run(&plan);
+        assert_eq!(dry_run.validation.status, "ready");
+        assert_eq!(dry_run.validation.namespace, "local");
+        assert_eq!(dry_run.validation.image, "num-billing-api:local");
+        assert_eq!(dry_run.validation.ports, vec![4000]);
+        assert!(dry_run.validation.secret_references.is_empty());
+        assert!(dry_run.manifest.contains("namespace: local"));
+        assert!(dry_run.render_text().contains("Kubernetes dry-run handoff"));
+        assert_eq!(dry_run.to_json()["validation"]["status"], "ready");
+
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn kubernetes_dry_run_reports_handoff_validation() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "Billing API"
+version = "1.2.3"
+
+[environment]
+required = ["API_TOKEN"]
+
+[deployment]
+target = "kubernetes"
+service = "BillingApi"
+region = "Prod Namespace"
+"#,
+        );
+        let compilation = compile(
+            "main.num",
+            r#"module app.main
+
+permission IssueRefund
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit("refund")
+    }
+}
+"#,
+        );
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        let dry_run = build_kubernetes_dry_run(&plan);
+
+        assert_eq!(dry_run.validation.status, "ready");
+        assert_eq!(dry_run.validation.namespace, "prod-namespace");
+        assert_eq!(dry_run.validation.image, "num-billing-api:local");
+        assert_eq!(dry_run.validation.secret_references, vec!["API_TOKEN"]);
+        assert!(dry_run
+            .validation
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("normalized to Kubernetes namespace")));
+        assert!(dry_run
+            .validation
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Kubernetes Secret mappings")));
+        assert!(dry_run.manifest.contains("namespace: prod-namespace"));
+        assert!(dry_run.to_json()["manifest"]
+            .as_str()
+            .unwrap()
+            .contains("kind: Service"));
     }
 
     #[test]

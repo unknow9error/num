@@ -680,6 +680,8 @@ num deploy examples/refund_workflow --json
 num deploy examples/refund_workflow --out dist/num-deploy.json
 num deploy examples/refund_workflow --apply --dir dist/refund-deploy
 num deploy examples/refund_workflow --apply --replace --json
+num deploy examples/refund_workflow --kubernetes-dry-run
+num deploy examples/refund_workflow --kubernetes-dry-run --kubernetes-out dist/kubernetes.yaml
 ```
 
 The plan includes package name/version, deployment target metadata, a checked
@@ -718,19 +720,25 @@ and `oci`, the bundle also includes `deploy/Dockerfile` and
 `num serve . 0.0.0.0:4000 <service>` when `[deployment].service` is set, or
 `num run . --json` for workflow-only artifacts. For `kubernetes`/`k8s` targets,
 the bundle includes `deploy/Dockerfile` and `deploy/kubernetes.yaml` with a
-deployment/service scaffold. For `bare-metal`, `baremetal`, `systemd`, or
-`host` targets, the bundle includes `deploy/num.service` and `deploy/num.env`:
-the service unit is a systemd-style draft, and the environment file template
-lists `NUM_DEPLOY_PLAN`, runtime store expectations, and required/optional
-manifest environment variables without secret values.
+deployment/service scaffold. `--kubernetes-dry-run` prints the same planned
+Kubernetes deployment/service resources without materializing a full bundle, and
+`--kubernetes-out <resources.yaml>` writes only those resources. With `--json`,
+the dry-run output includes the plan, generated manifest text, namespace/image/
+port validation, and secret-like environment references that need Kubernetes
+Secret mappings before a real apply exists. For `bare-metal`, `baremetal`,
+`systemd`, or `host` targets, the bundle includes `deploy/num.service` and
+`deploy/num.env`: the service unit is a systemd-style draft, and the environment
+file template lists `NUM_DEPLOY_PLAN`, runtime store expectations, and
+required/optional manifest environment variables without secret values.
 
 The default bundle directory is derived from `[deployment].artifact` by removing
 the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
 `--replace` to overwrite them. This is deployment artifact materialization plus
 runtime scaffolding; image publishing, cluster credentials, SSH access, host
-package installation, `systemctl` execution, and cloud rollout execution remain
-external deployment steps.
+package installation, `systemctl` execution, Kubernetes `kubectl apply` or
+API-server mutation, and cloud rollout execution remain external deployment
+steps.
 
 ### `compat`
 

@@ -21,6 +21,9 @@
 - Added bare-metal deployment bundles with a systemd-style service unit draft,
   host environment template, runtime store expectations, and operator runbook
   warnings.
+- Added Kubernetes deploy dry-run handoffs that print or write generated
+  deployment/service resources with namespace, image, port, and secret-reference
+  validation before real cluster apply support.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 
