@@ -354,6 +354,10 @@ target = "container"
 service = "BillingApi"
 region = "eu-west-1"
 artifact = "dist/num-deploy.json"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
 ```
 
 Supported fields:
@@ -362,7 +366,15 @@ Supported fields:
   environment name;
 - `service` - preferred service entrypoint for service deployments;
 - `region` - optional deployment region label;
-- `artifact` - default path for deployment plan output.
+- `artifact` - default path for deployment plan output;
+- `registry` - optional container registry host/path for image publishing
+  handoff metadata;
+- `image` - optional image repository/name. If omitted while image publishing
+  is configured, deploy planning defaults to `num-<project-name>`;
+- `tag_strategy` - image tag strategy, currently `version` or `latest`;
+- `credentials_ref` - secret-store reference for registry credentials. The
+  deployment plan records this reference only and never stores credential
+  values.
 
 `num deploy` validates the project and renders these values together with the
 compiled workflows, actions, service routes, connectors, dependencies, runtime
@@ -376,7 +388,12 @@ target-specific validation result. Container targets recommend
 `[deployment].service` and `[deployment].region`; bare-metal targets require
 `[deployment].service`, recommend `[deployment].region` as a host inventory
 label, and generate `deploy/num.service` plus `deploy/num.env` as runbook
-artifacts. Kubernetes targets can also be inspected with
+artifacts. When any image publish field is configured for container or
+Kubernetes targets, `num deploy` records an explicit image publish handoff under
+`image_publish` and `deploy/image-publish.json`, including the exact image
+reference and `credentials_ref`. Registry credentials remain behind the
+secret-store boundary; build, login, tag, and push execution stays external.
+Kubernetes targets can also be inspected with
 `num deploy --kubernetes-dry-run`, which prints or writes the generated
 deployment/service resources plus validation for namespace, image, ports, and
 secret-like environment references before any cluster mutation exists. Custom
@@ -418,6 +435,9 @@ Implemented:
   deployment bundles for compatible `[deployment].target` values;
 - Kubernetes dry-run handoff output with namespace/image/port validation and
   secret-like environment reference warnings before real apply support;
+- explicit container image publish handoff metadata and
+  `deploy/image-publish.json` artifacts for configured registry/image targets,
+  with credential values kept out of plain config;
 - deployment target profile classification plus target-specific validation
   status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
@@ -431,6 +451,6 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- image publishing, cluster credential management, Kubernetes apply/API-server
-  mutation, SSH/host provisioning, `systemctl` execution, and cloud rollout
-  execution.
+- image publishing execution, cluster credential management, Kubernetes
+  apply/API-server mutation, SSH/host provisioning, `systemctl` execution, and
+  cloud rollout execution.

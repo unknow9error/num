@@ -24,6 +24,10 @@
 - Added Kubernetes deploy dry-run handoffs that print or write generated
   deployment/service resources with namespace, image, port, and secret-reference
   validation before real cluster apply support.
+- Added explicit Docker registry image publish handoff metadata for deploy
+  plans, including registry/image/tag strategy fields, credentials references,
+  and `deploy/image-publish.json` artifacts for container and Kubernetes
+  bundles.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 
