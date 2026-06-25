@@ -3,7 +3,7 @@ use crate::interpreter::Value;
 use crate::redaction;
 use serde_json::{json, Map, Value as JsonValue};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -68,17 +68,11 @@ impl ProcessConnectorExecutor {
             "args": args.iter().map(value_to_json).collect::<Vec<_>>(),
             "egress": context.map(ConnectorCallContext::to_json),
         });
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(input.to_string().as_bytes())
-                .map_err(|err| {
-                    ConnectorError::new(
-                        "stdin_write_failed",
-                        format!("failed to write connector `{method}` stdin: {err}"),
-                        true,
-                    )
-                })?;
-        }
+        let stdin_write_error = if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(input.to_string().as_bytes()).err()
+        } else {
+            None
+        };
 
         let output = wait_with_optional_timeout(child, method, config.timeout_ms)?;
         if !output.status.success() {
@@ -95,6 +89,15 @@ impl ProcessConnectorExecutor {
                 },
                 true,
             ));
+        }
+        if let Some(err) = stdin_write_error {
+            if err.kind() != ErrorKind::BrokenPipe {
+                return Err(ConnectorError::new(
+                    "stdin_write_failed",
+                    format!("failed to write connector `{method}` stdin: {err}"),
+                    true,
+                ));
+            }
         }
 
         let stdout = String::from_utf8(output.stdout).map_err(|err| {
@@ -400,6 +403,25 @@ mod tests {
             args: vec![
                 "-c".to_string(),
                 "cat >/dev/null; printf '%s' '\"ok\"'".to_string(),
+            ],
+            cwd: None,
+            timeout_ms: None,
+        }]);
+
+        let result = executor.call("echo.text", &[]).unwrap().unwrap();
+
+        assert_eq!(result, Value::String("ok".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_connector_allows_successful_command_that_closes_stdin() {
+        let executor = ProcessConnectorExecutor::new(vec![ProcessConnectorConfig {
+            method: "echo.text".to_string(),
+            command: "/bin/sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "exec 0<&-; printf '%s' '\"ok\"'".to_string(),
             ],
             cwd: None,
             timeout_ms: None,
