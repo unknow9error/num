@@ -334,6 +334,9 @@ fn run() -> Result<(), String> {
                 }
                 return Ok(());
             }
+            if options.check && options.apply {
+                return Err("--check cannot be combined with --apply".to_string());
+            }
             let artifact_report = if options.apply {
                 let artifact_root = options
                     .artifact_dir
@@ -934,6 +937,7 @@ struct DeployOptions {
     artifact_dir: Option<PathBuf>,
     kubernetes_out_path: Option<PathBuf>,
     kubernetes_dry_run: bool,
+    check: bool,
     apply: bool,
     replace: bool,
     format_json: bool,
@@ -1024,6 +1028,7 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
     let mut artifact_dir = None;
     let mut kubernetes_out_path = None;
     let mut kubernetes_dry_run = false;
+    let mut check = false;
     let mut apply = false;
     let mut replace = false;
     let mut format_json = false;
@@ -1050,6 +1055,7 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
                     .ok_or_else(|| "usage: --kubernetes-out <resources.yaml>".to_string())?;
                 kubernetes_out_path = Some(PathBuf::from(raw));
             }
+            "--check" => check = true,
             "--apply" => apply = true,
             "--replace" => replace = true,
             "--json" => format_json = true,
@@ -1060,12 +1066,16 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
     if kubernetes_out_path.is_some() && !kubernetes_dry_run {
         return Err("--kubernetes-out requires --kubernetes-dry-run".to_string());
     }
+    if check && apply {
+        return Err("--check cannot be combined with --apply".to_string());
+    }
 
     Ok(DeployOptions {
         out_path,
         artifact_dir,
         kubernetes_out_path,
         kubernetes_dry_run,
+        check,
         apply,
         replace,
         format_json,
@@ -1444,7 +1454,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -2031,9 +2041,33 @@ service Api {
         assert_eq!(options.artifact_dir, Some(PathBuf::from("dist/bundle")));
         assert_eq!(options.kubernetes_out_path, None);
         assert!(!options.kubernetes_dry_run);
+        assert!(!options.check);
         assert!(options.apply);
         assert!(options.replace);
         assert!(options.format_json);
+    }
+
+    #[test]
+    fn deploy_options_parse_check_flag() {
+        let options =
+            parse_deploy_options(["--check".to_string(), "--json".to_string()].into_iter())
+                .unwrap();
+
+        assert!(options.check);
+        assert!(options.format_json);
+        assert!(!options.apply);
+    }
+
+    #[test]
+    fn deploy_options_reject_check_with_apply() {
+        let result =
+            parse_deploy_options(["--check".to_string(), "--apply".to_string()].into_iter());
+        let err = match result {
+            Ok(_) => panic!("expected --check with --apply to fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("--check cannot be combined with --apply"));
     }
 
     #[test]
@@ -2055,6 +2089,7 @@ service Api {
         );
         assert!(options.kubernetes_dry_run);
         assert!(options.format_json);
+        assert!(!options.check);
         assert!(!options.apply);
     }
 

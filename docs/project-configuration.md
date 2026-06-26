@@ -440,6 +440,8 @@ Implemented:
   with credential values kept out of plain config;
 - Jenkins deploy-gate templates for external deployment bundles, with policy,
   cost, and security gates before artifact materialization;
+- GitLab CI deploy-gate templates for external deployment bundles, with
+  explicit cache/artifact paths and `num deploy --check` before packaging;
 - deployment target profile classification plus target-specific validation
   status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
@@ -454,5 +456,6 @@ Not implemented yet:
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
 - image publishing execution, cluster credential management, Jenkins
-  controller/agent provisioning, Kubernetes apply/API-server mutation,
-  SSH/host provisioning, `systemctl` execution, and cloud rollout execution.
+  controller/agent provisioning, GitLab runner provisioning, Kubernetes
+  apply/API-server mutation, SSH/host provisioning, `systemctl` execution, and
+  cloud rollout execution.
