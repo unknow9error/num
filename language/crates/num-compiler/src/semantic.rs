@@ -23,6 +23,32 @@ pub fn check(module: &Module) -> Vec<Diagnostic> {
     Checker::new(module, 0).check()
 }
 
+pub fn check_service_route_for_tenant(
+    module: &Module,
+    service_name: &str,
+    method: &str,
+    path: &str,
+    tenant: &str,
+) -> Vec<Diagnostic> {
+    let mut checker = Checker::new(module, 0).with_policy_tenant(tenant);
+    let Some(service) = module.declarations.iter().find_map(|decl| match decl {
+        Declaration::Service(service) if service.name == service_name => Some(service),
+        _ => None,
+    }) else {
+        return checker.diagnostics;
+    };
+    let Some(route) = service
+        .routes
+        .iter()
+        .find(|route| route.method.eq_ignore_ascii_case(method) && route.path == path)
+    else {
+        return checker.diagnostics;
+    };
+
+    checker.service_route(route);
+    checker.diagnostics
+}
+
 #[allow(dead_code)]
 pub(crate) fn check_declarations_from(
     module: &Module,
@@ -94,6 +120,7 @@ struct Checker<'a> {
     external_namespaces: HashSet<String>,
     connector_methods: HashMap<String, HashMap<String, &'a ConnectorMethod>>,
     method_signatures: HashMap<String, HashMap<String, CallableSignature<'a>>>,
+    policy_tenant: Option<String>,
 }
 
 impl<'a> Checker<'a> {
@@ -249,7 +276,13 @@ impl<'a> Checker<'a> {
             external_namespaces,
             connector_methods,
             method_signatures,
+            policy_tenant: None,
         }
+    }
+
+    fn with_policy_tenant(mut self, tenant: &str) -> Self {
+        self.policy_tenant = Some(tenant.to_string());
+        self
     }
 
     fn check(mut self) -> Vec<Diagnostic> {
@@ -460,33 +493,37 @@ impl<'a> Checker<'a> {
                 );
             }
 
-            for permission in &route.requires {
-                self.known_permission(permission, &route.span);
-            }
-
-            let params = route
-                .input
-                .as_ref()
-                .map(|input| {
-                    self.known_type_ref(&input.ty, &input.span);
-                    vec![Param {
-                        name: input.name.clone(),
-                        ty: input.ty.clone(),
-                        labels: input.labels.clone(),
-                        span: input.span.clone(),
-                    }]
-                })
-                .unwrap_or_default();
-
-            self.body(
-                &route.body,
-                &params,
-                &route.requires,
-                None,
-                &route.span,
-                None,
-            );
+            self.service_route(route);
         }
+    }
+
+    fn service_route(&mut self, route: &ServiceRoute) {
+        for permission in &route.requires {
+            self.known_permission(permission, &route.span);
+        }
+
+        let params = route
+            .input
+            .as_ref()
+            .map(|input| {
+                self.known_type_ref(&input.ty, &input.span);
+                vec![Param {
+                    name: input.name.clone(),
+                    ty: input.ty.clone(),
+                    labels: input.labels.clone(),
+                    span: input.span.clone(),
+                }]
+            })
+            .unwrap_or_default();
+
+        self.body(
+            &route.body,
+            &params,
+            &route.requires,
+            None,
+            &route.span,
+            None,
+        );
     }
 
     fn callable(&mut self, callable: &CallableDecl) {
@@ -1671,10 +1708,13 @@ impl<'a> Checker<'a> {
                     continue;
                 }
 
-                if !self
-                    .policies
-                    .is_data_flow_allowed_to_any(privacy, trust, source, &targets)
-                {
+                if !self.policies.is_data_flow_allowed_to_any_for_tenant(
+                    privacy,
+                    trust,
+                    source,
+                    &targets,
+                    self.policy_tenant.as_deref(),
+                ) {
                     self.diagnostics.push(
                     Diagnostic::error(
                         "N2400",

@@ -47,6 +47,7 @@ impl<'a> PolicySet<'a> {
         allowed
     }
 
+    #[allow(dead_code)]
     pub(super) fn is_data_flow_allowed_to_any(
         &self,
         privacy: Option<Privacy>,
@@ -54,11 +55,22 @@ impl<'a> PolicySet<'a> {
         source: Option<&str>,
         targets: &[String],
     ) -> bool {
+        self.is_data_flow_allowed_to_any_for_tenant(privacy, trust, source, targets, None)
+    }
+
+    pub(super) fn is_data_flow_allowed_to_any_for_tenant(
+        &self,
+        privacy: Option<Privacy>,
+        trust: Option<Trust>,
+        source: Option<&str>,
+        targets: &[String],
+        tenant: Option<&str>,
+    ) -> bool {
         let mut allowed = false;
         for rule in &self.rules {
             if !targets
                 .iter()
-                .any(|target| rule_matches(rule, privacy, trust, source, target, None))
+                .any(|target| rule_matches(rule, privacy, trust, source, target, tenant))
             {
                 continue;
             }

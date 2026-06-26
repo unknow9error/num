@@ -592,6 +592,23 @@ impl<'a> Runtime<'a> {
                 )
             })?;
 
+        let policy_diagnostics = num_compiler::semantic::check_service_route_for_tenant(
+            self.module,
+            service_name,
+            method,
+            path,
+            &self.security.tenant,
+        );
+        if let Some(diagnostic) = policy_diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.is_error())
+        {
+            return Err(format!(
+                "Policy Violation: route '{} {}' denied for tenant '{}': {}",
+                method, path, self.security.tenant, diagnostic.message
+            ));
+        }
+
         self.apply_rate_limit(
             &format!("service:{service_name}:{}:{}", route.method, route.path),
             service_rate_limit.as_deref(),
