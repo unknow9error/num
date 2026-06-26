@@ -714,6 +714,17 @@ bundle. The bundle includes:
   status, and module map;
 - `RUNBOOK.md` - operations boundary, environment status, and handoff notes.
 
+External deployment bundles also include `deploy/Jenkinsfile`. The generated
+Jenkins pipeline checks out the repository, runs deploy gates in the fixed order
+`Policy gate` (`num check`, `num test`), `Cost gate` (`num cost-report --json`),
+`Security gate` (`num lint`), then materializes the deploy artifact with
+`num deploy --apply --replace --dir "$NUM_DEPLOY_DIR" --json`. Jenkins must run
+with the `num` CLI on `PATH` and provide repository checkout access. The
+template exposes `NUM_PROJECT_DIR` and `NUM_DEPLOY_DIR` parameters; when the
+manifest uses `[deployment].credentials_ref`, map that reference to a Jenkins
+credential id through `NUM_REGISTRY_CREDENTIALS_ID` or an external secret store.
+Credential values are not written to the Jenkinsfile or deployment bundle.
+
 For `[deployment].target = "container"` or compatible targets such as `docker`
 and `oci`, the bundle also includes `deploy/Dockerfile` and
 `deploy/compose.yaml`. The Dockerfile builds from the artifact root and starts
@@ -746,9 +757,9 @@ the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
 `--replace` to overwrite them. This is deployment artifact materialization plus
 runtime scaffolding; image publishing execution, cluster credentials, SSH
-access, host package installation, `systemctl` execution, Kubernetes
-`kubectl apply` or API-server mutation, and cloud rollout execution remain
-external deployment steps.
+access, host package installation, Jenkins controller/agent provisioning,
+`systemctl` execution, Kubernetes `kubectl apply` or API-server mutation, and
+cloud rollout execution remain external deployment steps.
 
 ### `compat`
 

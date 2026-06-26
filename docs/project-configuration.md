@@ -438,6 +438,8 @@ Implemented:
 - explicit container image publish handoff metadata and
   `deploy/image-publish.json` artifacts for configured registry/image targets,
   with credential values kept out of plain config;
+- Jenkins deploy-gate templates for external deployment bundles, with policy,
+  cost, and security gates before artifact materialization;
 - deployment target profile classification plus target-specific validation
   status/errors/warnings;
 - deployment environment validation metadata through `[environment]`.
@@ -451,6 +453,6 @@ Not implemented yet:
 - remote registry package download/publish APIs;
 - production git auth/cache policy;
 - broader automatic source rewrite rules between language versions;
-- image publishing execution, cluster credential management, Kubernetes
-  apply/API-server mutation, SSH/host provisioning, `systemctl` execution, and
-  cloud rollout execution.
+- image publishing execution, cluster credential management, Jenkins
+  controller/agent provisioning, Kubernetes apply/API-server mutation,
+  SSH/host provisioning, `systemctl` execution, and cloud rollout execution.

@@ -28,6 +28,8 @@
   plans, including registry/image/tag strategy fields, credentials references,
   and `deploy/image-publish.json` artifacts for container and Kubernetes
   bundles.
+- Added Jenkins deploy-gate templates to external deployment bundles, running
+  policy, cost, and security gates before materializing the deploy artifact.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 
