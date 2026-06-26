@@ -630,7 +630,8 @@ Major full-spec areas not implemented in v0.3.0:
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
 - interactive debugger and IDE debug adapter;
 - interactive workflow dashboard;
-- interactive audit dashboard;
+- interactive audit dashboard beyond the stable `num.audit_dashboard.v1`
+  `audit-report --json` read model;
 - interactive cost dashboard;
 - cloud/container/bare-metal deployment execution model beyond generated
   local/CI artifacts, image publish handoffs, and Kubernetes dry-run handoffs;

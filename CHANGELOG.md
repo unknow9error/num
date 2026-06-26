@@ -34,6 +34,10 @@
   mode for CI validation before deployment bundle packaging.
 - Added a versioned `num.deploy_check.v1` JSON read model and GitHub Actions
   deploy-gate template for policy, cost, security, and packaging gates.
+- Added a versioned `num.audit_dashboard.v1` JSON read model for
+  `num audit-report --json`, including stable audit counts, optional
+  connector/route/workflow dimensions, time-window metadata, and redacted
+  failure details.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 

@@ -239,10 +239,24 @@ num audit-report audit/events.jsonl
 num audit-report audit/events.jsonl --json
 ```
 
-The text report groups events by result, action, actor, and tenant, and lists
-failed audit events with their failure reason. The `--json` flag emits the same
-summary as structured JSON for dashboards or external tooling. This is an audit
-dashboard foundation, not an interactive web dashboard.
+The text report groups events by result, action, actor, tenant, connector,
+route, and workflow when those dimensions are present, and lists failed audit
+events with their redacted failure reason. The `--json` flag emits the
+versioned `num.audit_dashboard.v1` read model for dashboards or external
+tooling.
+
+Stable JSON fields are `schema_version`, `total_events`, `counts.by_result`,
+`counts.by_action`, `counts.by_actor`, `counts.by_tenant`,
+`counts.by_connector`, `counts.by_route`, `counts.by_workflow`, `time_window`,
+and `failures`. Legacy top-level `by_result`, `by_action`, `by_actor`, and
+`by_tenant` maps remain present for existing tooling. Connector, route,
+workflow, and timestamp dimensions are best-effort: they are populated when the
+audit event carries connector metadata, service method/path or route metadata,
+workflow metadata, and `timestamp_ms` or `recorded_at_unix_ms`. Failure details
+include event id, action, actor, tenant, request/correlation ids, optional
+connector/route/workflow dimensions, timestamp, and a redacted reason; raw audit
+payloads are intentionally not included. This is an audit dashboard foundation,
+not an interactive web dashboard.
 
 ### `workflow-report`
 
