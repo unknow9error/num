@@ -595,6 +595,9 @@ num connector-sdk examples/contract_driven_refund
 num connector-sdk examples/contract_driven_refund \
   --language typescript \
   --out examples/contract_driven_refund/generated/connectors.d.ts
+num connector-sdk examples/connector_echo_pipeline \
+  --language python \
+  --out examples/connector_echo_pipeline/generated/connectors.py
 num connector-sdk examples/contract_driven_refund --json
 ```
 
@@ -606,6 +609,26 @@ The TypeScript generator emits:
   module;
 - a `NumConnectors` interface grouped by connector namespace, with each method
   returning a `Promise`.
+
+The Python generator emits:
+
+- `dataclass(frozen=True)` wrappers for egress context, structs, payload enum
+  variants, and runtime wrappers such as `Money`, `Uncertain`, and `Secret`
+  when needed;
+- `TypeAlias` declarations for aliases, literal enums, JSON values, and simple
+  built-in mappings;
+- `Protocol` connector classes grouped under `NumConnectors`, with each method
+  accepting an optional `NumConnectorEgressContext`;
+- `num_connector_egress_context_from_json(...)` for converting the process
+  connector stdin `egress` object into the generated dataclass shape.
+
+Python mappings are intentionally conservative. `Text`, `Email`, `Uuid`,
+`Date`, `DateTime`, `Decimal`, `Url`, and `PhoneNumber` map to `str`; `Int`,
+`Float`, `Bool`, `Unit`, `List<T>`, `Map<K, V>`, `Option<T>`, `Result<T, E>`,
+`Uncertain<T>`, `Secret<T>`, and `Json` map to standard Python typing forms or
+generated wrappers. Unsupported or invalid Python identifiers fall back to
+`Any` or a sanitized `field_<name>` attribute so the generated stub remains
+importable while preserving the checked `.num` contract as the source of truth.
 
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
@@ -650,7 +673,7 @@ connectors receive this context in stdin under `egress`:
 }
 ```
 
-Generated TypeScript SDKs expose the same shape as
+Generated TypeScript and Python SDKs expose the same shape as
 `NumConnectorEgressContext` and add an optional `context` parameter to connector
 methods. External workers should treat `capability`, `tenant`, `actor`,
 `correlation_id`, and `arg_labels` as the audit/enforcement envelope for data

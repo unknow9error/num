@@ -499,12 +499,15 @@ Implemented:
   composite `find_<table>_by_<key1>_and_<key2>`, and `insert_<table>`.
 - TypeScript connector implementation SDK generation for visible `.num`
   structs, aliases, enums, and connector method signatures.
+- Python connector implementation SDK generation for visible `.num` structs,
+  aliases, enums, connector method signatures, and connector egress context
+  stubs, with unsupported shapes falling back to `Any`.
 
 Not yet implemented:
 
 - managed connector hosting;
 - generated network-native runtime clients;
-- connector SDK targets beyond TypeScript declarations;
+- connector SDK targets beyond TypeScript/Python declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;

@@ -14,6 +14,9 @@
   connector contract, manifest process connector execution through Python,
   direct connector probing, and generated TypeScript implementation types for
   JavaScript consumers.
+- Added a Python target for `num connector-sdk`, generating dataclasses,
+  type aliases, connector protocols, and egress context stubs for process
+  connector implementations.
 - Added `num bench` for checked-in lexer/parser/checker benchmark fixtures with
   stable JSON output suitable for CI artifacts.
 - Added opt-in `num bench --compare <baseline.json>` regression gates with

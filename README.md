@@ -137,8 +137,8 @@ num deploy examples/refund_workflow --apply
 - Runtime connector egress context propagation for distributed data-leak
   controls across process and external connector boundaries.
 - Manifest compatibility, migration, version upgrade, lockfile, local registry,
-  package integrity, connector SDK, OpenAPI import, SQL import, and deployment
-  artifact commands.
+  package integrity, TypeScript/Python connector SDKs, OpenAPI import, SQL
+  import, and deployment artifact commands.
 - VS Code syntax, snippets, diagnostics, completion, hover, formatting, and
   document symbols through the bundled language server.
 
