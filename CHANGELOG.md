@@ -45,6 +45,8 @@
   `num workflow-report --json`, including stable workflow counts, workflow
   lifecycle summaries, pending-compensation flags, and best-effort recent
   failure/audit summaries.
+- Extended the `num.cost_dashboard.v1` read model with request and correlation
+  dimensions plus fixture coverage for action, AI/model, and connector costs.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 

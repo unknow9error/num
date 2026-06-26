@@ -2,15 +2,21 @@
   "by_action": {
     "call_model": {
       "USD": 200
+    },
+    "issue_refund": {
+      "KZT": 1500
     }
   },
   "by_currency": {
+    "KZT": 1500,
     "USD": 200
   },
   "conditional_fields": {
     "actor": "present when a cost entry is emitted with actor context",
     "connector": "present when a cost entry is emitted from a connector-aware runtime boundary",
+    "correlation_id": "present when a cost entry is emitted with request correlation context",
     "model": "present when a cost entry is emitted from an AI/model-aware runtime boundary",
+    "request_id": "present when a cost entry is emitted with request context",
     "route": "present when a cost entry is emitted with service route context",
     "tenant": "present when a cost entry is emitted with tenant context",
     "time_window": "start_unix_ms and end_unix_ms are present when raw entries carry timestamps",
@@ -26,8 +32,10 @@
       "dimensions": {
         "actor": "user_1",
         "connector": "ai.complete",
+        "correlation_id": "corr_1",
         "model": "gpt-4.1-mini",
-        "route": null,
+        "request_id": "req_1",
+        "route": "POST /refunds",
         "tenant": "tenant_a",
         "workflow": "refund"
       },
@@ -42,12 +50,32 @@
       "dimensions": {
         "actor": "user_2",
         "connector": "ai.complete",
+        "correlation_id": "corr_1",
         "model": "gpt-4.1-mini",
+        "request_id": "req_2",
         "route": null,
         "tenant": "tenant_a",
         "workflow": "refund"
       },
       "recorded_at_unix_ms": 1700000000500
+    },
+    {
+      "action": "issue_refund",
+      "amount": {
+        "currency": "KZT",
+        "minor_units": 1500
+      },
+      "dimensions": {
+        "actor": "user_1",
+        "connector": "payments.refund",
+        "correlation_id": "corr_2",
+        "model": null,
+        "request_id": "req_3",
+        "route": "POST /refunds",
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "recorded_at_unix_ms": 1700000001000
     }
   ],
   "raw_entries": [
@@ -60,8 +88,10 @@
       "dimensions": {
         "actor": "user_1",
         "connector": "ai.complete",
+        "correlation_id": "corr_1",
         "model": "gpt-4.1-mini",
-        "route": null,
+        "request_id": "req_1",
+        "route": "POST /refunds",
         "tenant": "tenant_a",
         "workflow": "refund"
       },
@@ -77,13 +107,34 @@
       "dimensions": {
         "actor": "user_2",
         "connector": "ai.complete",
+        "correlation_id": "corr_1",
         "model": "gpt-4.1-mini",
+        "request_id": "req_2",
         "route": null,
         "tenant": "tenant_a",
         "workflow": "refund"
       },
       "index": 1,
       "recorded_at_unix_ms": 1700000000500
+    },
+    {
+      "action": "issue_refund",
+      "amount": {
+        "currency": "KZT",
+        "minor_units": 1500
+      },
+      "dimensions": {
+        "actor": "user_1",
+        "connector": "payments.refund",
+        "correlation_id": "corr_2",
+        "model": null,
+        "request_id": "req_3",
+        "route": "POST /refunds",
+        "tenant": "tenant_a",
+        "workflow": "refund"
+      },
+      "index": 2,
+      "recorded_at_unix_ms": 1700000001000
     }
   ],
   "schema_version": "num.cost_dashboard.v1",
@@ -94,14 +145,16 @@
     "model",
     "workflow",
     "route",
+    "request_id",
+    "correlation_id",
     "actor",
     "tenant"
   ],
   "time_window": {
-    "end_unix_ms": 1700000000500,
+    "end_unix_ms": 1700000001000,
     "start_unix_ms": 1700000000000
   },
-  "total_entries": 2,
+  "total_entries": 3,
   "totals": {
     "by_action": [
       {
@@ -112,12 +165,25 @@
             "minor_units": 200
           }
         ]
+      },
+      {
+        "key": "issue_refund",
+        "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          }
+        ]
       }
     ],
     "by_actor": [
       {
         "key": "user_1",
         "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          },
           {
             "currency": "USD",
             "minor_units": 125
@@ -143,9 +209,42 @@
             "minor_units": 200
           }
         ]
+      },
+      {
+        "key": "payments.refund",
+        "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          }
+        ]
+      }
+    ],
+    "by_correlation_id": [
+      {
+        "key": "corr_1",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 200
+          }
+        ]
+      },
+      {
+        "key": "corr_2",
+        "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          }
+        ]
       }
     ],
     "by_currency": [
+      {
+        "currency": "KZT",
+        "minor_units": 1500
+      },
       {
         "currency": "USD",
         "minor_units": 200
@@ -162,11 +261,58 @@
         ]
       }
     ],
-    "by_route": [],
+    "by_request_id": [
+      {
+        "key": "req_1",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 125
+          }
+        ]
+      },
+      {
+        "key": "req_2",
+        "totals": [
+          {
+            "currency": "USD",
+            "minor_units": 75
+          }
+        ]
+      },
+      {
+        "key": "req_3",
+        "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          }
+        ]
+      }
+    ],
+    "by_route": [
+      {
+        "key": "POST /refunds",
+        "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          },
+          {
+            "currency": "USD",
+            "minor_units": 125
+          }
+        ]
+      }
+    ],
     "by_tenant": [
       {
         "key": "tenant_a",
         "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          },
           {
             "currency": "USD",
             "minor_units": 200
@@ -178,6 +324,10 @@
       {
         "key": "refund",
         "totals": [
+          {
+            "currency": "KZT",
+            "minor_units": 1500
+          },
           {
             "currency": "USD",
             "minor_units": 200

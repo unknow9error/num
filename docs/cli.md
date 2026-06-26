@@ -214,13 +214,13 @@ structured JSON.
 `cost-report --json` includes a versioned dashboard read model under
 `schema_version = "num.cost_dashboard.v1"`. The stable dashboard payload
 contains `totals` by currency, action, connector, model, workflow, route, actor,
-and tenant; `time_window` fields; and `raw_entries` for drill-down. Connector,
-model, workflow, route, actor, tenant, and timestamp values are populated only
-when the source runtime entry carries that context. The current demo
-interpreter records action and currency for successful action charges, so the
-other dimensions remain present as stable empty aggregates until richer runtime
-boundaries emit them. This is a cost dashboard foundation, not an interactive or
-persisted cost dashboard.
+request id, correlation id, and tenant; `time_window` fields; and `raw_entries`
+for drill-down. Connector, model, workflow, route, request/correlation, actor,
+tenant, and timestamp values are populated only when the source runtime entry
+carries that context. The current demo interpreter records action and currency
+for successful action charges, so the other dimensions remain present as stable
+empty aggregates until richer runtime boundaries emit them. This is a cost
+dashboard foundation, not an interactive or persisted cost dashboard.
 
 When a project manifest sets `[runtime].audit_store = "file:<events.jsonl>"`,
 demo interpreter commands (`run`, `test`, `trace`, `debug`, `cost-report`, and

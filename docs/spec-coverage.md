@@ -280,6 +280,8 @@ Implemented:
   compensate/cancel transitions;
 - workflow state listing and dashboard-oriented report summarization by
   status/name/actor/tenant;
+- cost dashboard report breakdowns by currency, action, connector, model,
+  workflow, route, request id, correlation id, actor, and tenant;
 - project manifest `[runtime].workflow_store = "file:<state-root>"` and
   `[runtime].audit_store = "file:<events.jsonl>"` resolution for `num workflow
   enqueue`, `num workflow drain`, `num workflow lease-heartbeat`, and
