@@ -1098,6 +1098,60 @@ action issue_refund(payment: Payment)
     }
 
     #[test]
+    fn accepts_scalar_validator_builtins_with_typed_results() {
+        let source = r#"
+module tests.scalar_validators
+
+workflow main(raw_email: Text from UserInput private untrusted) {
+    let email: Email from UserInput private trusted = validate_email(raw_email)
+    let url: Url = validate_url("https://example.com/refunds")
+    let id: Uuid = validate_uuid("550e8400-e29b-41d4-a716-446655440000")
+    let phone: PhoneNumber = validate_phone_number("+77001234567")
+    audit(email)
+    audit(url)
+    audit(id)
+    audit(phone)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_scalar_validator_literals() {
+        let source = r#"
+module tests.scalar_validators
+
+workflow main() {
+    let email: Email = validate_email("not-an-email")
+    let url: Url = validate_url("ftp://example.com")
+    let id: Uuid = validate_uuid("not-a-uuid")
+    let phone: PhoneNumber = validate_phone_number("555")
+}
+"#;
+
+        let codes = codes(source);
+        assert_eq!(codes.iter().filter(|code| **code == "N2707").count(), 4);
+    }
+
+    #[test]
+    fn rejects_scalar_validator_non_text_argument() {
+        let source = r#"
+module tests.scalar_validators
+
+workflow main(count: Int) {
+    let email: Email = validate_email(count)
+}
+"#;
+
+        assert!(codes(source).contains(&"N2706"));
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

@@ -269,6 +269,9 @@ Implemented:
 - runtime data types for workflow state, security context, actions, audit
   events, money, uncertainty, state stores, audit sinks, secret stores, and
   workflow event queues;
+- stdlib scalar validators for `Email`, `Url`, `Uuid`, and `PhoneNumber`, with
+  compile-time literal diagnostics and runtime validation errors for dynamic
+  text input;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
   reusable sanitizer packs, and policy composition;
 - tenant isolation guard and tenant-aware workflow state load, transition, and
@@ -642,6 +645,8 @@ Major full-spec areas not implemented in v0.3.0:
 - external secrets manager integration such as Vault/KMS/cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
+- locale/provider-specific scalar validation catalogs beyond the conservative
+  built-in email, URL, UUID, and phone-number checks;
 - interactive debugger and IDE debug adapter;
 - interactive workflow dashboard beyond the stable `num.workflow_dashboard.v1`
   `workflow-report --json` read model;

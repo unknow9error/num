@@ -2575,6 +2575,115 @@ fn type_arity_diagnostic(
     .with_help("pass the required generic arguments or remove the extra arguments")
 }
 
+fn is_scalar_validator(name: &str) -> bool {
+    matches!(
+        name,
+        "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number"
+    )
+}
+
+fn scalar_validator_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    is_scalar_validator(name).then(|| {
+        vec![TypeRef {
+            raw: "Text".to_string(),
+        }]
+    })
+}
+
+fn scalar_validator_result_type(name: &str) -> Option<TypeRef> {
+    let raw = match name {
+        "validate_email" => "Email",
+        "validate_url" => "Url",
+        "validate_uuid" => "Uuid",
+        "validate_phone_number" => "PhoneNumber",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
+    })
+}
+
+fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
+    match validator {
+        "validate_email" => validate_email_literal(value),
+        "validate_url" => validate_url_literal(value),
+        "validate_uuid" => validate_uuid_literal(value),
+        "validate_phone_number" => validate_phone_number_literal(value),
+        _ => Ok(()),
+    }
+}
+
+fn validate_email_literal(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let Some((local, domain)) = value.split_once('@') else {
+        return Err("expected one `@` separator".to_string());
+    };
+    if local.is_empty() || domain.is_empty() || domain.contains('@') {
+        return Err("expected non-empty local and domain parts".to_string());
+    }
+    if domain.starts_with('.') || domain.ends_with('.') || !domain.contains('.') {
+        return Err("expected a dotted domain".to_string());
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '@' | '.' | '_' | '%' | '+' | '-'))
+    {
+        return Err("expected conservative ASCII email characters".to_string());
+    }
+    Ok(())
+}
+
+fn validate_url_literal(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let rest = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .ok_or_else(|| "expected absolute http or https URL".to_string())?;
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .split('@')
+        .last()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default();
+    if host.is_empty() || !host.contains('.') {
+        return Err("expected a dotted host".to_string());
+    }
+    if !host
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
+    {
+        return Err("expected conservative ASCII host characters".to_string());
+    }
+    Ok(())
+}
+
+fn validate_uuid_literal(value: &str) -> Result<(), String> {
+    let parts = value.split('-').collect::<Vec<_>>();
+    let lengths = [8, 4, 4, 4, 12];
+    if parts.len() != lengths.len()
+        || parts
+            .iter()
+            .zip(lengths)
+            .any(|(part, len)| part.len() != len || !part.chars().all(|ch| ch.is_ascii_hexdigit()))
+    {
+        return Err("expected 8-4-4-4-12 hexadecimal UUID format".to_string());
+    }
+    Ok(())
+}
+
+fn validate_phone_number_literal(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let digits = value.strip_prefix('+').unwrap_or(value);
+    if digits.len() < 8 || digits.len() > 15 || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("expected 8 to 15 digits with an optional leading `+`".to_string());
+    }
+    Ok(())
+}
+
 fn types_compatible(expected: &TypeRef, actual: &TypeRef) -> bool {
     expected.raw == actual.raw
 }
