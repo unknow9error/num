@@ -3,6 +3,8 @@ use crate::package::PackageManifest;
 use num_compiler::{
     check_program,
     diagnostic::{Diagnostic, Severity},
+    lexer,
+    token::{Keyword, Symbol, Token, TokenKind},
     SourceFile,
 };
 use serde_json::{json, Value};
@@ -189,7 +191,20 @@ pub fn plan_source_migrations(path: &Path, write: bool) -> Result<SourceMigratio
     if file_reports.is_empty() {
         actions.push("no .num source files discovered".to_string());
     } else if changed {
-        actions.push("insert missing explicit module declarations".to_string());
+        if file_reports.iter().any(|file| {
+            file.actions
+                .iter()
+                .any(|action| action.starts_with("insert explicit module declaration"))
+        }) {
+            actions.push("insert missing explicit module declarations".to_string());
+        }
+        if file_reports.iter().any(|file| {
+            file.actions.iter().any(|action| {
+                action == "normalize legacy `rate_limit` metadata spelling to `rate limit`"
+            })
+        }) {
+            actions.push("normalize legacy rate_limit metadata spelling".to_string());
+        }
     } else {
         actions.push(format!(
             "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
@@ -312,31 +327,38 @@ fn collect_num_sources_inner(
 }
 
 fn plan_source_file_migration(file: &DiscoveredSourceFile) -> SourceMigrationFileReport {
-    if has_explicit_module_declaration(&file.source) {
-        return SourceMigrationFileReport {
-            path: file.path.clone(),
-            changed: false,
-            actions: vec![format!(
-                "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
-            )],
-        };
-    }
-
-    SourceMigrationFileReport {
-        path: file.path.clone(),
-        changed: true,
-        actions: vec![format!(
+    let mut actions = Vec::new();
+    if !has_explicit_module_declaration(&file.source) {
+        actions.push(format!(
             "insert explicit module declaration `module {}`",
             file.module_path
-        )],
+        ));
+    }
+    if has_legacy_rate_limit_metadata(&file.path, &file.source) {
+        actions.push("normalize legacy `rate_limit` metadata spelling to `rate limit`".to_string());
+    }
+
+    let changed = !actions.is_empty();
+    if !changed {
+        actions.push(format!(
+            "no source rewrites required for language {CURRENT_LANGUAGE_VERSION}"
+        ));
+    }
+    SourceMigrationFileReport {
+        path: file.path.clone(),
+        changed,
+        actions,
     }
 }
 
 fn rewrite_source_file(file: &DiscoveredSourceFile) -> String {
-    if has_explicit_module_declaration(&file.source) {
-        return ensure_trailing_newline(&file.source);
+    let mut source = replace_legacy_rate_limit_metadata(&file.path, &file.source);
+    if !has_explicit_module_declaration(&source) {
+        source = insert_module_declaration(&source, &file.module_path);
+    } else {
+        source = ensure_trailing_newline(&source);
     }
-    insert_module_declaration(&file.source, &file.module_path)
+    source
 }
 
 fn has_explicit_module_declaration(source: &str) -> bool {
@@ -381,6 +403,100 @@ fn insert_module_declaration(source: &str, module_path: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+fn has_legacy_rate_limit_metadata(path: &Path, source: &str) -> bool {
+    !legacy_rate_limit_replacements(path, source).is_empty()
+}
+
+fn replace_legacy_rate_limit_metadata(path: &Path, source: &str) -> String {
+    let replacements = legacy_rate_limit_replacements(path, source);
+    if replacements.is_empty() {
+        return source.to_string();
+    }
+
+    let mut out = String::with_capacity(source.len() + replacements.len());
+    let mut cursor = 0;
+    for (start, end) in replacements {
+        out.push_str(&source[cursor..start]);
+        out.push_str("rate limit");
+        cursor = end;
+    }
+    out.push_str(&source[cursor..]);
+    out
+}
+
+fn legacy_rate_limit_replacements(path: &Path, source: &str) -> Vec<(usize, usize)> {
+    let lexed = lexer::lex(&path.display().to_string(), source);
+    if !lexed.diagnostics.is_empty() {
+        return Vec::new();
+    }
+
+    let tokens = lexed.tokens;
+    let mut replacements = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        match tokens[index].kind {
+            TokenKind::Keyword(Keyword::Workflow) => {
+                if let Some(header_start) = workflow_metadata_start(&tokens, index + 1) {
+                    scan_legacy_rate_limit_header(&tokens, header_start, &mut replacements);
+                }
+            }
+            TokenKind::Keyword(Keyword::Service) => {
+                scan_legacy_rate_limit_header(&tokens, index + 2, &mut replacements);
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    replacements
+}
+
+fn workflow_metadata_start(tokens: &[Token], mut index: usize) -> Option<usize> {
+    while index < tokens.len() {
+        match tokens[index].kind {
+            TokenKind::Symbol(Symbol::LParen) => break,
+            TokenKind::Symbol(Symbol::LBrace) | TokenKind::Eof => return None,
+            _ => index += 1,
+        }
+    }
+    if index >= tokens.len() {
+        return None;
+    }
+
+    let mut depth = 0;
+    while index < tokens.len() {
+        match tokens[index].kind {
+            TokenKind::Symbol(Symbol::LParen) => depth += 1,
+            TokenKind::Symbol(Symbol::RParen) => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            TokenKind::Eof => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn scan_legacy_rate_limit_header(
+    tokens: &[Token],
+    mut index: usize,
+    replacements: &mut Vec<(usize, usize)>,
+) {
+    while index < tokens.len() {
+        match &tokens[index].kind {
+            TokenKind::Symbol(Symbol::LBrace) | TokenKind::Eof => break,
+            TokenKind::Ident(text) if text == "rate_limit" => {
+                replacements.push((tokens[index].span.start, tokens[index].span.end));
+            }
+            _ => {}
+        }
+        index += 1;
+    }
 }
 
 fn source_module_path(path: &Path, root: &Path) -> String {
@@ -771,6 +887,151 @@ module main
 
 fn ok() -> Bool {
     return true
+}
+"#
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_plans_legacy_rate_limit_metadata() {
+        let root = temp_project_dir("source_legacy_rate_limit_plan");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            r#"module main
+
+workflow nightly(rate_limit: Int) rate_limit 2 per 1m {
+}
+
+service Billing rate_limit 5 per 10s {
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, false).unwrap();
+
+        assert!(report.changed);
+        assert!(!report.applied);
+        assert!(report
+            .actions
+            .iter()
+            .any(|action| { action == "normalize legacy rate_limit metadata spelling" }));
+        assert_eq!(
+            report.files[0].actions,
+            vec!["normalize legacy `rate_limit` metadata spelling to `rate limit`".to_string()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_writes_legacy_rate_limit_metadata_idempotently() {
+        let root = temp_project_dir("source_legacy_rate_limit_write");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            r#"module main
+
+workflow nightly() rate_limit 2 per 1m {
+    let text = "rate_limit stays literal"
+}
+
+service Billing rate_limit 5 per 10s {
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, true).unwrap();
+        let migrated = fs::read_to_string(root.join("src/main.num")).unwrap();
+        let second_report = plan_source_migrations(&root, false).unwrap();
+
+        assert!(report.changed);
+        assert!(report.applied);
+        assert_eq!(
+            migrated,
+            r#"module main
+
+workflow nightly() rate limit 2 per 1m {
+    let text = "rate_limit stays literal"
+}
+
+service Billing rate limit 5 per 10s {
+}
+"#
+        );
+        assert!(!second_report.changed);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_migration_rate_limit_fixture_matches_expected() {
+        let before = include_str!("../tests/fixtures/migration/source_rate_limit.before.num");
+        let expected = include_str!("../tests/fixtures/migration/source_rate_limit.after.num");
+        let path = Path::new("source_rate_limit.before.num");
+
+        assert_eq!(replace_legacy_rate_limit_metadata(path, before), expected);
+        assert_eq!(replace_legacy_rate_limit_metadata(path, expected), expected);
+    }
+
+    #[test]
+    fn source_migration_combines_module_and_rate_limit_rewrites() {
+        let root = temp_project_dir("source_combined_rewrites");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[project]
+name = "app"
+version = "0.1.0"
+source = "src"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.num"),
+            r#"// preserved header
+workflow nightly() rate_limit 2 per 1m {
+}
+"#,
+        )
+        .unwrap();
+
+        let report = plan_source_migrations(&root, true).unwrap();
+        let migrated = fs::read_to_string(root.join("src/main.num")).unwrap();
+
+        assert!(report.changed);
+        assert_eq!(
+            report.files[0].actions,
+            vec![
+                "insert explicit module declaration `module main`".to_string(),
+                "normalize legacy `rate_limit` metadata spelling to `rate limit`".to_string()
+            ]
+        );
+        assert_eq!(
+            migrated,
+            r#"// preserved header
+module main
+
+workflow nightly() rate limit 2 per 1m {
 }
 "#
         );

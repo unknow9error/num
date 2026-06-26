@@ -51,6 +51,8 @@
 - Added a `RateLimitStore` boundary with tenant/actor/subject keys, shared
   in-memory runtime handles, and a file-backed local adapter for rate-limit
   enforcement across runtime instances.
+- Extended `num migrate --source` with an idempotent rewrite that normalizes
+  legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation
   dimensions plus fixture coverage for action, AI/model, and connector costs.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,

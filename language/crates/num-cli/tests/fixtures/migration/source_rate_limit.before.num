@@ -1,0 +1,8 @@
+module main
+
+workflow nightly(rate_limit: Int) rate_limit 2 per 1m {
+    let text = "rate_limit stays literal"
+}
+
+service Billing rate_limit 5 per 10s {
+}
