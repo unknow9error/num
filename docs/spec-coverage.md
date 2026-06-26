@@ -632,7 +632,8 @@ Major full-spec areas not implemented in v0.3.0:
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
 - interactive debugger and IDE debug adapter;
-- interactive workflow dashboard;
+- interactive workflow dashboard beyond the stable `num.workflow_dashboard.v1`
+  `workflow-report --json` read model;
 - interactive audit dashboard beyond the stable `num.audit_dashboard.v1`
   `audit-report --json` read model;
 - interactive cost dashboard;

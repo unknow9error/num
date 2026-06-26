@@ -272,9 +272,21 @@ num workflow-report durable-refund --json
 The command reads `.json` workflow state files under `<state-root>/workflows`,
 then groups workflows by status, workflow name, actor, and tenant. The text
 output includes the most recently updated workflows first. The `--json` flag
-emits the same read model as structured JSON for dashboards or external
-operations tooling. This is a workflow dashboard foundation, not an interactive
-web dashboard.
+emits the versioned `num.workflow_dashboard.v1` read model for dashboards or
+external operations tooling.
+
+Stable JSON fields are `schema_version`, `total_workflows`,
+`counts.by_status`, `counts.by_name`, `counts.by_actor`, `counts.by_tenant`,
+and each workflow's `id`, `name`, `status`, `actor`, `tenant`,
+`started_at_ms`, `updated_at_ms`, `pending_compensation`, `recent_failure`, and
+`recent_audit`. Legacy top-level `by_status`, `by_name`, `by_actor`, and
+`by_tenant` maps remain present for existing tooling. Request/correlation ids
+come from persisted workflow state. `pending_compensation`, `recent_failure`,
+and `recent_audit` are dashboard-oriented best-effort fields: they use workflow
+status and known metadata keys such as `failure_reason`, `last_failure`,
+`error`, `last_audit_event`, `last_audit_result`, and timestamp metadata when
+available. This is a workflow dashboard foundation, not an interactive web
+dashboard.
 
 ### `workflow`
 
