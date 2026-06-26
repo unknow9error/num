@@ -41,6 +41,10 @@
   `num audit-report --json`, including stable audit counts, optional
   connector/route/workflow dimensions, time-window metadata, and redacted
   failure details.
+- Added a versioned `num.workflow_dashboard.v1` JSON read model for
+  `num workflow-report --json`, including stable workflow counts, workflow
+  lifecycle summaries, pending-compensation flags, and best-effort recent
+  failure/audit summaries.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 

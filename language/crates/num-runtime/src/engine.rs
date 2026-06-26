@@ -5,7 +5,7 @@ use crate::{
     WorkflowState, WorkflowStatus,
 };
 use std::collections::BTreeMap;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct WorkflowStart {
@@ -336,6 +336,7 @@ where
         validate_transition(&state.status, &status)?;
         state.status = status;
         state.updated_at = SystemTime::now();
+        update_workflow_dashboard_metadata(&mut state, &result);
         self.state_store.save_workflow(state.clone())?;
         self.audit_sink
             .append(workflow_audit_event(&state, result))?;
@@ -405,6 +406,7 @@ where
         state.status = status;
         state.updated_at = SystemTime::now();
         mark_event_processed(&mut state.metadata, event_id);
+        update_workflow_dashboard_metadata(&mut state, &result);
         self.state_store.save_workflow(state.clone())?;
         self.audit_sink
             .append(workflow_audit_event(&state, result))?;
@@ -454,6 +456,49 @@ fn workflow_audit_event(state: &WorkflowState, result: AuditResult) -> AuditEven
         correlation_id: state.security.correlation_id.clone(),
         request_id: state.security.request_id.clone(),
     }
+}
+
+fn update_workflow_dashboard_metadata(state: &mut WorkflowState, result: &AuditResult) {
+    let updated_at_ms = system_time_ms(state.updated_at).to_string();
+    let result_name = audit_result_label(result);
+    state.metadata.insert(
+        "last_audit_event".to_string(),
+        format!("{}:{result_name}", state.id),
+    );
+    state
+        .metadata
+        .insert("last_audit_result".to_string(), result_name.to_string());
+    state
+        .metadata
+        .insert("last_audit_at_ms".to_string(), updated_at_ms.clone());
+    if let AuditResult::Failed(reason) = result {
+        state
+            .metadata
+            .insert("failure_reason".to_string(), reason.clone());
+        state
+            .metadata
+            .insert("failure_at_ms".to_string(), updated_at_ms);
+    }
+}
+
+fn audit_result_label(result: &AuditResult) -> &'static str {
+    match result {
+        AuditResult::Started => "Started",
+        AuditResult::Waiting => "Waiting",
+        AuditResult::Resumed => "Resumed",
+        AuditResult::Succeeded => "Succeeded",
+        AuditResult::Failed(_) => "Failed",
+        AuditResult::RolledBack => "RolledBack",
+        AuditResult::Cancelled => "Cancelled",
+    }
+}
+
+fn system_time_ms(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 fn validate_transition(
