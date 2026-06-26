@@ -608,7 +608,7 @@ fn run() -> Result<(), String> {
                     .to_string()
             })?;
             let route_options = parse_route_options(args)?;
-            let compilation = compile_checked(&path)?;
+            let compilation = compile_service_runtime_checked(&path)?;
 
             let service_name = route_options
                 .clone()
@@ -641,7 +641,7 @@ fn run() -> Result<(), String> {
         "serve-once" => {
             let path = required_path(args.next(), "serve-once")?;
             let (addr, service_name) = serve_target(args, "serve-once")?;
-            let compilation = compile_checked(&path)?;
+            let compilation = compile_service_runtime_checked(&path)?;
             let service_name = service_name
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
                 .ok_or_else(|| "No service declared in the module".to_string())?;
@@ -671,7 +671,7 @@ fn run() -> Result<(), String> {
         "serve" => {
             let path = required_path(args.next(), "serve")?;
             let options = parse_serve_options(args)?;
-            let compilation = compile_checked(&path)?;
+            let compilation = compile_service_runtime_checked(&path)?;
             let service_name = options
                 .service_name
                 .or_else(|| ServiceRuntime::first_service_name(&compilation.module))
@@ -792,6 +792,52 @@ fn compile_checked(path: &Path) -> Result<Compilation, String> {
     } else {
         Ok(compilation)
     }
+}
+
+fn compile_service_runtime_checked(path: &Path) -> Result<Compilation, String> {
+    let input = project::load_program_input(path)?;
+    let policy_mode = input.policy_mode.clone();
+    let entry_source_name = input.entry_source_name.clone();
+    let program = compile_program(input.files, entry_source_name.as_deref());
+    let mut diagnostics = program.diagnostics;
+    diagnostics.retain(|diagnostic| {
+        !is_deferred_service_route_policy_diagnostic(&program.module, diagnostic)
+    });
+    let fail_on_warnings =
+        apply_policy_mode(policy_mode.as_deref(), &program.modules, &mut diagnostics)?;
+    let compilation = Compilation {
+        module: program.module,
+        ir: program.ir,
+        diagnostics,
+    };
+    print_diagnostics(&compilation.diagnostics);
+    if has_failing_diagnostics(&compilation.diagnostics, fail_on_warnings) {
+        Err("program has compile errors".to_string())
+    } else {
+        Ok(compilation)
+    }
+}
+
+fn is_deferred_service_route_policy_diagnostic(
+    module: &num_compiler::ast::Module,
+    diagnostic: &num_compiler::diagnostic::Diagnostic,
+) -> bool {
+    diagnostic.code == "N2400"
+        && module.declarations.iter().any(|decl| match decl {
+            num_compiler::ast::Declaration::Service(service) => {
+                service.routes.iter().any(|route| {
+                    route
+                        .body
+                        .iter()
+                        .any(|stmt| span_contains(stmt.span(), &diagnostic.span))
+                })
+            }
+            _ => false,
+        })
+}
+
+fn span_contains(container: &num_compiler::span::Span, inner: &num_compiler::span::Span) -> bool {
+    inner.source == container.source && inner.start >= container.start && inner.end <= container.end
 }
 
 fn connector_executor_for_path(

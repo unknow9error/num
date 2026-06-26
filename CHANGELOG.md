@@ -45,6 +45,9 @@
   `num workflow-report --json`, including stable workflow counts, workflow
   lifecycle summaries, pending-compensation flags, and best-effort recent
   failure/audit summaries.
+- Bound service-route policy checks to the runtime request tenant for
+  tenant-scoped allow/deny rules in `num route`, `num serve`, and
+  `num serve-once`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation
   dimensions plus fixture coverage for action, AI/model, and connector costs.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,

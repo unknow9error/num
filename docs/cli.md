@@ -414,6 +414,11 @@ route` checks `--tenant` and the service runtime checks `X-Tenant` against the
 service tenant before executing the route body. Cross-tenant requests return a
 structured `403` tenant error and write an audit event. If the setting is absent
 or `false`, demo service commands keep the previous permissive behavior.
+Tenant-scoped policy rules also use the request tenant for service routes:
+`num route`, `num serve`, and `num serve-once` defer route-local policy checks
+until request handling, then return `403` with `error.code = "policy_denied"`
+when the route body is not allowed for that tenant. Standalone `num check`
+remains conservative when no runtime tenant is known.
 
 ### `serve`
 

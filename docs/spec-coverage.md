@@ -324,6 +324,9 @@ Implemented:
 - project manifest `[security].tenant_isolation` wiring for `num route`,
   `num serve`, and `num serve-once`, with cross-tenant service-route requests
   rejected before route execution and recorded in audit output;
+- service-route tenant-scoped policy checks using runtime request tenant
+  context for `num route`, `num serve`, and `num serve-once`, while standalone
+  file checks remain conservative without request context;
 - typed JSON request body decoding for route inputs;
 - normalized JSON service-route error responses for `num route`, `num serve`,
   and `num serve-once`, including stable `kind`/`code` fields and
@@ -543,7 +546,6 @@ the same tenant context. Rules can include trust-level constraints such as
 Not yet implemented:
 
 - a complete policy language;
-- binding runtime request tenant context into static service-route policy checks;
 - richer policy conditions beyond stored privacy/provenance/trust labels.
 
 ### Workflow and Saga Semantics

@@ -347,6 +347,11 @@ fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> 
             code: "permission_denied",
             message: message.to_string(),
         }
+    } else if message.contains("Policy Violation") {
+        RouteErrorClass::Permission {
+            code: "policy_denied",
+            message: message.to_string(),
+        }
     } else if message.contains("Missing route input") {
         RouteErrorClass::Validation {
             code: "missing_route_input",
@@ -489,6 +494,23 @@ mod tests {
         serde_json::from_str(&response.body).unwrap()
     }
 
+    fn tenant_scoped_policy_source() -> &'static str {
+        r#"
+module test.api
+
+policy DataSharing {
+    allow private UserInput -> ExternalApi for tenant tenant_a
+}
+
+service BillingApi {
+    route POST "/refunds" {
+        let email: Text from UserInput private = "user@example.com"
+        external.analytics.send(email)
+    }
+}
+"#
+    }
+
     #[test]
     fn maps_http_request_to_service_route() {
         let source = r#"
@@ -534,6 +556,10 @@ type TokenRequest {
 
 connector secrets {
     send(token: Secret<Text> from HttpBody secret) -> Unit
+}
+
+policy SecretRouting {
+    allow secret HttpBody -> secrets.send
 }
 
 service SecretApi {
@@ -758,6 +784,71 @@ service BillingApi {
         assert_eq!(records[0].2, "/refunds");
         assert_eq!(records[0].3.len(), 1);
         assert!(records[0].3[0].contains("tenant_isolation_violation"));
+    }
+
+    #[test]
+    fn service_route_policy_uses_request_tenant_context() {
+        let compilation = compile("test.num", tenant_scoped_policy_source());
+        assert!(
+            compilation
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "N2400"),
+            "standalone checks must stay conservative without runtime tenant context"
+        );
+        assert!(num_compiler::semantic::check_service_route_for_tenant(
+            &compilation.module,
+            "BillingApi",
+            "POST",
+            "/refunds",
+            "tenant_a",
+        )
+        .is_empty());
+        assert!(num_compiler::semantic::check_service_route_for_tenant(
+            &compilation.module,
+            "BillingApi",
+            "POST",
+            "/refunds",
+            "tenant_b",
+        )
+        .iter()
+        .any(|diagnostic| diagnostic.code == "N2400"));
+
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![]);
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_a".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, "ok\n");
+    }
+
+    #[test]
+    fn service_route_policy_denies_wrong_request_tenant() {
+        let compilation = compile("test.num", tenant_scoped_policy_source());
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![]);
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_b".to_string());
+        request
+            .headers
+            .insert("x-request-id".to_string(), "req_policy".to_string());
+        request
+            .headers
+            .insert("x-correlation-id".to_string(), "corr_policy".to_string());
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 403);
+        let body = error_body(&response);
+        assert_eq!(body["error"]["kind"], "permission");
+        assert_eq!(body["error"]["code"], "policy_denied");
+        assert_eq!(body["error"]["request_id"], "req_policy");
+        assert_eq!(body["error"]["correlation_id"], "corr_policy");
     }
 
     #[test]
