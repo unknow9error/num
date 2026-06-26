@@ -26,6 +26,8 @@ pub struct CostDimensions {
     pub model: Option<String>,
     pub workflow: Option<String>,
     pub route: Option<String>,
+    pub request_id: Option<String>,
+    pub correlation_id: Option<String>,
     pub actor: Option<String>,
     pub tenant: Option<String>,
 }

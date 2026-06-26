@@ -16,6 +16,8 @@ pub struct CostReport {
     pub by_model: BTreeMap<String, BTreeMap<String, i128>>,
     pub by_workflow: BTreeMap<String, BTreeMap<String, i128>>,
     pub by_route: BTreeMap<String, BTreeMap<String, i128>>,
+    pub by_request_id: BTreeMap<String, BTreeMap<String, i128>>,
+    pub by_correlation_id: BTreeMap<String, BTreeMap<String, i128>>,
     pub by_actor: BTreeMap<String, BTreeMap<String, i128>>,
     pub by_tenant: BTreeMap<String, BTreeMap<String, i128>>,
     pub time_window: CostTimeWindow,
@@ -36,6 +38,8 @@ impl CostReport {
                 "by_model": nested_money_map_to_json(&self.by_model),
                 "by_workflow": nested_money_map_to_json(&self.by_workflow),
                 "by_route": nested_money_map_to_json(&self.by_route),
+                "by_request_id": nested_money_map_to_json(&self.by_request_id),
+                "by_correlation_id": nested_money_map_to_json(&self.by_correlation_id),
                 "by_actor": nested_money_map_to_json(&self.by_actor),
                 "by_tenant": nested_money_map_to_json(&self.by_tenant),
             },
@@ -47,6 +51,8 @@ impl CostReport {
                 "model",
                 "workflow",
                 "route",
+                "request_id",
+                "correlation_id",
                 "actor",
                 "tenant",
             ],
@@ -55,6 +61,8 @@ impl CostReport {
                 "model": "present when a cost entry is emitted from an AI/model-aware runtime boundary",
                 "workflow": "present when a cost entry is emitted with workflow context",
                 "route": "present when a cost entry is emitted with service route context",
+                "request_id": "present when a cost entry is emitted with request context",
+                "correlation_id": "present when a cost entry is emitted with request correlation context",
                 "actor": "present when a cost entry is emitted with actor context",
                 "tenant": "present when a cost entry is emitted with tenant context",
                 "time_window": "start_unix_ms and end_unix_ms are present when raw entries carry timestamps",
@@ -196,6 +204,16 @@ pub fn summarize_cost_entries(entries: &[CostEntry]) -> CostReport {
             &entry.amount,
         );
         add_optional_dimension_money(
+            &mut report.by_request_id,
+            entry.dimensions.request_id.as_deref(),
+            &entry.amount,
+        );
+        add_optional_dimension_money(
+            &mut report.by_correlation_id,
+            entry.dimensions.correlation_id.as_deref(),
+            &entry.amount,
+        );
+        add_optional_dimension_money(
             &mut report.by_actor,
             entry.dimensions.actor.as_deref(),
             &entry.amount,
@@ -267,6 +285,8 @@ fn dimensions_to_json(dimensions: &CostDimensions) -> Value {
         "model": dimensions.model,
         "workflow": dimensions.workflow,
         "route": dimensions.route,
+        "request_id": dimensions.request_id,
+        "correlation_id": dimensions.correlation_id,
         "actor": dimensions.actor,
         "tenant": dimensions.tenant,
     })
@@ -327,6 +347,10 @@ mod tests {
         assert_eq!(report.by_connector["ai.complete"]["USD"], 200);
         assert_eq!(report.by_model["gpt-4.1-mini"]["USD"], 200);
         assert_eq!(report.by_workflow["refund"]["USD"], 200);
+        assert_eq!(report.by_route["POST /refunds"]["USD"], 125);
+        assert_eq!(report.by_route["POST /refunds"]["KZT"], 1500);
+        assert_eq!(report.by_request_id["req_1"]["USD"], 125);
+        assert_eq!(report.by_correlation_id["corr_1"]["USD"], 200);
         assert_eq!(report.by_tenant["tenant_a"]["USD"], 200);
         assert_eq!(report.by_actor["user_1"]["USD"], 125);
         assert_eq!(
@@ -335,13 +359,22 @@ mod tests {
         );
         assert_eq!(
             json["time_window"]["end_unix_ms"],
-            json!(1_700_000_000_500i64)
+            json!(1_700_000_001_000i64)
         );
         assert_eq!(
             json["raw_entries"][0]["dimensions"]["connector"],
             "ai.complete"
         );
-        assert_eq!(json["totals"]["by_route"], json!([]));
+        assert_eq!(
+            json["totals"]["by_route"][0],
+            json!({
+                "key": "POST /refunds",
+                "totals": [
+                    { "currency": "KZT", "minor_units": 1500 },
+                    { "currency": "USD", "minor_units": 125 }
+                ]
+            })
+        );
     }
 
     #[test]
@@ -375,7 +408,9 @@ mod tests {
                     connector: Some("ai.complete".to_string()),
                     model: Some("gpt-4.1-mini".to_string()),
                     workflow: Some("refund".to_string()),
-                    route: None,
+                    route: Some("POST /refunds".to_string()),
+                    request_id: Some("req_1".to_string()),
+                    correlation_id: Some("corr_1".to_string()),
                     actor: Some("user_1".to_string()),
                     tenant: Some("tenant_a".to_string()),
                 },
@@ -392,10 +427,30 @@ mod tests {
                     model: Some("gpt-4.1-mini".to_string()),
                     workflow: Some("refund".to_string()),
                     route: None,
+                    request_id: Some("req_2".to_string()),
+                    correlation_id: Some("corr_1".to_string()),
                     actor: Some("user_2".to_string()),
                     tenant: Some("tenant_a".to_string()),
                 },
                 recorded_at_unix_ms: Some(1_700_000_000_500),
+            },
+            CostEntry {
+                action: "issue_refund".to_string(),
+                amount: Money {
+                    minor_units: 1500,
+                    currency: "KZT".to_string(),
+                },
+                dimensions: CostDimensions {
+                    connector: Some("payments.refund".to_string()),
+                    model: None,
+                    workflow: Some("refund".to_string()),
+                    route: Some("POST /refunds".to_string()),
+                    request_id: Some("req_3".to_string()),
+                    correlation_id: Some("corr_2".to_string()),
+                    actor: Some("user_1".to_string()),
+                    tenant: Some("tenant_a".to_string()),
+                },
+                recorded_at_unix_ms: Some(1_700_000_001_000),
             },
         ]
     }
