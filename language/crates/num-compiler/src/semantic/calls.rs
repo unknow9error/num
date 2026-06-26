@@ -147,6 +147,11 @@ impl<'a> Checker<'a> {
                 continue;
             };
 
+            if is_scalar_validator(call_name) {
+                self.scalar_validator_call(raw, call_name, &call.args, env);
+                continue;
+            }
+
             if is_builtin_runtime_function(call_name)
                 || is_result_constructor_name(call_name)
                 || is_option_constructor_name(call_name)
@@ -212,6 +217,73 @@ impl<'a> Checker<'a> {
                         .with_help("pass a value with the callable parameter type"),
                     );
                 }
+            }
+        }
+    }
+
+    fn scalar_validator_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if args.len() != 1 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "validator `{call_name}` expects 1 argument, got {}",
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("scalar validators validate exactly one text value")
+                .with_help("pass one Text expression to the validator"),
+            );
+            return;
+        }
+
+        let Some(actual_ty) = self.expr_type_in_context(
+            &args[0],
+            env,
+            Some(&TypeRef {
+                raw: "Text".to_string(),
+            }),
+        ) else {
+            return;
+        };
+        if !self.types_compatible(
+            &TypeRef {
+                raw: "Text".to_string(),
+            },
+            &actual_ty,
+        ) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2706",
+                    format!(
+                        "validator `{call_name}` argument has type `{}`, expected `Text`",
+                        actual_ty.raw
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("scalar validators operate on raw text input")
+                .with_help("convert the value to Text before validating it"),
+            );
+        }
+
+        if let Expr::String(value) = &args[0] {
+            if let Err(reason) = validate_scalar_value(call_name, value) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2707",
+                        format!("invalid literal for `{call_name}`: {reason}"),
+                        raw.span.clone(),
+                    )
+                    .with_reason("literal scalar values can be validated at compile time")
+                    .with_help("fix the literal or validate dynamic user input at runtime"),
+                );
             }
         }
     }
@@ -343,7 +415,11 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "require_human_review"
             | "sanitize"
             | "unbrand"
+            | "validate_email"
+            | "validate_phone_number"
             | "validate_trust"
+            | "validate_url"
+            | "validate_uuid"
             | "verify_trust"
     )
 }

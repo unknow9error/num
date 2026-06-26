@@ -94,6 +94,30 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Trust gateway for validation-backed promotion of untrusted data.",
     },
     BuiltinSymbol {
+        name: "validate_email",
+        kind: BuiltinKind::Function,
+        signature: "validate_email(value: Text) -> Email",
+        documentation: "Validates a text value as a simple email address and returns Email without changing privacy or provenance labels.",
+    },
+    BuiltinSymbol {
+        name: "validate_url",
+        kind: BuiltinKind::Function,
+        signature: "validate_url(value: Text) -> Url",
+        documentation: "Validates an absolute http(s) URL and returns Url without changing privacy or provenance labels.",
+    },
+    BuiltinSymbol {
+        name: "validate_uuid",
+        kind: BuiltinKind::Function,
+        signature: "validate_uuid(value: Text) -> Uuid",
+        documentation: "Validates an RFC 4122-style UUID string and returns Uuid without changing privacy or provenance labels.",
+    },
+    BuiltinSymbol {
+        name: "validate_phone_number",
+        kind: BuiltinKind::Function,
+        signature: "validate_phone_number(value: Text) -> PhoneNumber",
+        documentation: "Validates a conservative E.164-style phone number and returns PhoneNumber without changing privacy or provenance labels.",
+    },
+    BuiltinSymbol {
         name: "verify_trust",
         kind: BuiltinKind::Function,
         signature: "verify_trust(value)",

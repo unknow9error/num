@@ -6,7 +6,9 @@ use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
-use crate::{redaction, ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext};
+use crate::{
+    redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext,
+};
 use num_compiler::ast::{
     Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
 };
@@ -1319,6 +1321,9 @@ impl<'a> Runtime<'a> {
             "anonymize" | "sanitize" | "validate_trust" | "verify_trust" => {
                 return Ok(args.into_iter().next().unwrap_or(Value::Null));
             }
+            "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
+                return self.call_scalar_validator(name, args);
+            }
             "unbrand" => {
                 if args.len() != 1 {
                     return Err(format!(
@@ -1613,6 +1618,28 @@ impl<'a> Runtime<'a> {
             }
             _ => Err(format!("'{}' is not a callable declaration", name)),
         }
+    }
+
+    fn call_scalar_validator(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "{name} expects exactly one Text argument, got {}",
+                args.len()
+            ));
+        }
+        let value = args.into_iter().next().unwrap_or(Value::Null);
+        let Value::String(raw) = value else {
+            return Err(format!("{name} expects Text input, got {value}"));
+        };
+        let validated = match name {
+            "validate_email" => scalar_validation::validate_email(&raw),
+            "validate_url" => scalar_validation::validate_url(&raw),
+            "validate_uuid" => scalar_validation::validate_uuid(&raw),
+            "validate_phone_number" => scalar_validation::validate_phone_number(&raw),
+            _ => Ok(raw),
+        }
+        .map_err(|reason| format!("{name} failed: {reason}"))?;
+        Ok(Value::String(validated))
     }
 
     fn is_declared_connector_call(&self, name: &str) -> bool {

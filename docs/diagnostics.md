@@ -165,10 +165,12 @@ runtime instance.
 - `N2703` - connector method call has the wrong number of arguments.
 - `N2704` - connector method call argument type does not match the connector
   schema.
-- `N2705` - direct `fn`, `workflow`, or `action` call has the wrong number of
-  arguments.
-- `N2706` - direct `fn`, `workflow`, or `action` call argument type does not
-  match the callable signature.
+- `N2705` - direct `fn`, `workflow`, `action`, or built-in validator call has
+  the wrong number of arguments.
+- `N2706` - direct `fn`, `workflow`, `action`, or built-in validator call
+  argument type does not match the callable signature.
+- `N2707` - built-in scalar validator was called with a literal that cannot
+  satisfy the requested scalar type.
 - `N2800` - duplicate service route method/path inside a `service`.
 
 ## Expressions

@@ -51,6 +51,9 @@
 - Added a `RateLimitStore` boundary with tenant/actor/subject keys, shared
   in-memory runtime handles, and a file-backed local adapter for rate-limit
   enforcement across runtime instances.
+- Added stdlib scalar validators for `Email`, `Url`, `Uuid`, and `PhoneNumber`,
+  including compile-time diagnostics for invalid literals and runtime errors for
+  invalid dynamic text input.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

@@ -19,6 +19,7 @@ pub mod process_connectors;
 pub mod rate_limit;
 pub mod redaction;
 pub mod sanitization;
+pub mod scalar_validation;
 pub mod secrets;
 pub mod service;
 pub mod storage;
@@ -1114,6 +1115,69 @@ workflow main() {
             runtime.audit_events(),
             &["\"private@example.com\"".to_string()]
         );
+    }
+
+    #[test]
+    fn test_runtime_executes_scalar_validator_builtins() {
+        let source = r#"
+module test.scalar_validators
+
+workflow main(raw_email: Text) {
+    let email: Email = validate_email(raw_email)
+    let url: Url = validate_url("https://example.com/refunds")
+    let id: Uuid = validate_uuid("550E8400-E29B-41D4-A716-446655440000")
+    let phone: PhoneNumber = validate_phone_number("+77001234567")
+    audit(email)
+    audit(url)
+    audit(id)
+    audit(phone)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "raw_email".to_string(),
+            Value::String("  USER+Refund@Example.COM  ".to_string()),
+        );
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"USER+Refund@Example.COM\"".to_string(),
+                "\"https://example.com/refunds\"".to_string(),
+                "\"550e8400-e29b-41d4-a716-446655440000\"".to_string(),
+                "\"+77001234567\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_runtime_scalar_validator_reports_invalid_dynamic_input() {
+        let source = r#"
+module test.scalar_validators
+
+workflow main(raw_email: Text) {
+    let email: Email = validate_email(raw_email)
+    audit(email)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "raw_email".to_string(),
+            Value::String("not-an-email".to_string()),
+        );
+
+        let err = runtime.run_workflow("main", args).unwrap_err();
+
+        assert!(err.contains("validate_email failed"));
+        assert!(err.contains("expected one `@` separator"));
     }
 
     #[test]

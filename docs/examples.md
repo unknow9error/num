@@ -14,6 +14,7 @@ num check examples/ai_agent/src/main.num
 num check examples/policy_guard/src/main.num
 num check examples/contract_driven_refund/src/main.num
 num check examples/async_tasks/src/main.num
+num check examples/scalar_validation/src/main.num
 num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
@@ -88,6 +89,26 @@ Useful command:
 
 ```bash
 num check examples/policy_guard/src/main.num
+```
+
+## `scalar_validation`
+
+Path: `examples/scalar_validation/src/main.num`
+
+Demonstrates:
+
+- `validate_email`, `validate_url`, `validate_uuid`, and
+  `validate_phone_number`;
+- validation of private untrusted user input before external API calls;
+- preservation of `UserInput` provenance and `private` privacy labels after
+  validation;
+- a narrow policy that only allows private trusted user input to leave through
+  `ExternalApi`.
+
+Useful command:
+
+```bash
+num check examples/scalar_validation/src/main.num
 ```
 
 ## `contract_driven_refund`

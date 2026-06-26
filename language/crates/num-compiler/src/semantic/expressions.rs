@@ -433,6 +433,7 @@ impl<'a> Checker<'a> {
                         .map(|param| param.ty.clone())
                         .collect()
                 })
+                .or_else(|| scalar_validator_param_types(call_name))
                 .or_else(|| self.enum_constructor_param_types(callee))
                 .or_else(|| self.brand_constructor_param_types(callee)),
             [namespace, method] => self
@@ -455,6 +456,7 @@ impl<'a> Checker<'a> {
                         raw: "Unit".to_string(),
                     })
                 })
+                .or_else(|| scalar_validator_result_type(call_name))
                 .or_else(|| self.brand_constructor_result_type(callee)),
             [namespace, method] => self
                 .connector_methods

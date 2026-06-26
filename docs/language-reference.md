@@ -331,6 +331,35 @@ Built-in currency symbols:
 - `RUB`
 - `CNY`
 
+### Scalar Validators
+
+`Email`, `Url`, `Uuid`, and `PhoneNumber` are validated with explicit standard
+library helpers:
+
+```num
+let email: Email from UserInput private trusted = validate_email(raw_email)
+let profile: Url from UserInput private trusted = validate_url(raw_profile)
+let request_id: Uuid from UserInput private trusted = validate_uuid(raw_request_id)
+let phone: PhoneNumber from UserInput private trusted = validate_phone_number(raw_phone)
+```
+
+The validators accept `Text` and return the corresponding scalar type. They are
+trust gateways for untrusted input while preserving source and privacy labels:
+validated private user input is still private user input for policy checks.
+
+Validation is intentionally conservative in the first stdlib slice:
+
+- email values require one `@`, non-empty local/domain parts, a dotted domain,
+  and ASCII email-safe characters;
+- URL values must be absolute `http://` or `https://` URLs with a dotted ASCII
+  host;
+- UUID values use the 8-4-4-4-12 hexadecimal form;
+- phone numbers use 8 to 15 digits with an optional leading `+`.
+
+Locale-specific phone parsing, IDNA/punycode domains, provider-specific email
+rules, and non-HTTP URL schemes remain explicit connector/provider policy
+instead of hidden stdlib behavior.
+
 ### `Option<T>`
 
 `Option<T>` represents nullable values without ordinary `null`.

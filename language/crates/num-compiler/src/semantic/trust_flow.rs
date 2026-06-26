@@ -382,7 +382,11 @@ fn is_trust_gateway_expr(expr: &Expr) -> bool {
         matches!(
             call.path.as_slice(),
             ["sanitize"]
+                | ["validate_email"]
+                | ["validate_phone_number"]
                 | ["validate_trust"]
+                | ["validate_url"]
+                | ["validate_uuid"]
                 | ["verify_trust"]
                 | ["require_human_review"]
                 | ["require_human_approval"]

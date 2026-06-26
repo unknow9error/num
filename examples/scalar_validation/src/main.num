@@ -1,0 +1,23 @@
+module examples.scalar_validation
+
+policy ContactExport {
+    allow private trusted UserInput -> ExternalApi
+}
+
+workflow submit_contact(
+    raw_email: Text from UserInput private untrusted,
+    raw_profile: Text from UserInput private untrusted,
+    raw_request_id: Text from UserInput private untrusted,
+    raw_phone: Text from UserInput private untrusted
+) {
+    let email: Email from UserInput private trusted = validate_email(raw_email)
+    let profile: Url from UserInput private trusted = validate_url(raw_profile)
+    let request_id: Uuid from UserInput private trusted = validate_uuid(raw_request_id)
+    let phone: PhoneNumber from UserInput private trusted = validate_phone_number(raw_phone)
+
+    external.crm.send(email)
+    external.crm.send(profile)
+    external.crm.send(request_id)
+    external.crm.send(phone)
+    audit("contact_validated")
+}
