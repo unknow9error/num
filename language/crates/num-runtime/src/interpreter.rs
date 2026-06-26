@@ -7,7 +7,7 @@ use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
 use crate::{
-    hashing, redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError,
+    datetime, hashing, redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError,
     SecurityContext,
 };
 use num_compiler::ast::{
@@ -1325,6 +1325,12 @@ impl<'a> Runtime<'a> {
             "hash_sha256_hex" | "hash_sha256_base64" => {
                 return self.call_hash_helper(name, args);
             }
+            "datetime_parse_iso"
+            | "datetime_format_iso"
+            | "duration_parse_hours"
+            | "duration_format_hours" => {
+                return self.call_datetime_duration_helper(name, args);
+            }
             "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
                 return self.call_scalar_validator(name, args);
             }
@@ -1665,6 +1671,54 @@ impl<'a> Runtime<'a> {
         Ok(Value::String(digest))
     }
 
+    fn call_datetime_duration_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "{name} expects exactly one date/time argument, got {}",
+                args.len()
+            ));
+        }
+        let value = args.into_iter().next().unwrap_or(Value::Null);
+        match name {
+            "datetime_parse_iso" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                datetime::parse_iso_utc(&raw)
+                    .map(Value::String)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "datetime_format_iso" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects DateTime input, got {value}"));
+                };
+                datetime::format_iso_utc(&raw)
+                    .map(Value::String)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "duration_parse_hours" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                datetime::parse_duration_hours(&raw)
+                    .map(|hours| Value::Quantity(hours, "Hour".to_string()))
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "duration_format_hours" => {
+                let Value::Quantity(hours, unit) = value else {
+                    return Err(format!("{name} expects Duration<Hour> input, got {value}"));
+                };
+                if unit != "Hour" && unit != "h" {
+                    return Err(format!("{name} expects Duration<Hour>, got unit {unit}"));
+                }
+                datetime::format_duration_hours(hours)
+                    .map(Value::String)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            _ => Ok(value),
+        }
+    }
+
     fn is_declared_connector_call(&self, name: &str) -> bool {
         let Some((connector_name, method_name)) = name.split_once('.') else {
             return false;
@@ -1812,6 +1866,11 @@ fn compare_ordered_values(op: &str, left: Value, right: Value) -> Result<Value, 
         {
             compare_f64(op, *left_amount, *right_amount)
         }
+        (Value::String(left), Value::String(right)) => {
+            let ordering = datetime::compare_iso_utc(left, right)
+                .map_err(|reason| format!("Cannot compare DateTime values: {reason}"))?;
+            compare_ordering(op, ordering)
+        }
         _ => return Err(format!("Cannot compare {left} {op} {right}")),
     };
     Ok(Value::Bool(result))
@@ -1842,6 +1901,19 @@ fn eval_binary(op: BinaryOp, left: Value, right: Value) -> Result<Value, String>
 
 fn eval_arithmetic(op: &str, left: Value, right: Value) -> Result<Value, String> {
     match (left, right) {
+        (Value::String(left), Value::Quantity(hours, unit))
+            if matches!(op, "+" | "-") && (unit == "Hour" || unit == "h") =>
+        {
+            let shifted = if op == "+" {
+                datetime::add_duration_hours(&left, hours)
+            } else {
+                datetime::subtract_duration_hours(&left, hours)
+            }
+            .map_err(|reason| {
+                format!("Cannot apply {op} to DateTime and Duration<Hour>: {reason}")
+            })?;
+            Ok(Value::String(shifted))
+        }
         (Value::Quantity(left, left_unit), Value::Quantity(right, right_unit)) => match op {
             "+" if left_unit == right_unit => Ok(Value::Quantity(left + right, left_unit)),
             "-" if left_unit == right_unit => Ok(Value::Quantity(left - right, left_unit)),
@@ -1976,6 +2048,16 @@ fn compare_f64(op: &str, left: f64, right: f64) -> bool {
         "<=" => left <= right,
         ">" => left > right,
         ">=" => left >= right,
+        _ => false,
+    }
+}
+
+fn compare_ordering(op: &str, ordering: std::cmp::Ordering) -> bool {
+    match op {
+        "<" => ordering.is_lt(),
+        "<=" => !ordering.is_gt(),
+        ">" => ordering.is_gt(),
+        ">=" => !ordering.is_lt(),
         _ => false,
     }
 }

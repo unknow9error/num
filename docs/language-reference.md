@@ -386,6 +386,37 @@ Hashing does not automatically remove privacy or provenance labels. A hash of
 private user input may still be linkable private data, so declassification
 requires an explicit policy decision or `anonymize(...)` where appropriate.
 
+### DateTime and Duration Helpers
+
+`DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:
+
+```num
+let created_at: DateTime = datetime_parse_iso(raw_created_at)
+let timeout: Duration<Hour> = duration_parse_hours("4h")
+let deadline: DateTime = created_at + timeout
+let retry_at: DateTime = deadline - duration_parse_hours("1h")
+let deadline_text: Text = datetime_format_iso(deadline)
+let timeout_text: Text = duration_format_hours(timeout)
+```
+
+The supported helpers are deliberately small and deterministic:
+
+- `datetime_parse_iso(value: Text) -> DateTime` accepts
+  `YYYY-MM-DDTHH:MM:SSZ` only;
+- `datetime_format_iso(value: DateTime) -> Text` returns canonical UTC ISO text;
+- `duration_parse_hours(value: Text) -> Duration<Hour>` accepts hour values such
+  as `4h` or `1.5 h`;
+- `duration_format_hours(value: Duration<Hour>) -> Text` returns compact hour
+  text;
+- `DateTime + Duration<Hour>` and `DateTime - Duration<Hour>` return
+  `DateTime`;
+- `DateTime` values can be compared with `<`, `<=`, `>`, and `>=`.
+
+Timezone behavior is explicit: this slice accepts only UTC `Z` timestamps and
+does not infer local time, offsets, daylight-saving transitions, calendars,
+locale formatting, leap seconds, or month/year duration arithmetic. Those remain
+connector or future stdlib work.
+
 ### `Option<T>`
 
 `Option<T>` represents nullable values without ordinary `null`.

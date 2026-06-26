@@ -2621,6 +2621,41 @@ fn hash_helper_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_datetime_duration_helper(name: &str) -> bool {
+    matches!(
+        name,
+        "datetime_parse_iso"
+            | "datetime_format_iso"
+            | "duration_parse_hours"
+            | "duration_format_hours"
+    )
+}
+
+fn datetime_duration_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    let raw = match name {
+        "datetime_parse_iso" | "duration_parse_hours" => "Text",
+        "datetime_format_iso" => "DateTime",
+        "duration_format_hours" => "Duration<Hour>",
+        _ => return None,
+    };
+    Some(vec![TypeRef {
+        raw: raw.to_string(),
+    }])
+}
+
+fn datetime_duration_result_type(name: &str) -> Option<TypeRef> {
+    let raw = match name {
+        "datetime_parse_iso" => "DateTime",
+        "datetime_format_iso" => "Text",
+        "duration_parse_hours" => "Duration<Hour>",
+        "duration_format_hours" => "Text",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
+    })
+}
+
 fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
     match validator {
         "validate_email" => validate_email_literal(value),
@@ -2629,6 +2664,84 @@ fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
         "validate_phone_number" => validate_phone_number_literal(value),
         _ => Ok(()),
     }
+}
+
+fn validate_datetime_duration_literal(helper: &str, value: &str) -> Result<(), String> {
+    match helper {
+        "datetime_parse_iso" => validate_iso_utc_literal(value),
+        "duration_parse_hours" => validate_duration_hours_literal(value),
+        _ => Ok(()),
+    }
+}
+
+fn validate_iso_utc_literal(value: &str) -> Result<(), String> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
+        return Err("expected UTC ISO-8601 form YYYY-MM-DDTHH:MM:SSZ".to_string());
+    }
+    let year = parse_fixed_i32(value, 0, 4, "year")?;
+    let month = parse_fixed_u32(value, 5, 7, "month")?;
+    let day = parse_fixed_u32(value, 8, 10, "day")?;
+    let hour = parse_fixed_u32(value, 11, 13, "hour")?;
+    let minute = parse_fixed_u32(value, 14, 16, "minute")?;
+    let second = parse_fixed_u32(value, 17, 19, "second")?;
+    if !(1..=12).contains(&month) {
+        return Err("month must be 01..12".to_string());
+    }
+    if day == 0 || day > days_in_month(year, month) {
+        return Err("day is outside the month range".to_string());
+    }
+    if hour > 23 || minute > 59 || second > 59 {
+        return Err("time must be within 00:00:00..23:59:59".to_string());
+    }
+    Ok(())
+}
+
+fn validate_duration_hours_literal(value: &str) -> Result<(), String> {
+    let normalized = value.trim().replace(' ', "");
+    let Some(number) = normalized.strip_suffix('h') else {
+        return Err("expected an hour duration ending in `h`".to_string());
+    };
+    let hours = number
+        .parse::<f64>()
+        .map_err(|_| "expected a numeric hour amount before `h`".to_string())?;
+    if !hours.is_finite() {
+        return Err("duration hours must be finite".to_string());
+    }
+    Ok(())
+}
+
+fn parse_fixed_i32(value: &str, start: usize, end: usize, label: &str) -> Result<i32, String> {
+    value[start..end]
+        .parse::<i32>()
+        .map_err(|_| format!("{label} must be numeric"))
+}
+
+fn parse_fixed_u32(value: &str, start: usize, end: usize, label: &str) -> Result<u32, String> {
+    value[start..end]
+        .parse::<u32>()
+        .map_err(|_| format!("{label} must be numeric"))
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 fn validate_email_literal(value: &str) -> Result<(), String> {
@@ -2709,6 +2822,9 @@ fn types_compatible(expected: &TypeRef, actual: &TypeRef) -> bool {
 fn arithmetic_result_type(op: BinaryOp, left: &TypeRef, right: &TypeRef) -> Option<TypeRef> {
     match op {
         BinaryOp::Add | BinaryOp::Subtract => {
+            if left.raw == "DateTime" && is_hour_duration_type(right) {
+                return Some(left.clone());
+            }
             if is_numeric_type(left) && types_compatible(left, right) {
                 return Some(left.clone());
             }
@@ -2900,6 +3016,10 @@ fn is_distance_type(ty: &TypeRef) -> bool {
 
 fn is_duration_type(ty: &TypeRef) -> bool {
     ty.raw.starts_with("Duration<") && generic_arg(&ty.raw).is_some()
+}
+
+fn is_hour_duration_type(ty: &TypeRef) -> bool {
+    generic_arg(&ty.raw).as_deref() == Some("Hour") && is_duration_type(ty)
 }
 
 fn is_speed_type(ty: &TypeRef) -> bool {

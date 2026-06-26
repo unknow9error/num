@@ -6,6 +6,7 @@ pub mod connectors;
 pub mod cost;
 pub mod cost_report;
 pub mod database;
+pub mod datetime;
 pub mod debugger;
 pub mod engine;
 pub mod events;
@@ -1212,6 +1213,66 @@ workflow main(raw: Text, payload: Bytes) {
                 "\"ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=\"".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_runtime_executes_datetime_duration_helpers() {
+        let source = r#"
+module test.datetime_duration
+
+workflow main(raw_deadline: Text, raw_window: Text) {
+    let start: DateTime = datetime_parse_iso(raw_deadline)
+    let window: Duration<Hour> = duration_parse_hours(raw_window)
+    let deadline: DateTime = start + window
+    let earlier: DateTime = deadline - window
+    let deadline_text: Text = datetime_format_iso(deadline)
+    let window_text: Text = duration_format_hours(window)
+    assert earlier < deadline
+    audit(deadline_text)
+    audit(window_text)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "raw_deadline".to_string(),
+            Value::String("2026-06-30T23:00:00Z".to_string()),
+        );
+        args.insert("raw_window".to_string(), Value::String("2h".to_string()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &["\"2026-07-01T01:00:00Z\"".to_string(), "\"2h\"".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_runtime_rejects_invalid_datetime_input() {
+        let source = r#"
+module test.datetime_duration
+
+workflow main(raw_deadline: Text) {
+    let start: DateTime = datetime_parse_iso(raw_deadline)
+    audit(start)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "raw_deadline".to_string(),
+            Value::String("2026-06-30T23:00:00+06:00".to_string()),
+        );
+
+        let err = runtime.run_workflow("main", args).unwrap_err();
+
+        assert!(err.contains("datetime_parse_iso failed"));
+        assert!(err.contains("YYYY-MM-DDTHH:MM:SSZ"));
     }
 
     #[test]

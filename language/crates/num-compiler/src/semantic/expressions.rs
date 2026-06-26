@@ -435,6 +435,7 @@ impl<'a> Checker<'a> {
                 })
                 .or_else(|| scalar_validator_param_types(call_name))
                 .or_else(|| hash_helper_param_types(call_name))
+                .or_else(|| datetime_duration_param_types(call_name))
                 .or_else(|| self.enum_constructor_param_types(callee))
                 .or_else(|| self.brand_constructor_param_types(callee)),
             [namespace, method] => self
@@ -459,6 +460,7 @@ impl<'a> Checker<'a> {
                 })
                 .or_else(|| scalar_validator_result_type(call_name))
                 .or_else(|| hash_helper_result_type(call_name))
+                .or_else(|| datetime_duration_result_type(call_name))
                 .or_else(|| self.brand_constructor_result_type(callee)),
             [namespace, method] => self
                 .connector_methods

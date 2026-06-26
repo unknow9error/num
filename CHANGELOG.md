@@ -56,6 +56,9 @@
   invalid dynamic text input.
 - Added explicit SHA-256 stdlib hashing helpers for `Text`/`Bytes` inputs with
   hex and base64 output functions for deterministic non-password hashing.
+- Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
+  parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
+  comparisons.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

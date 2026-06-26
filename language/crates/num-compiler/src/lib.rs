@@ -1187,6 +1187,66 @@ workflow main(count: Int) {
     }
 
     #[test]
+    fn accepts_datetime_duration_helpers_and_arithmetic() {
+        let source = r#"
+module tests.datetime_duration
+
+workflow main(raw_deadline: Text, raw_window: Text) {
+    let start: DateTime = datetime_parse_iso(raw_deadline)
+    let window: Duration<Hour> = duration_parse_hours(raw_window)
+    let deadline: DateTime = start + window
+    let earlier: DateTime = deadline - window
+    let deadline_text: Text = datetime_format_iso(deadline)
+    let window_text: Text = duration_format_hours(window)
+    assert earlier <= deadline
+    audit(deadline_text)
+    audit(window_text)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_datetime_duration_literals() {
+        let source = r#"
+module tests.datetime_duration
+
+workflow main() {
+    let deadline: DateTime = datetime_parse_iso("2026-02-29T00:00:00Z")
+    let window: Duration<Hour> = duration_parse_hours("four hours")
+}
+"#;
+
+        let codes = codes(source);
+        assert_eq!(codes.iter().filter(|code| **code == "N2707").count(), 2);
+    }
+
+    #[test]
+    fn rejects_datetime_duration_helper_type_mismatch() {
+        let source = r#"
+module tests.datetime_duration
+
+workflow main(count: Int, deadline: DateTime) {
+    let invalid_deadline: DateTime = datetime_parse_iso(count)
+    let invalid_duration: Text = duration_format_hours(deadline)
+}
+"#;
+
+        assert_eq!(
+            codes(source)
+                .iter()
+                .filter(|code| **code == "N2706")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

@@ -1,0 +1,13 @@
+module examples.datetime_deadlines
+
+workflow route_deadline(raw_created_at: Text from UserInput internal trusted, raw_window: Text from Config internal trusted) {
+    let created_at: DateTime from UserInput internal trusted = datetime_parse_iso(raw_created_at)
+    let timeout: Duration<Hour> from Config internal trusted = duration_parse_hours(raw_window)
+    let deadline: DateTime from DerivedData internal trusted = created_at + timeout
+    let retry_at: DateTime from DerivedData internal trusted = deadline - duration_parse_hours("1h")
+    let deadline_text: Text from DerivedData internal trusted = datetime_format_iso(deadline)
+    let retry_text: Text from DerivedData internal trusted = datetime_format_iso(retry_at)
+    assert retry_at < deadline
+    audit(deadline_text)
+    audit(retry_text)
+}

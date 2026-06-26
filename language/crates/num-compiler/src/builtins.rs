@@ -130,6 +130,30 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Computes a SHA-256 digest for deterministic non-password hashing and returns standard base64 text.",
     },
     BuiltinSymbol {
+        name: "datetime_parse_iso",
+        kind: BuiltinKind::Function,
+        signature: "datetime_parse_iso(value: Text) -> DateTime",
+        documentation: "Parses an explicit UTC ISO-8601 timestamp such as `2026-06-26T12:00:00Z` and returns canonical DateTime text.",
+    },
+    BuiltinSymbol {
+        name: "datetime_format_iso",
+        kind: BuiltinKind::Function,
+        signature: "datetime_format_iso(value: DateTime) -> Text",
+        documentation: "Formats a DateTime value as canonical UTC ISO-8601 text.",
+    },
+    BuiltinSymbol {
+        name: "duration_parse_hours",
+        kind: BuiltinKind::Function,
+        signature: "duration_parse_hours(value: Text) -> Duration<Hour>",
+        documentation: "Parses a deterministic hour duration such as `4h` or `1.5 h`.",
+    },
+    BuiltinSymbol {
+        name: "duration_format_hours",
+        kind: BuiltinKind::Function,
+        signature: "duration_format_hours(value: Duration<Hour>) -> Text",
+        documentation: "Formats a Duration<Hour> value as compact hour text such as `4h`.",
+    },
+    BuiltinSymbol {
         name: "verify_trust",
         kind: BuiltinKind::Function,
         signature: "verify_trust(value)",

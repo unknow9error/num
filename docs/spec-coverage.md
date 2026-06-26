@@ -274,6 +274,9 @@ Implemented:
   text input;
 - stdlib SHA-256 hashing helpers for `Text`/`Bytes`, with explicit hex/base64
   output functions and known-vector runtime tests;
+- stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
+  parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
+  arithmetic, and DateTime comparison;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
   reusable sanitizer packs, and policy composition;
 - tenant isolation guard and tenant-aware workflow state load, transition, and
