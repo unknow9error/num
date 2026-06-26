@@ -54,6 +54,8 @@
 - Added stdlib scalar validators for `Email`, `Url`, `Uuid`, and `PhoneNumber`,
   including compile-time diagnostics for invalid literals and runtime errors for
   invalid dynamic text input.
+- Added explicit SHA-256 stdlib hashing helpers for `Text`/`Bytes` inputs with
+  hex and base64 output functions for deterministic non-password hashing.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

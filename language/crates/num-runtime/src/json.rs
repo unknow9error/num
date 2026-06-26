@@ -21,7 +21,7 @@ pub fn route_input_from_body(
 pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Result<Value, String> {
     let raw = ty.raw.trim();
     match raw {
-        "Text" | "String" | "Email" | "Url" | "Uuid" | "PhoneNumber" => json
+        "Text" | "String" | "Email" | "Url" | "Uuid" | "PhoneNumber" | "Bytes" => json
             .as_str()
             .map(|value| Value::String(value.to_string()))
             .ok_or_else(|| format!("expected string for {raw}")),

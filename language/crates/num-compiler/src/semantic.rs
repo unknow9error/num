@@ -2603,6 +2603,24 @@ fn scalar_validator_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_hash_helper(name: &str) -> bool {
+    matches!(name, "hash_sha256_hex" | "hash_sha256_base64")
+}
+
+fn hash_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    is_hash_helper(name).then(|| {
+        vec![TypeRef {
+            raw: "Text".to_string(),
+        }]
+    })
+}
+
+fn hash_helper_result_type(name: &str) -> Option<TypeRef> {
+    is_hash_helper(name).then(|| TypeRef {
+        raw: "Text".to_string(),
+    })
+}
+
 fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
     match validator {
         "validate_email" => validate_email_literal(value),

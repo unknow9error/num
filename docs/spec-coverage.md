@@ -272,6 +272,8 @@ Implemented:
 - stdlib scalar validators for `Email`, `Url`, `Uuid`, and `PhoneNumber`, with
   compile-time literal diagnostics and runtime validation errors for dynamic
   text input;
+- stdlib SHA-256 hashing helpers for `Text`/`Bytes`, with explicit hex/base64
+  output functions and known-vector runtime tests;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
   reusable sanitizer packs, and policy composition;
 - tenant isolation guard and tenant-aware workflow state load, transition, and
@@ -647,6 +649,8 @@ Major full-spec areas not implemented in v0.3.0:
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative
   built-in email, URL, UUID, and phone-number checks;
+- password hashing helpers such as Argon2/bcrypt; SHA-256 helpers are limited
+  to deterministic non-password hashing;
 - interactive debugger and IDE debug adapter;
 - interactive workflow dashboard beyond the stable `num.workflow_dashboard.v1`
   `workflow-report --json` read model;
