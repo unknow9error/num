@@ -171,6 +171,14 @@ start/completion/failure, statement execution, function/action/connector calls,
 and audit logging. This is an observability/debugging foundation, not an
 interactive debugger.
 
+Workflow and service `rate limit <count> per <duration>` metadata is enforced
+with tenant/actor/subject keys. The demo runtime uses an in-memory shared store
+for local execution, so `serve` requests handled by the same process share
+limits even though each request runs in a fresh interpreter. The runtime also
+has a file-backed store for deterministic local/shared-instance tests and
+handoff experiments. Production deployments still need an external backend such
+as Redis or database storage before multi-process limits are authoritative.
+
 ### `debug`
 
 Validate and execute a workflow, then summarize trace events against scripted

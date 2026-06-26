@@ -1,6 +1,7 @@
 use crate::http::{HttpRequest, HttpResponse};
 use crate::interpreter::{Runtime, Value};
 use crate::json;
+use crate::rate_limit::RateLimiter;
 use crate::redaction;
 use crate::tenant::TenantGuard;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
@@ -22,6 +23,7 @@ pub struct ServiceRuntime<'a> {
     output_enabled: bool,
     tenant_guard: TenantGuard,
     service_tenant: TenantId,
+    rate_limiter: RateLimiter,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -39,6 +41,7 @@ impl<'a> ServiceRuntime<'a> {
             output_enabled: true,
             tenant_guard: TenantGuard::disabled(),
             service_tenant: "default".to_string(),
+            rate_limiter: RateLimiter::new(),
         }
     }
 
@@ -57,6 +60,7 @@ impl<'a> ServiceRuntime<'a> {
             output_enabled: true,
             tenant_guard: TenantGuard::disabled(),
             service_tenant: "default".to_string(),
+            rate_limiter: RateLimiter::new(),
         }
     }
 
@@ -84,6 +88,11 @@ impl<'a> ServiceRuntime<'a> {
 
     pub fn with_service_tenant(mut self, tenant: impl Into<TenantId>) -> Self {
         self.service_tenant = tenant.into();
+        self
+    }
+
+    pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+        self.rate_limiter = rate_limiter;
         self
     }
 
@@ -195,7 +204,8 @@ impl<'a> ServiceRuntime<'a> {
             self.module,
             security.clone(),
             Box::new(self.connectors.clone()),
-        );
+        )
+        .with_rate_limiter(self.rate_limiter.clone());
         runtime.set_output_enabled(self.output_enabled);
         let result =
             runtime.run_service_route(&self.service_name, &request.method, &request.path, input);
@@ -485,9 +495,11 @@ mod tests {
     use crate::connectors::StaticConnectorRegistry;
     use crate::http::HttpRequest;
     use crate::interpreter::Value;
+    use crate::rate_limit::{FileRateLimitStore, RateLimiter};
     use crate::RuntimeError;
     use num_compiler::compile;
     use serde_json::Value as JsonValue;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     fn error_body(response: &crate::http::HttpResponse) -> JsonValue {
@@ -509,6 +521,26 @@ service BillingApi {
     }
 }
 "#
+    }
+
+    fn rate_limited_service_source() -> &'static str {
+        r#"
+module test.api
+
+service BillingApi rate limit 1 per 1m {
+    route POST "/charge" {
+        audit("charge")
+    }
+}
+"#
+    }
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("num_service_rate_limit_{name}_{stamp}"))
     }
 
     #[test]
@@ -875,6 +907,48 @@ service BillingApi {
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body, "ok\n");
+    }
+
+    #[test]
+    fn service_runtime_shares_rate_limits_across_requests() {
+        let compilation = compile("test.num", rate_limited_service_source());
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![]);
+        let request = HttpRequest::new("POST", "/charge", "");
+
+        let first = runtime.handle_http_request(&request);
+        let second = runtime.handle_http_request(&request);
+
+        assert_eq!(first.status, 200);
+        assert_eq!(second.status, 429);
+        let body = error_body(&second);
+        assert_eq!(body["error"]["kind"], "workflow");
+        assert_eq!(body["error"]["code"], "rate_limit_exceeded");
+    }
+
+    #[test]
+    fn file_rate_limit_store_shares_limits_across_service_runtimes() {
+        let compilation = compile("test.num", rate_limited_service_source());
+        let root = unique_test_dir("file-backed");
+        let path = root.join("rate-limits.json");
+        let first_runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_rate_limiter(RateLimiter::with_store(FileRateLimitStore::new(&path)));
+        let second_runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_rate_limiter(RateLimiter::with_store(FileRateLimitStore::new(&path)));
+        let mut request = HttpRequest::new("POST", "/charge", "");
+        request
+            .headers
+            .insert("x-tenant".to_string(), "tenant_a".to_string());
+        request
+            .headers
+            .insert("x-actor".to_string(), "actor_a".to_string());
+
+        let first = first_runtime.handle_http_request(&request);
+        let second = second_runtime.handle_http_request(&request);
+
+        assert_eq!(first.status, 200);
+        assert_eq!(second.status, 429);
+        let body = error_body(&second);
+        assert_eq!(body["error"]["code"], "rate_limit_exceeded");
     }
 
     #[test]

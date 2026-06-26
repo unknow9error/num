@@ -381,6 +381,12 @@ Implemented:
   budgets;
 - workflow and service `rate limit <count> per <duration>` metadata parsed,
   formatted, lowered to IR, and enforced by the demo interpreter rate limiter;
+- `RateLimitStore` boundary with tenant/actor/subject keys for workflow,
+  service-route, action, or custom scopes;
+- shared in-memory rate-limit handles that can be cloned across runtime
+  instances, including service requests that create fresh interpreter runtimes;
+- file-backed rate-limit store for deterministic local/shared-instance tests
+  and handoff experiments;
 - mocked implementations for selected demo connector calls;
 - in-memory audit output for the demo interpreter;
 - best-effort saga rollback registration in the demo interpreter.
@@ -609,7 +615,7 @@ changing the JSON shape.
 
 Not yet implemented:
 
-- distributed rate-limit persistence across runtime processes;
+- production shared rate-limit backend such as Redis or database storage;
 - distributed timeout propagation;
 - interactive and persisted cost dashboards;
 - runtime-produced per-model or per-connector cost entries beyond the stable

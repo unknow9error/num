@@ -5,7 +5,7 @@ use crate::connectors::{
 use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
-use crate::rate_limit::{parse_rate_limit, RateLimiter};
+use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
 use crate::{redaction, ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext};
 use num_compiler::ast::{
     Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
@@ -385,6 +385,11 @@ impl<'a> Runtime<'a> {
         self.output_enabled = enabled;
     }
 
+    pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+        self.rate_limits = rate_limiter;
+        self
+    }
+
     fn trace(&mut self, kind: RuntimeTraceKind, target: impl Into<String>, detail: Option<String>) {
         let sequence = self.next_trace_sequence;
         self.next_trace_sequence = self.next_trace_sequence.saturating_add(1);
@@ -415,16 +420,26 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn apply_rate_limit(&mut self, scope: &str, raw: Option<&str>) -> Result<(), String> {
+    fn apply_rate_limit(
+        &mut self,
+        subject: RateLimitSubject,
+        raw: Option<&str>,
+    ) -> Result<(), String> {
         if let Some(raw) = raw {
             if let Some(limit) = parse_rate_limit(raw) {
-                self.rate_limits
-                    .check(scope.to_string(), limit)
-                    .map_err(runtime_error_to_string)?;
+                let key = RateLimitKey::new(
+                    self.security.tenant.clone(),
+                    self.security.actor.clone(),
+                    subject.clone(),
+                );
+                if let Err(error) = self.rate_limits.check(key, limit) {
+                    self.last_error = Some(error.clone());
+                    return Err(runtime_error_to_string(error));
+                }
                 runtime_println!(
                     self,
                     "  [RATE LIMIT] {} allows {} per {:?}",
-                    scope,
+                    subject.label(),
                     limit.max_requests,
                     limit.window
                 );
@@ -490,7 +505,7 @@ impl<'a> Runtime<'a> {
             _ => return Err(format!("'{}' is not a workflow declaration", name)),
         };
 
-        self.apply_rate_limit(&format!("workflow:{name}"), rate_limit.as_deref())?;
+        self.apply_rate_limit(RateLimitSubject::workflow(name), rate_limit.as_deref())?;
         let budget_scope = self.enter_budget_scope(format!("workflow:{name}"), budget.as_deref());
         self.push_scope();
         for param in &params {
@@ -610,7 +625,7 @@ impl<'a> Runtime<'a> {
         }
 
         self.apply_rate_limit(
-            &format!("service:{service_name}:{}:{}", route.method, route.path),
+            RateLimitSubject::service_route(service_name, &route.method, &route.path),
             service_rate_limit.as_deref(),
         )?;
         let budget_scope = self.enter_budget_scope(
@@ -1580,7 +1595,10 @@ impl<'a> Runtime<'a> {
             }
             Declaration::Workflow(workflow) => {
                 runtime_println!(self, "  [WORKFLOW CALL] Executing workflow: {}", name);
-                self.apply_rate_limit(&format!("workflow:{name}"), workflow.rate_limit.as_deref())?;
+                self.apply_rate_limit(
+                    RateLimitSubject::workflow(name),
+                    workflow.rate_limit.as_deref(),
+                )?;
                 let budget_scope =
                     self.enter_budget_scope(format!("workflow:{name}"), workflow.budget.as_deref());
                 self.push_scope();

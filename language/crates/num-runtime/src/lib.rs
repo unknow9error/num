@@ -380,6 +380,7 @@ mod tests {
     use super::interpreter::Runtime;
     use super::interpreter::Value;
     use super::observability::RuntimeTraceKind;
+    use super::rate_limit::RateLimiter;
     use super::SecurityContext;
     use num_compiler::compile;
     use std::collections::{BTreeSet, HashMap};
@@ -1198,6 +1199,28 @@ workflow main() rate limit 1 per 1m {
 
         assert!(runtime.run_workflow("main", HashMap::new()).is_ok());
         let res = runtime.run_workflow("main", HashMap::new());
+
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Rate limit exceeded"));
+    }
+
+    #[test]
+    fn test_shared_rate_limiter_rejects_second_runtime_instance() {
+        let source = r#"
+module test.rate
+
+workflow main() rate limit 1 per 1m {
+    audit("run")
+}
+"#;
+        let compilation = compile("test.num", source);
+        let rate_limiter = RateLimiter::new();
+        let mut first =
+            Runtime::new(&compilation.module, vec![]).with_rate_limiter(rate_limiter.clone());
+        let mut second = Runtime::new(&compilation.module, vec![]).with_rate_limiter(rate_limiter);
+
+        assert!(first.run_workflow("main", HashMap::new()).is_ok());
+        let res = second.run_workflow("main", HashMap::new());
 
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Rate limit exceeded"));
