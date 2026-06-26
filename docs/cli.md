@@ -899,10 +899,11 @@ future schema are rejected instead of rewritten.
 
 `--source` switches from manifest migration to source migration. It discovers
 workspace `.num` source files, runs the compiler checks, reports blocking
-diagnostics, and lists per-file source migration actions. The first v0.3.0
-source rewrite inserts deterministic explicit `module` declarations into legacy
-files that omit them, deriving the module path from the manifest source-relative
-file path. `--source --write` applies source rewrites only when the current
+diagnostics, and lists per-file source migration actions. Source rewrites insert
+deterministic explicit `module` declarations into legacy files that omit them,
+deriving the module path from the manifest source-relative file path, and
+normalize legacy workflow/service `rate_limit` metadata spelling to
+`rate limit`. `--source --write` applies source rewrites only when the current
 source graph has no blocking compiler diagnostics. See
 [migration-guides.md](migration-guides.md) for released migration behavior.
 

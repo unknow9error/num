@@ -36,6 +36,31 @@ derived from the file path relative to `[project].source`:
 Write mode is rejected when the source graph has blocking compiler diagnostics.
 Fix those diagnostics first, rerun the dry-run report, then apply.
 
+### Legacy Rate Limit Metadata
+
+Workflow and service rate limits now use the two-word metadata spelling
+`rate limit`:
+
+```num
+workflow nightly() rate limit 2 per 1m {
+}
+
+service Billing rate limit 5 per 10s {
+}
+```
+
+Legacy source that used `rate_limit` in workflow or service declaration headers
+can be migrated with the same source migration commands:
+
+```bash
+num migrate <project-dir|file> --source --json
+num migrate <project-dir|file> --source --write
+```
+
+The rewrite only targets declaration metadata before the opening `{`, so string
+literals, comments, and parameter names are preserved. Running the migration
+again reports the file as up to date.
+
 ### Manifest Metadata
 
 Legacy manifests without `[language]` metadata can be migrated with:

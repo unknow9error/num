@@ -207,9 +207,10 @@ Implemented:
   `[language]` manifest metadata;
 - `num migrate --source` source migration reports for workspace `.num` files,
   including blocking compiler diagnostics, per-file source actions, and
-  automatic insertion of missing explicit `module` declarations;
-- released migration guide coverage for manifest metadata and explicit source
-  module declarations;
+  automatic insertion of missing explicit `module` declarations plus legacy
+  workflow/service `rate_limit` metadata spelling normalization;
+- released migration guide coverage for manifest metadata, explicit source
+  module declarations, and legacy rate-limit metadata spelling;
 - `num upgrade-version` dry-run/write reports for safe `[language].version`
   and optional `[project].version` upgrades;
 - `num upgrade-version --include-dependencies` graph reports for resolved
