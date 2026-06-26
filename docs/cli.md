@@ -239,10 +239,24 @@ num audit-report audit/events.jsonl
 num audit-report audit/events.jsonl --json
 ```
 
-The text report groups events by result, action, actor, and tenant, and lists
-failed audit events with their failure reason. The `--json` flag emits the same
-summary as structured JSON for dashboards or external tooling. This is an audit
-dashboard foundation, not an interactive web dashboard.
+The text report groups events by result, action, actor, tenant, connector,
+route, and workflow when those dimensions are present, and lists failed audit
+events with their redacted failure reason. The `--json` flag emits the
+versioned `num.audit_dashboard.v1` read model for dashboards or external
+tooling.
+
+Stable JSON fields are `schema_version`, `total_events`, `counts.by_result`,
+`counts.by_action`, `counts.by_actor`, `counts.by_tenant`,
+`counts.by_connector`, `counts.by_route`, `counts.by_workflow`, `time_window`,
+and `failures`. Legacy top-level `by_result`, `by_action`, `by_actor`, and
+`by_tenant` maps remain present for existing tooling. Connector, route,
+workflow, and timestamp dimensions are best-effort: they are populated when the
+audit event carries connector metadata, service method/path or route metadata,
+workflow metadata, and `timestamp_ms` or `recorded_at_unix_ms`. Failure details
+include event id, action, actor, tenant, request/correlation ids, optional
+connector/route/workflow dimensions, timestamp, and a redacted reason; raw audit
+payloads are intentionally not included. This is an audit dashboard foundation,
+not an interactive web dashboard.
 
 ### `workflow-report`
 
@@ -581,6 +595,9 @@ num connector-sdk examples/contract_driven_refund
 num connector-sdk examples/contract_driven_refund \
   --language typescript \
   --out examples/contract_driven_refund/generated/connectors.d.ts
+num connector-sdk examples/connector_echo_pipeline \
+  --language python \
+  --out examples/connector_echo_pipeline/generated/connectors.py
 num connector-sdk examples/contract_driven_refund --json
 ```
 
@@ -592,6 +609,26 @@ The TypeScript generator emits:
   module;
 - a `NumConnectors` interface grouped by connector namespace, with each method
   returning a `Promise`.
+
+The Python generator emits:
+
+- `dataclass(frozen=True)` wrappers for egress context, structs, payload enum
+  variants, and runtime wrappers such as `Money`, `Uncertain`, and `Secret`
+  when needed;
+- `TypeAlias` declarations for aliases, literal enums, JSON values, and simple
+  built-in mappings;
+- `Protocol` connector classes grouped under `NumConnectors`, with each method
+  accepting an optional `NumConnectorEgressContext`;
+- `num_connector_egress_context_from_json(...)` for converting the process
+  connector stdin `egress` object into the generated dataclass shape.
+
+Python mappings are intentionally conservative. `Text`, `Email`, `Uuid`,
+`Date`, `DateTime`, `Decimal`, `Url`, and `PhoneNumber` map to `str`; `Int`,
+`Float`, `Bool`, `Unit`, `List<T>`, `Map<K, V>`, `Option<T>`, `Result<T, E>`,
+`Uncertain<T>`, `Secret<T>`, and `Json` map to standard Python typing forms or
+generated wrappers. Unsupported or invalid Python identifiers fall back to
+`Any` or a sanitized `field_<name>` attribute so the generated stub remains
+importable while preserving the checked `.num` contract as the source of truth.
 
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
@@ -636,7 +673,7 @@ connectors receive this context in stdin under `egress`:
 }
 ```
 
-Generated TypeScript SDKs expose the same shape as
+Generated TypeScript and Python SDKs expose the same shape as
 `NumConnectorEgressContext` and add an optional `context` parameter to connector
 methods. External workers should treat `capability`, `tenant`, `actor`,
 `correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
@@ -677,6 +714,7 @@ compiled `.num` module graph.
 ```bash
 num deploy examples/refund_workflow
 num deploy examples/refund_workflow --json
+num deploy examples/refund_workflow --check --json
 num deploy examples/refund_workflow --out dist/num-deploy.json
 num deploy examples/refund_workflow --apply --dir dist/refund-deploy
 num deploy examples/refund_workflow --apply --replace --json
@@ -692,6 +730,17 @@ count, workflows, actions, service routes, connectors, process connector
 bindings, and direct dependencies. It also embeds the manifest language/schema
 compatibility contract. Process connector bindings include method, command,
 args, cwd, and timeout metadata for future deployment runners.
+
+`--check` makes deploy validation explicit for CI jobs. It compiles the project,
+applies the manifest policy mode, runs lint/security checks, validates the
+target profile/environment, checks image-publish metadata, reports high-risk
+actions without cost metadata, and exits without materializing an artifact
+directory. With `--json`, the command emits a versioned `num.deploy_check.v1`
+read model with gate status for `compile`, `policy`, `cost`, `security`,
+`target`, `environment`, and `image_publish`. Blocking gates return non-zero;
+advisory warnings remain visible in JSON while keeping a zero exit status.
+`--check` can be combined with `--json` and `--out`, but not with `--apply` or
+`--kubernetes-dry-run`.
 
 Target validation records required and recommended `[deployment]` fields for
 the selected target. `container` targets recommend `service`; `kubernetes`/`k8s`
@@ -713,6 +762,37 @@ bundle. The bundle includes:
 - `manifest.json` - artifact metadata, target profile validation, environment
   status, and module map;
 - `RUNBOOK.md` - operations boundary, environment status, and handoff notes.
+
+External deployment bundles also include `deploy/github-actions.yml`,
+`deploy/Jenkinsfile`, and `deploy/.gitlab-ci.yml`. The generated GitHub Actions
+template uses `Policy gate` (`num check`, `num test`), `Cost gate`
+(`num cost-report --json`), `Security gate` (`num lint`), `Deploy check`
+(`num deploy --check --json`), and `Package deploy artifact`
+(`num deploy --apply --replace --dir "$NUM_DEPLOY_DIR" --json`) before uploading
+the cost report, deploy-check JSON, deploy plan JSON, and materialized bundle as
+workflow artifacts. It is a copyable example for `.github/workflows/` and
+expects the `num` CLI to be on `PATH`.
+
+The generated Jenkins pipeline checks out the repository, runs deploy gates in
+the fixed order `Policy gate` (`num check`, `num test`), `Cost gate`
+(`num cost-report --json`), `Security gate` (`num lint`), then materializes the
+deploy artifact with `num deploy --apply --replace --dir "$NUM_DEPLOY_DIR"
+--json`. Jenkins must run with the `num` CLI on `PATH` and provide repository
+checkout access. The template exposes `NUM_PROJECT_DIR` and `NUM_DEPLOY_DIR`
+parameters; when the manifest uses `[deployment].credentials_ref`, map that
+reference to a Jenkins credential id through `NUM_REGISTRY_CREDENTIALS_ID` or an
+external secret store. Credential values are not written to the Jenkinsfile or
+deployment bundle.
+
+The generated GitLab template uses stages `policy`, `cost`, `security`, and
+`package` in that order. It runs `num check`, `num test`, `num cost-report
+--json`, `num lint`, `num deploy --check --json`, and finally
+`num deploy --apply --replace --dir "$NUM_DEPLOY_DIR" --json`. Cache paths are
+explicit (`.num-cache/` and `dist/num-deploy/`), and artifact paths include the
+cost report, deploy-check plan, deploy packaging JSON, and materialized bundle.
+GitHub runner provisioning, GitLab runner provisioning, masked CI/CD variables,
+registry login, and external secret-store resolution remain outside the
+generated templates.
 
 For `[deployment].target = "container"` or compatible targets such as `docker`
 and `oci`, the bundle also includes `deploy/Dockerfile` and
@@ -746,9 +826,10 @@ the file extension. Use `--dir <artifact-dir>` to choose a different output
 directory. Existing bundle directories are protected by default; pass
 `--replace` to overwrite them. This is deployment artifact materialization plus
 runtime scaffolding; image publishing execution, cluster credentials, SSH
-access, host package installation, `systemctl` execution, Kubernetes
-`kubectl apply` or API-server mutation, and cloud rollout execution remain
-external deployment steps.
+access, host package installation, Jenkins controller/agent provisioning,
+GitHub runner provisioning, GitLab runner provisioning, `systemctl` execution,
+Kubernetes `kubectl apply` or API-server mutation, and cloud rollout execution
+remain external deployment steps.
 
 ### `compat`
 

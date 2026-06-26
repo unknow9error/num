@@ -1,0 +1,154 @@
+{
+  "by_action": {
+    "BillingApi POST /refunds": 1,
+    "refund": 2,
+    "sync": 1
+  },
+  "by_actor": {
+    "alice": 2,
+    "service": 1,
+    "worker": 1
+  },
+  "by_result": {
+    "Failed": 1,
+    "Started": 1,
+    "Succeeded": 2
+  },
+  "by_tenant": {
+    "tenant_a": 3,
+    "tenant_b": 1
+  },
+  "conditional_fields": {
+    "connector": "present when audit events include connector metadata",
+    "failures.reason": "redacted diagnostic text for failed audit events; raw event payloads are not included",
+    "route": "present when audit events include service, method, and path or route metadata",
+    "time_window": "start_unix_ms and end_unix_ms are present when events carry timestamp_ms or recorded_at_unix_ms",
+    "workflow": "present when audit events include workflow metadata"
+  },
+  "counts": {
+    "by_action": [
+      {
+        "count": 1,
+        "key": "BillingApi POST /refunds"
+      },
+      {
+        "count": 2,
+        "key": "refund"
+      },
+      {
+        "count": 1,
+        "key": "sync"
+      }
+    ],
+    "by_actor": [
+      {
+        "count": 2,
+        "key": "alice"
+      },
+      {
+        "count": 1,
+        "key": "service"
+      },
+      {
+        "count": 1,
+        "key": "worker"
+      }
+    ],
+    "by_connector": [
+      {
+        "count": 1,
+        "key": "crm.sync"
+      }
+    ],
+    "by_result": [
+      {
+        "count": 1,
+        "key": "Failed"
+      },
+      {
+        "count": 1,
+        "key": "Started"
+      },
+      {
+        "count": 2,
+        "key": "Succeeded"
+      }
+    ],
+    "by_route": [
+      {
+        "count": 1,
+        "key": "POST /refunds"
+      }
+    ],
+    "by_tenant": [
+      {
+        "count": 3,
+        "key": "tenant_a"
+      },
+      {
+        "count": 1,
+        "key": "tenant_b"
+      }
+    ],
+    "by_workflow": [
+      {
+        "count": 2,
+        "key": "refund_flow"
+      }
+    ]
+  },
+  "dimensions": {
+    "by_connector": [
+      {
+        "count": 1,
+        "key": "crm.sync"
+      }
+    ],
+    "by_route": [
+      {
+        "count": 1,
+        "key": "POST /refunds"
+      }
+    ],
+    "by_workflow": [
+      {
+        "count": 2,
+        "key": "refund_flow"
+      }
+    ]
+  },
+  "failures": [
+    {
+      "action": "BillingApi POST /refunds",
+      "actor": "service",
+      "connector": null,
+      "correlation_id": "corr_3",
+      "event_id": "evt_3",
+      "reason": "password=<redacted> connector denied",
+      "request_id": "req_3",
+      "route": "POST /refunds",
+      "tenant": "tenant_a",
+      "timestamp_ms": 1700000001000,
+      "workflow": null
+    }
+  ],
+  "schema_version": "num.audit_dashboard.v1",
+  "stable_fields": [
+    "schema_version",
+    "total_events",
+    "counts.by_result",
+    "counts.by_action",
+    "counts.by_actor",
+    "counts.by_tenant",
+    "counts.by_connector",
+    "counts.by_route",
+    "counts.by_workflow",
+    "time_window",
+    "failures"
+  ],
+  "time_window": {
+    "end_unix_ms": 1700000001500,
+    "start_unix_ms": 1700000000000
+  },
+  "total_events": 4
+}

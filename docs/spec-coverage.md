@@ -499,12 +499,15 @@ Implemented:
   composite `find_<table>_by_<key1>_and_<key2>`, and `insert_<table>`.
 - TypeScript connector implementation SDK generation for visible `.num`
   structs, aliases, enums, and connector method signatures.
+- Python connector implementation SDK generation for visible `.num` structs,
+  aliases, enums, connector method signatures, and connector egress context
+  stubs, with unsupported shapes falling back to `Any`.
 
 Not yet implemented:
 
 - managed connector hosting;
 - generated network-native runtime clients;
-- connector SDK targets beyond TypeScript declarations;
+- connector SDK targets beyond TypeScript/Python declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;
@@ -630,12 +633,13 @@ Major full-spec areas not implemented in v0.3.0:
 - locale-specific sanitizer catalogs and externally configured sanitizer packs;
 - interactive debugger and IDE debug adapter;
 - interactive workflow dashboard;
-- interactive audit dashboard;
+- interactive audit dashboard beyond the stable `num.audit_dashboard.v1`
+  `audit-report --json` read model;
 - interactive cost dashboard;
 - cloud/container/bare-metal deployment execution model beyond generated
   local/CI artifacts, image publish handoffs, and Kubernetes dry-run handoffs;
-- CI/CD integrations beyond local deployment bundle generation and release
-  packaging;
+- CI/CD integrations beyond generated GitHub Actions/Jenkins/GitLab deploy-gate
+  templates, local deployment bundle generation, and release packaging;
 - external-language interop;
 - remote registry package imports;
 - performance optimization strategy;

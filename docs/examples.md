@@ -164,7 +164,8 @@ Demonstrates:
 - manifest-configured process connector execution;
 - a Python connector implementation that reads runtime JSON from stdin;
 - `num connector probe` as the connector smoke test;
-- generated TypeScript declarations for JavaScript/TypeScript consumers.
+- generated TypeScript declarations for JavaScript/TypeScript consumers;
+- generated Python stubs for process connector implementations.
 
 Useful commands:
 
@@ -173,6 +174,9 @@ num check examples/connector_echo_pipeline
 num connector probe examples/connector_echo_pipeline echo.reply --arg '"hello"' --json
 num connector-sdk examples/connector_echo_pipeline \
   --out examples/connector_echo_pipeline/generated/connectors.d.ts
+num connector-sdk examples/connector_echo_pipeline \
+  --language python \
+  --out examples/connector_echo_pipeline/generated/connectors.py
 num run examples/connector_echo_pipeline
 ```
 

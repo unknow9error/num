@@ -1,6 +1,7 @@
 use crate::compatibility::CompatibilityReport;
 use crate::package::{self, DependencySource, PackageManifest};
 use num_compiler::ast::{Declaration, Module, Risk};
+use num_compiler::diagnostic::{Diagnostic, Severity};
 use num_compiler::SourceFile;
 use serde_json::{json, Value};
 use std::env;
@@ -99,6 +100,9 @@ pub struct ActionDeployment {
     pub name: String,
     pub risk: String,
     pub requires: Vec<String>,
+    pub timeout: Option<String>,
+    pub cost: Option<String>,
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +194,9 @@ pub fn build_deployment_plan(
                 name: action.name.clone(),
                 risk: risk_label(action.risk).to_string(),
                 requires: action.requires.clone(),
+                timeout: action.timeout.clone(),
+                cost: action.cost.clone(),
+                idempotency_key: action.idempotency_key.clone(),
             }),
             Declaration::Service(service) => services.push(ServiceDeployment {
                 name: service.name.clone(),
@@ -602,6 +609,11 @@ impl DeploymentTargetProfile {
             && matches!(class, "container" | "orchestrator")
         {
             required_artifacts.push("deploy/image-publish.json".to_string());
+        }
+        if class != "local" {
+            required_artifacts.push("deploy/github-actions.yml".to_string());
+            required_artifacts.push("deploy/Jenkinsfile".to_string());
+            required_artifacts.push("deploy/.gitlab-ci.yml".to_string());
         }
         let mut warnings = validation.messages();
         if class == "host" {
@@ -1137,7 +1149,134 @@ impl ActionDeployment {
             "name": self.name,
             "risk": self.risk,
             "requires": self.requires,
+            "timeout": self.timeout,
+            "cost": self.cost,
+            "idempotency_key": self.idempotency_key,
         })
+    }
+}
+
+pub fn build_deploy_check_report(
+    plan: &DeploymentPlan,
+    compile_diagnostics: &[Diagnostic],
+    lint_diagnostics: &[Diagnostic],
+    fail_on_warnings: bool,
+) -> Value {
+    let compile_blocking = compile_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error);
+    let policy_blocking = compile_diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == Severity::Error
+            || (fail_on_warnings && diagnostic.severity == Severity::Warning)
+    });
+    let security_blocking = lint_diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == Severity::Error
+            || (fail_on_warnings && diagnostic.severity == Severity::Warning)
+    });
+    let target_blocking = !plan.target_profile.validation.errors.is_empty()
+        || (plan.image_publish.enabled && !plan.image_publish.validation.errors.is_empty());
+    let environment_blocking = !plan.environment.missing_required.is_empty();
+    let blocking = compile_blocking
+        || policy_blocking
+        || security_blocking
+        || target_blocking
+        || environment_blocking;
+
+    let missing_cost_metadata = plan
+        .actions
+        .iter()
+        .filter(|action| {
+            matches!(action.risk.as_str(), "high" | "critical") && action.cost.is_none()
+        })
+        .map(|action| action.name.clone())
+        .collect::<Vec<_>>();
+    let cost_status = if missing_cost_metadata.is_empty() {
+        "ready"
+    } else if fail_on_warnings {
+        "blocking"
+    } else {
+        "advisory"
+    };
+    let security_status = if security_blocking {
+        "blocking"
+    } else if lint_diagnostics.is_empty() {
+        "ready"
+    } else {
+        "advisory"
+    };
+
+    json!({
+        "schema_version": "num.deploy_check.v1",
+        "status": if blocking { "blocked" } else { "ready" },
+        "blocking": blocking,
+        "package": {
+            "name": plan.package_name,
+            "version": plan.package_version,
+        },
+        "deployment": {
+            "target": plan.target,
+            "service": plan.service,
+            "region": plan.region,
+            "artifact": plan.artifact,
+            "profile": plan.target_profile.to_json(),
+        },
+        "gates": {
+            "compile": {
+                "status": if compile_blocking { "blocking" } else { "ready" },
+                "errors": compile_diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).count(),
+                "warnings": compile_diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Warning).count(),
+            },
+            "policy": {
+                "status": if policy_blocking { "blocking" } else { "ready" },
+                "fail_on_warnings": fail_on_warnings,
+            },
+            "cost": {
+                "status": cost_status,
+                "actions": plan.actions.iter().map(ActionDeployment::to_json).collect::<Vec<_>>(),
+                "missing_high_risk_cost_metadata": missing_cost_metadata,
+            },
+            "security": {
+                "status": security_status,
+                "warnings": lint_diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Warning).count(),
+                "diagnostics": lint_diagnostics.iter().map(diagnostic_to_json).collect::<Vec<_>>(),
+            },
+            "target": {
+                "status": if target_blocking { "blocking" } else { &plan.target_profile.validation.status },
+                "errors": plan.target_profile.validation.errors,
+                "warnings": plan.target_profile.validation.warnings,
+                "boundary": plan.target_profile.validation.boundary,
+            },
+            "environment": {
+                "status": if environment_blocking { "blocking" } else { &plan.environment.status },
+                "required": plan.environment.required.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+                "optional": plan.environment.optional.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+                "missing_required": plan.environment.missing_required,
+            },
+            "image_publish": plan.image_publish.to_json(),
+        },
+        "diagnostics": compile_diagnostics.iter().map(diagnostic_to_json).collect::<Vec<_>>(),
+        "plan": plan.to_json(),
+    })
+}
+
+fn diagnostic_to_json(diagnostic: &Diagnostic) -> Value {
+    json!({
+        "code": diagnostic.code,
+        "severity": severity_label(diagnostic.severity),
+        "message": diagnostic.message,
+        "source": diagnostic.span.source,
+        "line": diagnostic.span.line,
+        "column": diagnostic.span.column,
+        "reason": diagnostic.reason,
+        "help": diagnostic.help,
+    })
+}
+
+fn severity_label(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info => "info",
     }
 }
 
@@ -1469,6 +1608,29 @@ fn materialize_runtime_artifacts(
         }
         _ => {}
     }
+    if plan.target_profile.class != "local" {
+        let github_actions = artifact_root.join("deploy/github-actions.yml");
+        write_text(
+            &github_actions,
+            &render_github_actions(plan),
+            artifact_root,
+            files,
+        )?;
+        artifacts.push(relative_to(&github_actions, artifact_root)?);
+
+        let jenkinsfile = artifact_root.join("deploy/Jenkinsfile");
+        write_text(
+            &jenkinsfile,
+            &render_jenkinsfile(plan),
+            artifact_root,
+            files,
+        )?;
+        artifacts.push(relative_to(&jenkinsfile, artifact_root)?);
+
+        let gitlab_ci = artifact_root.join("deploy/.gitlab-ci.yml");
+        write_text(&gitlab_ci, &render_gitlab_ci(plan), artifact_root, files)?;
+        artifacts.push(relative_to(&gitlab_ci, artifact_root)?);
+    }
     Ok(artifacts)
 }
 
@@ -1620,6 +1782,198 @@ fn render_systemd_environment(plan: &DeploymentPlan) -> String {
         out.push_str(&format!("# {}=\n", variable.name));
     }
     out
+}
+
+fn render_jenkinsfile(plan: &DeploymentPlan) -> String {
+    format!(
+        concat!(
+            "// Generated by num deploy for {package} {version}.\n",
+            "// Required Jenkins runtime: num CLI on PATH and repository checkout access.\n",
+            "// Required parameters: NUM_PROJECT_DIR and NUM_DEPLOY_DIR.\n",
+            "// Secret values stay in Jenkins credentials or an external secret store; if\n",
+            "// [deployment].credentials_ref is set, map it to NUM_REGISTRY_CREDENTIALS_ID\n",
+            "// without committing the underlying credential value.\n",
+            "pipeline {{\n",
+            "  agent any\n",
+            "\n",
+            "  options {{\n",
+            "    timestamps()\n",
+            "  }}\n",
+            "\n",
+            "  parameters {{\n",
+            "    string(name: 'NUM_PROJECT_DIR', defaultValue: '.', description: 'Num project directory or entry file to validate and package')\n",
+            "    string(name: 'NUM_DEPLOY_DIR', defaultValue: 'dist/num-deploy', description: 'Deployment bundle output directory')\n",
+            "    string(name: 'NUM_REGISTRY_CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins credentials id matching [deployment].credentials_ref')\n",
+            "  }}\n",
+            "\n",
+            "  stages {{\n",
+            "    stage('Checkout') {{\n",
+            "      steps {{\n",
+            "        checkout scm\n",
+            "      }}\n",
+            "    }}\n",
+            "\n",
+            "    stage('Policy gate') {{\n",
+            "      steps {{\n",
+            "        sh 'num check \"$NUM_PROJECT_DIR\"'\n",
+            "        sh 'num test \"$NUM_PROJECT_DIR\"'\n",
+            "      }}\n",
+            "    }}\n",
+            "\n",
+            "    stage('Cost gate') {{\n",
+            "      steps {{\n",
+            "        sh 'num cost-report \"$NUM_PROJECT_DIR\" --json > num-cost-report.json'\n",
+            "      }}\n",
+            "    }}\n",
+            "\n",
+            "    stage('Security gate') {{\n",
+            "      steps {{\n",
+            "        sh 'num lint \"$NUM_PROJECT_DIR\"'\n",
+            "      }}\n",
+            "    }}\n",
+            "\n",
+            "    stage('Deploy artifact') {{\n",
+            "      steps {{\n",
+            "        sh 'num deploy \"$NUM_PROJECT_DIR\" --apply --replace --dir \"$NUM_DEPLOY_DIR\" --json > num-deploy.json'\n",
+            "      }}\n",
+            "    }}\n",
+            "  }}\n",
+            "\n",
+            "  post {{\n",
+            "    always {{\n",
+            "      archiveArtifacts artifacts: 'num-cost-report.json,num-deploy.json,dist/num-deploy/**', allowEmptyArchive: true\n",
+            "    }}\n",
+            "  }}\n",
+            "}}\n",
+        ),
+        package = plan.package_name,
+        version = plan.package_version
+    )
+}
+
+fn render_github_actions(plan: &DeploymentPlan) -> String {
+    format!(
+        concat!(
+            "# Generated by num deploy for {package} {version}.\n",
+            "# Copy this file to .github/workflows/num-deploy.yml and ensure the num CLI is on PATH.\n",
+            "# Store registry credentials and external secrets in GitHub Actions secrets;\n",
+            "# map [deployment].credentials_ref without committing credential values.\n",
+            "name: Num Deploy Checks\n",
+            "\n",
+            "on:\n",
+            "  pull_request:\n",
+            "  workflow_dispatch:\n",
+            "\n",
+            "env:\n",
+            "  NUM_PROJECT_DIR: \".\"\n",
+            "  NUM_DEPLOY_DIR: \"dist/num-deploy\"\n",
+            "  NUM_COST_REPORT: \"num-cost-report.json\"\n",
+            "  NUM_DEPLOY_CHECK: \"num-deploy-check.json\"\n",
+            "  NUM_DEPLOY_PLAN: \"num-deploy.json\"\n",
+            "\n",
+            "jobs:\n",
+            "  deploy-check:\n",
+            "    runs-on: ubuntu-latest\n",
+            "    steps:\n",
+            "      - uses: actions/checkout@v4\n",
+            "\n",
+            "      - name: Policy gate\n",
+            "        run: |\n",
+            "          num check \"$NUM_PROJECT_DIR\"\n",
+            "          num test \"$NUM_PROJECT_DIR\"\n",
+            "\n",
+            "      - name: Cost gate\n",
+            "        run: num cost-report \"$NUM_PROJECT_DIR\" --json > \"$NUM_COST_REPORT\"\n",
+            "\n",
+            "      - name: Security gate\n",
+            "        run: num lint \"$NUM_PROJECT_DIR\"\n",
+            "\n",
+            "      - name: Deploy check\n",
+            "        run: num deploy \"$NUM_PROJECT_DIR\" --check --json > \"$NUM_DEPLOY_CHECK\"\n",
+            "\n",
+            "      - name: Package deploy artifact\n",
+            "        run: num deploy \"$NUM_PROJECT_DIR\" --apply --replace --dir \"$NUM_DEPLOY_DIR\" --json > \"$NUM_DEPLOY_PLAN\"\n",
+            "\n",
+            "      - name: Upload deploy artifacts\n",
+            "        uses: actions/upload-artifact@v4\n",
+            "        if: always()\n",
+            "        with:\n",
+            "          name: num-deploy-check\n",
+            "          path: |\n",
+            "            ${{{{ env.NUM_COST_REPORT }}}}\n",
+            "            ${{{{ env.NUM_DEPLOY_CHECK }}}}\n",
+            "            ${{{{ env.NUM_DEPLOY_PLAN }}}}\n",
+            "            ${{{{ env.NUM_DEPLOY_DIR }}}}/\n",
+        ),
+        package = plan.package_name,
+        version = plan.package_version
+    )
+}
+
+fn render_gitlab_ci(plan: &DeploymentPlan) -> String {
+    format!(
+        concat!(
+            "# Generated by num deploy for {package} {version}.\n",
+            "# Required GitLab runner runtime: num CLI on PATH and repository checkout access.\n",
+            "# Required variables: NUM_PROJECT_DIR and NUM_DEPLOY_DIR.\n",
+            "# Secret values stay in GitLab CI/CD masked variables or an external secret store;\n",
+            "# map [deployment].credentials_ref to NUM_REGISTRY_CREDENTIALS_ID without storing\n",
+            "# the underlying credential value in this file.\n",
+            "stages:\n",
+            "  - policy\n",
+            "  - cost\n",
+            "  - security\n",
+            "  - package\n",
+            "\n",
+            "variables:\n",
+            "  NUM_PROJECT_DIR: \".\"\n",
+            "  NUM_DEPLOY_DIR: \"dist/num-deploy\"\n",
+            "  NUM_COST_REPORT: \"num-cost-report.json\"\n",
+            "  NUM_DEPLOY_CHECK: \"num-deploy-check.json\"\n",
+            "  NUM_DEPLOY_PLAN: \"num-deploy.json\"\n",
+            "  NUM_CACHE_DIR: \".num-cache\"\n",
+            "\n",
+            "cache:\n",
+            "  key: \"$CI_COMMIT_REF_SLUG-num\"\n",
+            "  paths:\n",
+            "    - .num-cache/\n",
+            "    - dist/num-deploy/\n",
+            "\n",
+            "num:policy:\n",
+            "  stage: policy\n",
+            "  script:\n",
+            "    - num check \"$NUM_PROJECT_DIR\"\n",
+            "    - num test \"$NUM_PROJECT_DIR\"\n",
+            "\n",
+            "num:cost:\n",
+            "  stage: cost\n",
+            "  script:\n",
+            "    - num cost-report \"$NUM_PROJECT_DIR\" --json > \"$NUM_COST_REPORT\"\n",
+            "  artifacts:\n",
+            "    when: always\n",
+            "    paths:\n",
+            "      - \"$NUM_COST_REPORT\"\n",
+            "\n",
+            "num:security:\n",
+            "  stage: security\n",
+            "  script:\n",
+            "    - num lint \"$NUM_PROJECT_DIR\"\n",
+            "\n",
+            "num:package:\n",
+            "  stage: package\n",
+            "  script:\n",
+            "    - num deploy \"$NUM_PROJECT_DIR\" --check --json > \"$NUM_DEPLOY_CHECK\"\n",
+            "    - num deploy \"$NUM_PROJECT_DIR\" --apply --replace --dir \"$NUM_DEPLOY_DIR\" --json > \"$NUM_DEPLOY_PLAN\"\n",
+            "  artifacts:\n",
+            "    when: always\n",
+            "    paths:\n",
+            "      - \"$NUM_DEPLOY_CHECK\"\n",
+            "      - \"$NUM_DEPLOY_PLAN\"\n",
+            "      - \"$NUM_DEPLOY_DIR/\"\n",
+        ),
+        package = plan.package_name,
+        version = plan.package_version
+    )
 }
 
 fn runtime_command(plan: &DeploymentPlan) -> Vec<String> {
@@ -1929,9 +2283,13 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_deployment_plan, build_kubernetes_dry_run, materialize_deployment_artifact};
+    use super::{
+        build_deploy_check_report, build_deployment_plan, build_kubernetes_dry_run,
+        materialize_deployment_artifact, render_github_actions, render_gitlab_ci,
+        render_jenkinsfile,
+    };
     use crate::package::{write_lockfile, PackageManifest};
-    use num_compiler::{compile, SourceFile};
+    use num_compiler::{compile, lint, SourceFile};
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2024,6 +2382,18 @@ service BillingApi {
             .target_profile
             .required_artifacts
             .contains(&"deploy/image-publish.json".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/github-actions.yml".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/Jenkinsfile".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/.gitlab-ci.yml".to_string()));
         assert_eq!(plan.target_profile.validation.status, "ready");
         assert!(plan.target_profile.warnings.is_empty());
         assert!(plan.image_publish.enabled);
@@ -2070,6 +2440,143 @@ service BillingApi {
         assert!(plan
             .render_text()
             .contains("Image publish: status=ready, reference=ghcr.io/acme/billing-api:1.2.3"));
+    }
+
+    #[test]
+    fn jenkinsfile_template_runs_deploy_gates_in_order() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "container"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        let jenkinsfile = render_jenkinsfile(&plan);
+
+        assert_eq!(
+            jenkinsfile,
+            include_str!("../tests/fixtures/deploy/Jenkinsfile")
+        );
+        let policy = jenkinsfile.find("stage('Policy gate')").unwrap();
+        let cost = jenkinsfile.find("stage('Cost gate')").unwrap();
+        let security = jenkinsfile.find("stage('Security gate')").unwrap();
+        let deploy = jenkinsfile.find("stage('Deploy artifact')").unwrap();
+        assert!(policy < cost);
+        assert!(cost < security);
+        assert!(security < deploy);
+        assert!(jenkinsfile.contains("num check \"$NUM_PROJECT_DIR\""));
+        assert!(jenkinsfile.contains("num test \"$NUM_PROJECT_DIR\""));
+        assert!(jenkinsfile.contains("num cost-report \"$NUM_PROJECT_DIR\" --json"));
+        assert!(jenkinsfile.contains("num lint \"$NUM_PROJECT_DIR\""));
+        assert!(jenkinsfile.contains("num deploy \"$NUM_PROJECT_DIR\" --apply --replace"));
+        assert!(jenkinsfile.contains("NUM_REGISTRY_CREDENTIALS_ID"));
+        assert!(jenkinsfile.contains("archiveArtifacts"));
+    }
+
+    #[test]
+    fn github_actions_template_runs_deploy_gates_in_order() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "container"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        let workflow = render_github_actions(&plan);
+
+        assert_eq!(
+            workflow,
+            include_str!("../tests/fixtures/deploy/github-actions.yml")
+        );
+        let policy = workflow.find("name: Policy gate").unwrap();
+        let cost = workflow.find("name: Cost gate").unwrap();
+        let security = workflow.find("name: Security gate").unwrap();
+        let deploy_check = workflow.find("name: Deploy check").unwrap();
+        let package = workflow.find("name: Package deploy artifact").unwrap();
+        assert!(policy < cost);
+        assert!(cost < security);
+        assert!(security < deploy_check);
+        assert!(deploy_check < package);
+        assert!(workflow.contains("num check \"$NUM_PROJECT_DIR\""));
+        assert!(workflow.contains("num test \"$NUM_PROJECT_DIR\""));
+        assert!(workflow.contains("num cost-report \"$NUM_PROJECT_DIR\" --json"));
+        assert!(workflow.contains("num lint \"$NUM_PROJECT_DIR\""));
+        assert!(workflow.contains("num deploy \"$NUM_PROJECT_DIR\" --check --json"));
+        assert!(workflow.contains("num deploy \"$NUM_PROJECT_DIR\" --apply --replace"));
+        assert!(workflow.contains("actions/upload-artifact@v4"));
+        assert!(!workflow.contains("password"));
+    }
+
+    #[test]
+    fn gitlab_ci_template_runs_deploy_gates_in_order() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "container"
+registry = "ghcr.io/acme"
+image = "billing-api"
+tag_strategy = "version"
+credentials_ref = "secret://docker/ghcr"
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        let gitlab_ci = render_gitlab_ci(&plan);
+
+        assert_eq!(
+            gitlab_ci,
+            include_str!("../tests/fixtures/deploy/.gitlab-ci.yml")
+        );
+        let policy = gitlab_ci.find("  - policy").unwrap();
+        let cost = gitlab_ci.find("  - cost").unwrap();
+        let security = gitlab_ci.find("  - security").unwrap();
+        let package = gitlab_ci.find("  - package").unwrap();
+        assert!(policy < cost);
+        assert!(cost < security);
+        assert!(security < package);
+        assert!(gitlab_ci.contains("num check \"$NUM_PROJECT_DIR\""));
+        assert!(gitlab_ci.contains("num test \"$NUM_PROJECT_DIR\""));
+        assert!(gitlab_ci.contains("num cost-report \"$NUM_PROJECT_DIR\" --json"));
+        assert!(gitlab_ci.contains("num lint \"$NUM_PROJECT_DIR\""));
+        assert!(gitlab_ci.contains("num deploy \"$NUM_PROJECT_DIR\" --check --json"));
+        assert!(gitlab_ci.contains("num deploy \"$NUM_PROJECT_DIR\" --apply --replace"));
+        assert!(gitlab_ci.contains("NUM_REGISTRY_CREDENTIALS_ID"));
+        assert!(gitlab_ci.contains("cache:"));
+        assert!(gitlab_ci.contains("artifacts:"));
     }
 
     #[test]
@@ -2263,6 +2770,77 @@ optional = ["NUM_TEST_DEPLOY_OPTIONAL"]
     }
 
     #[test]
+    fn deploy_check_report_marks_blocking_and_advisory_gates() {
+        env::remove_var("NUM_TEST_DEPLOY_SECRET_TOKEN");
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[environment]
+required = ["NUM_TEST_DEPLOY_SECRET_TOKEN"]
+
+[deployment]
+target = "cloud"
+registry = "ghcr.io/acme"
+image = "billing-api"
+"#,
+        );
+        let source = r#"
+module app.main
+
+action charge_card()
+    risk high
+{
+    audit("charge")
+}
+
+workflow main() {
+    charge_card()
+}
+"#;
+        let compilation = compile("main.num", source);
+        let lint_diagnostics = lint::lint(&compilation.module);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+
+        let report =
+            build_deploy_check_report(&plan, &compilation.diagnostics, &lint_diagnostics, false);
+
+        assert_eq!(report["schema_version"], "num.deploy_check.v1");
+        assert_eq!(report["status"], "blocked");
+        assert_eq!(report["blocking"], true);
+        assert_eq!(report["gates"]["policy"]["status"], "ready");
+        assert_eq!(report["gates"]["security"]["status"], "advisory");
+        assert_eq!(report["gates"]["cost"]["status"], "advisory");
+        assert_eq!(
+            report["gates"]["cost"]["missing_high_risk_cost_metadata"][0],
+            "charge_card"
+        );
+        assert_eq!(report["gates"]["target"]["status"], "blocking");
+        assert_eq!(report["gates"]["environment"]["status"], "blocking");
+        assert_eq!(
+            report["gates"]["environment"]["missing_required"][0],
+            "NUM_TEST_DEPLOY_SECRET_TOKEN"
+        );
+        assert_eq!(
+            report["gates"]["image_publish"]["validation"]["status"],
+            "invalid"
+        );
+        assert!(report["gates"]["security"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "N4002"));
+        let rendered = serde_json::to_string(&report).unwrap();
+        assert!(!rendered.contains("secret-value"));
+        assert!(!rendered.contains("password"));
+    }
+
+    #[test]
     fn materializes_deployment_artifact_bundle() {
         let root = temp_dir("bundle_project");
         fs::create_dir_all(root.join("src")).unwrap();
@@ -2315,15 +2893,21 @@ credentials_ref = "secret://docker/ghcr"
         assert!(artifact_root.join("deploy/Dockerfile").is_file());
         assert!(artifact_root.join("deploy/image-publish.json").is_file());
         assert!(artifact_root.join("deploy/compose.yaml").is_file());
+        assert!(artifact_root.join("deploy/github-actions.yml").is_file());
+        assert!(artifact_root.join("deploy/Jenkinsfile").is_file());
+        assert!(artifact_root.join("deploy/.gitlab-ci.yml").is_file());
         assert_eq!(
             report.runtime_artifacts,
             vec![
                 "deploy/Dockerfile".to_string(),
                 "deploy/image-publish.json".to_string(),
-                "deploy/compose.yaml".to_string()
+                "deploy/compose.yaml".to_string(),
+                "deploy/github-actions.yml".to_string(),
+                "deploy/Jenkinsfile".to_string(),
+                "deploy/.gitlab-ci.yml".to_string()
             ]
         );
-        assert_eq!(report.files.len(), 9);
+        assert_eq!(report.files.len(), 12);
         let compose = fs::read_to_string(artifact_root.join("deploy/compose.yaml")).unwrap();
         assert!(compose.contains("services:\n  num:\n    build:"));
         assert!(compose.contains("    image: ghcr.io/acme/billing-api:1.2.3"));
@@ -2334,6 +2918,24 @@ credentials_ref = "secret://docker/ghcr"
         assert!(image_publish.contains("\"reference\": \"ghcr.io/acme/billing-api:1.2.3\""));
         assert!(image_publish.contains("\"credentials_ref\": \"secret://docker/ghcr\""));
         assert!(!image_publish.contains("password"));
+        let jenkinsfile = fs::read_to_string(artifact_root.join("deploy/Jenkinsfile")).unwrap();
+        assert!(jenkinsfile.contains("stage('Policy gate')"));
+        assert!(jenkinsfile.contains("stage('Cost gate')"));
+        assert!(jenkinsfile.contains("stage('Security gate')"));
+        assert!(jenkinsfile.contains("stage('Deploy artifact')"));
+        let github_actions =
+            fs::read_to_string(artifact_root.join("deploy/github-actions.yml")).unwrap();
+        assert!(github_actions.contains("name: Policy gate"));
+        assert!(github_actions.contains("name: Cost gate"));
+        assert!(github_actions.contains("name: Security gate"));
+        assert!(github_actions.contains("name: Deploy check"));
+        assert!(github_actions.contains("name: Package deploy artifact"));
+        let gitlab_ci = fs::read_to_string(artifact_root.join("deploy/.gitlab-ci.yml")).unwrap();
+        assert!(gitlab_ci.contains("num deploy \"$NUM_PROJECT_DIR\" --check --json"));
+        assert!(gitlab_ci.contains("stage: policy"));
+        assert!(gitlab_ci.contains("stage: cost"));
+        assert!(gitlab_ci.contains("stage: security"));
+        assert!(gitlab_ci.contains("stage: package"));
         assert!(artifact_root
             .join("modules")
             .read_dir()
@@ -2383,7 +2985,7 @@ credentials_ref = "secret://docker/ghcr"
         let replaced =
             materialize_deployment_artifact(&plan, &manifest, &[source], &artifact_root, true)
                 .unwrap();
-        assert_eq!(replaced.files.len(), 9);
+        assert_eq!(replaced.files.len(), 12);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2493,6 +3095,18 @@ service BillingApi {
             .target_profile
             .required_artifacts
             .contains(&"deploy/kubernetes.yaml".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/github-actions.yml".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/Jenkinsfile".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/.gitlab-ci.yml".to_string()));
         assert_eq!(plan.target_profile.validation.status, "ready");
         assert!(plan.target_profile.validation.errors.is_empty());
 
@@ -2509,7 +3123,10 @@ service BillingApi {
             report.runtime_artifacts,
             vec![
                 "deploy/Dockerfile".to_string(),
-                "deploy/kubernetes.yaml".to_string()
+                "deploy/kubernetes.yaml".to_string(),
+                "deploy/github-actions.yml".to_string(),
+                "deploy/Jenkinsfile".to_string(),
+                "deploy/.gitlab-ci.yml".to_string()
             ]
         );
         let kubernetes = fs::read_to_string(artifact_root.join("deploy/kubernetes.yaml")).unwrap();
@@ -2664,6 +3281,18 @@ service BillingApi {
             .contains(&"deploy/num.env".to_string()));
         assert!(plan
             .target_profile
+            .required_artifacts
+            .contains(&"deploy/github-actions.yml".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/Jenkinsfile".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/.gitlab-ci.yml".to_string()));
+        assert!(plan
+            .target_profile
             .warnings
             .iter()
             .any(|warning| warning.contains("process connectors [payments.find]")));
@@ -2686,10 +3315,13 @@ service BillingApi {
             report.runtime_artifacts,
             vec![
                 "deploy/num.service".to_string(),
-                "deploy/num.env".to_string()
+                "deploy/num.env".to_string(),
+                "deploy/github-actions.yml".to_string(),
+                "deploy/Jenkinsfile".to_string(),
+                "deploy/.gitlab-ci.yml".to_string()
             ]
         );
-        assert_eq!(report.files.len(), 8);
+        assert_eq!(report.files.len(), 11);
         let service = fs::read_to_string(artifact_root.join("deploy/num.service")).unwrap();
         assert!(service.contains("Description=Num service for billing-api"));
         assert!(service.contains("WorkingDirectory=/opt/num/billing-api"));

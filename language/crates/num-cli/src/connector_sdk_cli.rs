@@ -21,6 +21,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
         ConnectorSdkLanguageArg::TypeScript => {
             connector_sdk::render_typescript_sdk(&program.module)
         }
+        ConnectorSdkLanguageArg::Python => connector_sdk::render_python_sdk(&program.module),
     };
 
     if let Some(out_path) = &options.out_path {
@@ -60,6 +61,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConnectorSdkLanguageArg {
     TypeScript,
+    Python,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,12 +85,13 @@ fn parse_args(
             "--language" | "--lang" => {
                 let raw = args
                     .next()
-                    .ok_or_else(|| "usage: --language typescript".to_string())?;
+                    .ok_or_else(|| "usage: --language <typescript|python>".to_string())?;
                 language = match raw.as_str() {
                     "typescript" | "ts" => ConnectorSdkLanguageArg::TypeScript,
+                    "python" | "py" => ConnectorSdkLanguageArg::Python,
                     other => {
                         return Err(format!(
-                            "unsupported connector SDK language `{other}`; supported: typescript"
+                            "unsupported connector SDK language `{other}`; supported: typescript, python"
                         ))
                     }
                 };
@@ -142,5 +145,27 @@ mod tests {
             Some(PathBuf::from("generated/connectors.d.ts"))
         );
         assert!(options.format_json);
+    }
+
+    #[test]
+    fn parses_python_connector_sdk_args() {
+        let (path, options) = parse_args(
+            [
+                "examples/refund_workflow".to_string(),
+                "--language".to_string(),
+                "python".to_string(),
+                "--out".to_string(),
+                "generated/connectors.py".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("examples/refund_workflow"));
+        assert_eq!(options.language, ConnectorSdkLanguageArg::Python);
+        assert_eq!(
+            options.out_path,
+            Some(PathBuf::from("generated/connectors.py"))
+        );
     }
 }

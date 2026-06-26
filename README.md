@@ -116,6 +116,7 @@ num test .
 Materialize a deploy bundle from a project manifest:
 
 ```bash
+num deploy examples/refund_workflow --check --json
 num deploy examples/refund_workflow --apply
 ```
 
@@ -136,8 +137,8 @@ num deploy examples/refund_workflow --apply
 - Runtime connector egress context propagation for distributed data-leak
   controls across process and external connector boundaries.
 - Manifest compatibility, migration, version upgrade, lockfile, local registry,
-  package integrity, connector SDK, OpenAPI import, SQL import, and deployment
-  artifact commands.
+  package integrity, TypeScript/Python connector SDKs, OpenAPI import, SQL
+  import, and deployment artifact commands.
 - VS Code syntax, snippets, diagnostics, completion, hover, formatting, and
   document symbols through the bundled language server.
 
@@ -153,7 +154,7 @@ num test <file.num|dir>
 num run <file.num|dir> [--json]
 num route <file.num|dir> <METHOD> <PATH>
 num serve <file.num|dir> [addr] [service]
-num deploy [project-dir|file] [--apply]
+num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run]
 num compat [project-dir|file] [--json]
 num migrate [project-dir|file] [--write] [--json]
 num upgrade-version [project-dir|file]

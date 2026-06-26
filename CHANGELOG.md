@@ -14,6 +14,9 @@
   connector contract, manifest process connector execution through Python,
   direct connector probing, and generated TypeScript implementation types for
   JavaScript consumers.
+- Added a Python target for `num connector-sdk`, generating dataclasses,
+  type aliases, connector protocols, and egress context stubs for process
+  connector implementations.
 - Added `num bench` for checked-in lexer/parser/checker benchmark fixtures with
   stable JSON output suitable for CI artifacts.
 - Added opt-in `num bench --compare <baseline.json>` regression gates with
@@ -28,6 +31,16 @@
   plans, including registry/image/tag strategy fields, credentials references,
   and `deploy/image-publish.json` artifacts for container and Kubernetes
   bundles.
+- Added Jenkins deploy-gate templates to external deployment bundles, running
+  policy, cost, and security gates before materializing the deploy artifact.
+- Added GitLab CI deploy-gate templates and an explicit `num deploy --check`
+  mode for CI validation before deployment bundle packaging.
+- Added a versioned `num.deploy_check.v1` JSON read model and GitHub Actions
+  deploy-gate template for policy, cost, security, and packaging gates.
+- Added a versioned `num.audit_dashboard.v1` JSON read model for
+  `num audit-report --json`, including stable audit counts, optional
+  connector/route/workflow dimensions, time-window metadata, and redacted
+  failure details.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 
