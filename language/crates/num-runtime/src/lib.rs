@@ -10,6 +10,7 @@ pub mod debugger;
 pub mod engine;
 pub mod events;
 pub mod execution;
+pub mod hashing;
 pub mod http;
 pub mod interpreter;
 pub mod js_interop;
@@ -1178,6 +1179,39 @@ workflow main(raw_email: Text) {
 
         assert!(err.contains("validate_email failed"));
         assert!(err.contains("expected one `@` separator"));
+    }
+
+    #[test]
+    fn test_runtime_executes_sha256_hash_helpers() {
+        let source = r#"
+module test.hashing
+
+workflow main(raw: Text, payload: Bytes) {
+    let hex: Text = hash_sha256_hex(raw)
+    let bytes_hex: Text = hash_sha256_hex(payload)
+    let base64: Text = hash_sha256_base64(raw)
+    audit(hex)
+    audit(bytes_hex)
+    audit(base64)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert("raw".to_string(), Value::String("abc".to_string()));
+        args.insert("payload".to_string(), Value::String("abc".to_string()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"".to_string(),
+                "\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"".to_string(),
+                "\"ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=\"".to_string()
+            ]
+        );
     }
 
     #[test]

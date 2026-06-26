@@ -360,6 +360,32 @@ Locale-specific phone parsing, IDNA/punycode domains, provider-specific email
 rules, and non-HTTP URL schemes remain explicit connector/provider policy
 instead of hidden stdlib behavior.
 
+### Hashing Helpers
+
+The security standard library exposes explicit SHA-256 helpers for deterministic
+non-password hashing:
+
+```num
+let hex: Text = hash_sha256_hex(raw_event)
+let compact: Text = hash_sha256_base64(payload_bytes)
+```
+
+Both helpers accept `Text` or `Bytes` and return `Text`. The algorithm and
+encoding are part of the function name:
+
+- `hash_sha256_hex(value)` returns lowercase hexadecimal SHA-256 output;
+- `hash_sha256_base64(value)` returns standard base64 SHA-256 output.
+
+Use these helpers for audit correlation keys, content fingerprints, cache keys,
+idempotency material, and deterministic non-secret comparisons. Do not use
+SHA-256 helpers for passwords, API keys, or bearer tokens; password hashing
+needs a dedicated salted, slow, memory-hard boundary such as Argon2/bcrypt, and
+secret values should stay inside `Secret<T>` or an external secret store.
+
+Hashing does not automatically remove privacy or provenance labels. A hash of
+private user input may still be linkable private data, so declassification
+requires an explicit policy decision or `anonymize(...)` where appropriate.
+
 ### `Option<T>`
 
 `Option<T>` represents nullable values without ordinary `null`.

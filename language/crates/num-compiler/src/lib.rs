@@ -1152,6 +1152,41 @@ workflow main(count: Int) {
     }
 
     #[test]
+    fn accepts_explicit_sha256_hash_helpers_for_text_and_bytes() {
+        let source = r#"
+module tests.hashing
+
+workflow main(raw: Text, payload: Bytes) {
+    let text_hex: Text = hash_sha256_hex(raw)
+    let bytes_hex: Text = hash_sha256_hex(payload)
+    let text_base64: Text = hash_sha256_base64(raw)
+    audit(text_hex)
+    audit(bytes_hex)
+    audit(text_base64)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_hash_helper_non_text_or_bytes_argument() {
+        let source = r#"
+module tests.hashing
+
+workflow main(count: Int) {
+    let digest: Text = hash_sha256_hex(count)
+}
+"#;
+
+        assert!(codes(source).contains(&"N2706"));
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

@@ -1,0 +1,8 @@
+module examples.security_hashing
+
+workflow audit_payload(raw_event: Text from InternalData internal, payload: Bytes from InternalData internal) {
+    let event_digest: Text from DerivedData internal = hash_sha256_hex(raw_event)
+    let payload_digest: Text from DerivedData internal = hash_sha256_base64(payload)
+    audit(event_digest)
+    audit(payload_digest)
+}

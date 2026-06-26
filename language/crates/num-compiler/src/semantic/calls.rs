@@ -151,6 +151,10 @@ impl<'a> Checker<'a> {
                 self.scalar_validator_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_hash_helper(call_name) {
+                self.hash_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
 
             if is_builtin_runtime_function(call_name)
                 || is_result_constructor_name(call_name)
@@ -288,6 +292,48 @@ impl<'a> Checker<'a> {
         }
     }
 
+    fn hash_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if args.len() != 1 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "hash helper `{call_name}` expects 1 argument, got {}",
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("hash helpers digest exactly one Text or Bytes value")
+                .with_help("pass one Text or Bytes expression to the helper"),
+            );
+            return;
+        }
+
+        let Some(actual_ty) = self.expr_type(&args[0], env) else {
+            return;
+        };
+        if !matches!(actual_ty.raw.as_str(), "Text" | "Bytes") {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2706",
+                    format!(
+                        "hash helper `{call_name}` argument has type `{}`, expected `Text` or `Bytes`",
+                        actual_ty.raw
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("hash helpers require explicit text or byte input")
+                .with_help("convert the value to Text or Bytes before hashing"),
+            );
+        }
+    }
+
     pub(super) fn method_call(
         &mut self,
         raw: &RawExpr,
@@ -415,6 +461,8 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "require_human_review"
             | "sanitize"
             | "unbrand"
+            | "hash_sha256_base64"
+            | "hash_sha256_hex"
             | "validate_email"
             | "validate_phone_number"
             | "validate_trust"

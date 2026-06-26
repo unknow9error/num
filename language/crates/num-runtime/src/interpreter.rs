@@ -7,7 +7,8 @@ use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
 use crate::{
-    redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError, SecurityContext,
+    hashing, redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError,
+    SecurityContext,
 };
 use num_compiler::ast::{
     Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
@@ -1321,6 +1322,9 @@ impl<'a> Runtime<'a> {
             "anonymize" | "sanitize" | "validate_trust" | "verify_trust" => {
                 return Ok(args.into_iter().next().unwrap_or(Value::Null));
             }
+            "hash_sha256_hex" | "hash_sha256_base64" => {
+                return self.call_hash_helper(name, args);
+            }
             "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
                 return self.call_scalar_validator(name, args);
             }
@@ -1640,6 +1644,25 @@ impl<'a> Runtime<'a> {
         }
         .map_err(|reason| format!("{name} failed: {reason}"))?;
         Ok(Value::String(validated))
+    }
+
+    fn call_hash_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "{name} expects exactly one Text or Bytes argument, got {}",
+                args.len()
+            ));
+        }
+        let value = args.into_iter().next().unwrap_or(Value::Null);
+        let Value::String(raw) = value else {
+            return Err(format!("{name} expects Text or Bytes input, got {value}"));
+        };
+        let digest = match name {
+            "hash_sha256_hex" => hashing::sha256_hex(raw.as_bytes()),
+            "hash_sha256_base64" => hashing::sha256_base64(raw.as_bytes()),
+            _ => raw,
+        };
+        Ok(Value::String(digest))
     }
 
     fn is_declared_connector_call(&self, name: &str) -> bool {

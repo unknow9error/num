@@ -118,6 +118,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Validates a conservative E.164-style phone number and returns PhoneNumber without changing privacy or provenance labels.",
     },
     BuiltinSymbol {
+        name: "hash_sha256_hex",
+        kind: BuiltinKind::Function,
+        signature: "hash_sha256_hex(value: Text|Bytes) -> Text",
+        documentation: "Computes a SHA-256 digest for deterministic non-password hashing and returns lowercase hexadecimal text.",
+    },
+    BuiltinSymbol {
+        name: "hash_sha256_base64",
+        kind: BuiltinKind::Function,
+        signature: "hash_sha256_base64(value: Text|Bytes) -> Text",
+        documentation: "Computes a SHA-256 digest for deterministic non-password hashing and returns standard base64 text.",
+    },
+    BuiltinSymbol {
         name: "verify_trust",
         kind: BuiltinKind::Function,
         signature: "verify_trust(value)",

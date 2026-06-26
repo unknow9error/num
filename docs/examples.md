@@ -15,6 +15,7 @@ num check examples/policy_guard/src/main.num
 num check examples/contract_driven_refund/src/main.num
 num check examples/async_tasks/src/main.num
 num check examples/scalar_validation/src/main.num
+num check examples/security_hashing/src/main.num
 num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
@@ -109,6 +110,24 @@ Useful command:
 
 ```bash
 num check examples/scalar_validation/src/main.num
+```
+
+## `security_hashing`
+
+Path: `examples/security_hashing/src/main.num`
+
+Demonstrates:
+
+- `hash_sha256_hex` for deterministic lowercase hexadecimal digests;
+- `hash_sha256_base64` for compact base64 digests;
+- explicit `Text` and `Bytes` input boundaries;
+- keeping hashed values as derived data rather than treating hashes as password
+  storage or automatic declassification.
+
+Useful command:
+
+```bash
+num check examples/security_hashing/src/main.num
 ```
 
 ## `contract_driven_refund`
