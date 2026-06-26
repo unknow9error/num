@@ -634,8 +634,8 @@ Major full-spec areas not implemented in v0.3.0:
 - interactive cost dashboard;
 - cloud/container/bare-metal deployment execution model beyond generated
   local/CI artifacts, image publish handoffs, and Kubernetes dry-run handoffs;
-- CI/CD integrations beyond generated Jenkins/GitLab deploy-gate templates,
-  local deployment bundle generation, and release packaging;
+- CI/CD integrations beyond generated GitHub Actions/Jenkins/GitLab deploy-gate
+  templates, local deployment bundle generation, and release packaging;
 - external-language interop;
 - remote registry package imports;
 - performance optimization strategy;

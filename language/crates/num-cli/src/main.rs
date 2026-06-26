@@ -281,15 +281,68 @@ fn run() -> Result<(), String> {
             let module_count = input.files.len();
             let policy_mode = input.policy_mode.clone();
             let program = compile_program(input.files, input.entry_source_name.as_deref());
-            let mut diagnostics = program.diagnostics;
-            let fail_on_warnings =
-                apply_policy_mode(policy_mode.as_deref(), &program.modules, &mut diagnostics)?;
+            let compile_diagnostics = program.diagnostics.clone();
+            let lint_diagnostics = program
+                .modules
+                .iter()
+                .flat_map(|module| lint::lint(&module.module))
+                .collect::<Vec<_>>();
+            let fail_on_warnings = matches!(
+                validate_policy_mode(policy_mode.as_deref())?,
+                PolicyMode::Strict
+            );
+            let mut diagnostics = compile_diagnostics.clone();
+            if fail_on_warnings {
+                diagnostics.extend(lint_diagnostics.clone());
+            }
+            let plan = deploy::build_deployment_plan(&manifest, &program.module, module_count);
+            if options.check {
+                let check_report = deploy::build_deploy_check_report(
+                    &plan,
+                    &compile_diagnostics,
+                    &lint_diagnostics,
+                    fail_on_warnings,
+                );
+                let blocking = check_report["blocking"].as_bool().unwrap_or(true);
+                let payload = serde_json::to_string_pretty(&check_report)
+                    .map_err(|err| format!("failed to render deployment check JSON: {err}"))?;
+                if let Some(out_path) = &options.out_path {
+                    if let Some(parent) = out_path.parent() {
+                        if !parent.as_os_str().is_empty() {
+                            fs::create_dir_all(parent).map_err(|err| {
+                                format!("failed to create {}: {err}", parent.display())
+                            })?;
+                        }
+                    }
+                    fs::write(out_path, format!("{payload}\n"))
+                        .map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
+                    if !options.format_json {
+                        println!("wrote deployment check {}", out_path.display());
+                    }
+                }
+                if options.format_json {
+                    println!("{payload}");
+                } else {
+                    print_diagnostics(&diagnostics);
+                    if options.out_path.is_none() {
+                        print!("{}", plan.render_text());
+                    }
+                    println!(
+                        "Deploy check: {}",
+                        if blocking { "blocked" } else { "ready" }
+                    );
+                }
+                return if blocking {
+                    Err("deploy check failed".to_string())
+                } else {
+                    Ok(())
+                };
+            }
             print_diagnostics(&diagnostics);
             if has_failing_diagnostics(&diagnostics, fail_on_warnings) {
                 return Err("program has compile errors".to_string());
             }
 
-            let plan = deploy::build_deployment_plan(&manifest, &program.module, module_count);
             let json = serde_json::to_string_pretty(&plan.to_json())
                 .map_err(|err| format!("failed to render deployment plan JSON: {err}"))?;
             if options.kubernetes_dry_run {
@@ -1068,6 +1121,9 @@ fn parse_deploy_options(args: impl Iterator<Item = String>) -> Result<DeployOpti
     }
     if check && apply {
         return Err("--check cannot be combined with --apply".to_string());
+    }
+    if check && kubernetes_dry_run {
+        return Err("--check cannot be combined with --kubernetes-dry-run".to_string());
     }
 
     Ok(DeployOptions {
@@ -2068,6 +2124,19 @@ service Api {
         };
 
         assert!(err.contains("--check cannot be combined with --apply"));
+    }
+
+    #[test]
+    fn deploy_options_reject_check_with_kubernetes_dry_run() {
+        let result = parse_deploy_options(
+            ["--check".to_string(), "--kubernetes-dry-run".to_string()].into_iter(),
+        );
+        let err = match result {
+            Ok(_) => panic!("expected --check with --kubernetes-dry-run to fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("--check cannot be combined with --kubernetes-dry-run"));
     }
 
     #[test]

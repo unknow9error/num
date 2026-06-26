@@ -32,6 +32,8 @@
   policy, cost, and security gates before materializing the deploy artifact.
 - Added GitLab CI deploy-gate templates and an explicit `num deploy --check`
   mode for CI validation before deployment bundle packaging.
+- Added a versioned `num.deploy_check.v1` JSON read model and GitHub Actions
+  deploy-gate template for policy, cost, security, and packaging gates.
 - Added workflow lifecycle fixtures covering wait/resume audit checkpoints,
   saga compensation audits, and idempotent action replay behavior.
 
