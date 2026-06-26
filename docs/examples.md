@@ -130,6 +130,23 @@ Useful command:
 num check examples/security_hashing/src/main.num
 ```
 
+## `datetime_deadlines`
+
+Path: `examples/datetime_deadlines/src/main.num`
+
+Demonstrates:
+
+- parsing UTC ISO `DateTime` text at an input boundary;
+- parsing `Duration<Hour>` values from explicit hour strings;
+- computing route deadlines with `DateTime +/- Duration<Hour>`;
+- comparing timestamps and auditing canonical ISO output.
+
+Useful command:
+
+```bash
+num check examples/datetime_deadlines/src/main.num
+```
+
 ## `contract_driven_refund`
 
 Path: `examples/contract_driven_refund/src/main.num`

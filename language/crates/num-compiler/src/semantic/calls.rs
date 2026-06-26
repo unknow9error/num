@@ -155,6 +155,10 @@ impl<'a> Checker<'a> {
                 self.hash_helper_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_datetime_duration_helper(call_name) {
+                self.datetime_duration_call(raw, call_name, &call.args, env);
+                continue;
+            }
 
             if is_builtin_runtime_function(call_name)
                 || is_result_constructor_name(call_name)
@@ -334,6 +338,68 @@ impl<'a> Checker<'a> {
         }
     }
 
+    fn datetime_duration_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if args.len() != 1 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "date/time helper `{call_name}` expects 1 argument, got {}",
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("date/time helpers parse or format exactly one value")
+                .with_help("pass one value with the helper input type"),
+            );
+            return;
+        }
+
+        let expected = datetime_duration_param_types(call_name)
+            .and_then(|mut params| params.pop())
+            .expect("known date/time helper must have one param type");
+        let Some(actual_ty) = self.expr_type_in_context(&args[0], env, Some(&expected)) else {
+            return;
+        };
+        if !self.types_compatible(&expected, &actual_ty) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2706",
+                    format!(
+                        "date/time helper `{call_name}` argument has type `{}`, expected `{}`",
+                        actual_ty.raw, expected.raw
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason(
+                    "date/time helpers use explicit DateTime and Duration<Hour> boundaries",
+                )
+                .with_help("parse text first or pass a value with the expected date/time type"),
+            );
+            return;
+        }
+
+        if let Expr::String(value) = &args[0] {
+            if let Err(reason) = validate_datetime_duration_literal(call_name, value) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2707",
+                        format!("invalid literal for `{call_name}`: {reason}"),
+                        raw.span.clone(),
+                    )
+                    .with_reason("literal date/time values can be validated at compile time")
+                    .with_help("use explicit UTC ISO timestamps and hour durations"),
+                );
+            }
+        }
+    }
+
     pub(super) fn method_call(
         &mut self,
         raw: &RawExpr,
@@ -463,6 +529,10 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "unbrand"
             | "hash_sha256_base64"
             | "hash_sha256_hex"
+            | "datetime_format_iso"
+            | "datetime_parse_iso"
+            | "duration_format_hours"
+            | "duration_parse_hours"
             | "validate_email"
             | "validate_phone_number"
             | "validate_trust"
