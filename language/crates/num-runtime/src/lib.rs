@@ -8,6 +8,7 @@ pub mod cost_report;
 pub mod database;
 pub mod datetime;
 pub mod debugger;
+pub mod decimal;
 pub mod engine;
 pub mod events;
 pub mod execution;
@@ -1273,6 +1274,59 @@ workflow main(raw_deadline: Text) {
 
         assert!(err.contains("datetime_parse_iso failed"));
         assert!(err.contains("YYYY-MM-DDTHH:MM:SSZ"));
+    }
+
+    #[test]
+    fn test_runtime_executes_decimal_helpers_and_arithmetic() {
+        let source = r#"
+module test.decimal
+
+workflow main(raw_amount: Text, raw_fee: Text) {
+    let amount: Decimal = decimal_parse(raw_amount)
+    let fee: Decimal = decimal_parse(raw_fee)
+    let total: Decimal = amount + fee
+    let doubled: Decimal = total * decimal_parse("2")
+    let ratio: Decimal = doubled / decimal_parse("4")
+    let formatted: Text = decimal_format(ratio)
+    assert ratio > decimal_parse("6")
+    audit(formatted)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert("raw_amount".to_string(), Value::String("10.50".to_string()));
+        args.insert("raw_fee".to_string(), Value::String("2.25".to_string()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(runtime.audit_events(), &["\"6.375\"".to_string()]);
+    }
+
+    #[test]
+    fn test_runtime_rejects_invalid_decimal_input() {
+        let source = r#"
+module test.decimal
+
+workflow main(raw_amount: Text) {
+    let amount: Decimal = decimal_parse(raw_amount)
+    audit(amount)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "raw_amount".to_string(),
+            Value::String("12.3.4".to_string()),
+        );
+
+        let err = runtime.run_workflow("main", args).unwrap_err();
+
+        assert!(err.contains("decimal_parse failed"));
+        assert!(err.contains("at most one decimal point"));
     }
 
     #[test]

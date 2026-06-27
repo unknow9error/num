@@ -1,0 +1,10 @@
+module examples.decimal_arithmetic
+
+workflow invoice_total(raw_subtotal: Text from UserInput private trusted, raw_tax: Text from Config internal trusted) {
+    let subtotal: Decimal from UserInput private trusted = decimal_parse(raw_subtotal)
+    let tax: Decimal from Config internal trusted = decimal_parse(raw_tax)
+    let total: Decimal from DerivedData private trusted = subtotal + tax
+    let double_check: Decimal from DerivedData private trusted = total * decimal_parse("1")
+    let display_total: Text from DerivedData private trusted = decimal_format(double_check)
+    audit(display_total)
+}

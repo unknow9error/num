@@ -166,11 +166,12 @@ runtime instance.
 - `N2704` - connector method call argument type does not match the connector
   schema.
 - `N2705` - direct `fn`, `workflow`, `action`, built-in validator, hash helper,
-  or date/time helper call has the wrong number of arguments.
+  date/time helper, or decimal helper call has the wrong number of arguments.
 - `N2706` - direct `fn`, `workflow`, `action`, built-in validator, hash helper,
-  or date/time helper call argument type does not match the callable signature.
-- `N2707` - built-in scalar validator or date/time helper was called with a
-  literal that cannot satisfy the requested scalar/date-time type.
+  date/time helper, or decimal helper call argument type does not match the
+  callable signature.
+- `N2707` - built-in scalar validator, date/time helper, or decimal helper was
+  called with a literal that cannot satisfy the requested scalar/date-time type.
 - `N2800` - duplicate service route method/path inside a `service`.
 
 ## Expressions

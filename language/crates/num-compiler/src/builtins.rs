@@ -154,6 +154,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Formats a Duration<Hour> value as compact hour text such as `4h`.",
     },
     BuiltinSymbol {
+        name: "decimal_parse",
+        kind: BuiltinKind::Function,
+        signature: "decimal_parse(value: Text) -> Decimal",
+        documentation: "Parses text into an exact Decimal value without falling back to Float.",
+    },
+    BuiltinSymbol {
+        name: "decimal_format",
+        kind: BuiltinKind::Function,
+        signature: "decimal_format(value: Decimal) -> Text",
+        documentation: "Formats an exact Decimal value as canonical text.",
+    },
+    BuiltinSymbol {
         name: "verify_trust",
         kind: BuiltinKind::Function,
         signature: "verify_trust(value)",
