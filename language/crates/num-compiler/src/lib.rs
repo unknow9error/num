@@ -156,6 +156,64 @@ workflow main(raw: Text, encoded: Text, payload: DocumentPayload) {
     }
 
     #[test]
+    fn accepts_document_metadata_fields() {
+        let source = r#"
+module tests.document
+
+workflow main(document: Document from Upload private untrusted) {
+    let constructed: Document = document_metadata("doc_2", "invoice.pdf", "application/pdf", 2048, "Upload", "private", "trusted")
+    let id: Text = document.id
+    let name: Text = document.name
+    let mime: Text = document.mime_type
+    let size: Int = document.size_bytes
+    let source: Text = document.source
+    let privacy: Text = document.privacy
+    let trust: Text = document.trust
+    audit(id)
+    audit(name)
+    audit(mime)
+    audit(size)
+    audit(source)
+    audit(privacy)
+    audit(trust)
+    audit(constructed.name)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_document_metadata_field() {
+        let source = r#"
+module tests.document
+
+workflow main(document: Document) {
+    let pages: Int = document.pages
+}
+"#;
+
+        assert!(codes(source).contains(&"N1301"));
+    }
+
+    #[test]
+    fn rejects_document_metadata_constructor_type_mismatch() {
+        let source = r#"
+module tests.document
+
+workflow main() {
+    let document: Document = document_metadata("doc_1", "contract.pdf", "application/pdf", "4096", "Upload", "private", "trusted")
+}
+"#;
+
+        assert!(codes(source).contains(&"N2706"));
+    }
+
+    #[test]
     fn rejects_bytes_and_xml_helper_type_mismatches() {
         let source = r#"
 module tests.bytes_xml

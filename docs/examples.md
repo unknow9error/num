@@ -204,6 +204,26 @@ Useful command:
 num check examples/xml_bytes_payload/src/main.num
 ```
 
+## `document_metadata_route`
+
+Path: `examples/document_metadata_route/src/main.num`
+
+Demonstrates:
+
+- `Document` as metadata-only route input;
+- reading `id`, `name`, `mime_type`, `size_bytes`, `source`, `privacy`, and
+  `trust` fields;
+- routing private document metadata through an explicit policy-checked external
+  audit call;
+- keeping file parsing, OCR, and PDF/DOCX extraction outside the first
+  stdlib slice.
+
+Useful command:
+
+```bash
+num check examples/document_metadata_route/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

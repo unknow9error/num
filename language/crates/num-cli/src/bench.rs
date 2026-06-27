@@ -751,6 +751,9 @@ fn truncate_name(name: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static BASELINE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn parse_options_defaults_to_checked_in_fixtures() {
@@ -910,11 +913,12 @@ mod tests {
 
     fn write_baseline(fixtures: &[(&str, u128, u128)]) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "num-bench-baseline-{}.json",
+            "num-bench-baseline-{}-{}.json",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            BASELINE_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let fixtures = fixtures
             .iter()

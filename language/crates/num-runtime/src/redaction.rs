@@ -139,6 +139,15 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
         Value::String(value) => values.push(value.clone()),
         Value::Bytes(value) => values.push(hashing::base64_encode(value)),
         Value::Xml(value) => values.push(value.clone()),
+        Value::Document(value) => {
+            values.push(value.id.clone());
+            values.push(value.name.clone());
+            values.push(value.mime_type.clone());
+            values.push(value.size_bytes.to_string());
+            values.push(value.source.clone());
+            values.push(value.privacy.clone());
+            values.push(value.trust.clone());
+        }
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));

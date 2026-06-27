@@ -40,6 +40,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in wrapper for values that must not be logged or sent to unsafe sinks.",
     },
     BuiltinSymbol {
+        name: "Document",
+        kind: BuiltinKind::Type,
+        signature: "Document",
+        documentation: "Built-in metadata-only document value with id, name, MIME type, byte size, source, privacy, and trust fields.",
+    },
+    BuiltinSymbol {
         name: "Distance",
         kind: BuiltinKind::Type,
         signature: "Distance<Unit>",
@@ -164,6 +170,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         kind: BuiltinKind::Function,
         signature: "xml_to_text(value: Xml) -> Text",
         documentation: "Returns the original text backing an Xml value.",
+    },
+    BuiltinSymbol {
+        name: "document_metadata",
+        kind: BuiltinKind::Function,
+        signature: "document_metadata(id: Text, name: Text, mime_type: Text, size_bytes: Int, source: Text, privacy: Text, trust: Text) -> Document",
+        documentation: "Builds a metadata-only Document value without parsing file contents.",
     },
     BuiltinSymbol {
         name: "datetime_parse_iso",

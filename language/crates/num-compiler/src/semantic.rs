@@ -2666,6 +2666,27 @@ fn bytes_xml_helper_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_document_helper(name: &str) -> bool {
+    name == "document_metadata"
+}
+
+fn document_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    is_document_helper(name).then(|| {
+        ["Text", "Text", "Text", "Int", "Text", "Text", "Text"]
+            .into_iter()
+            .map(|raw| TypeRef {
+                raw: raw.to_string(),
+            })
+            .collect()
+    })
+}
+
+fn document_helper_result_type(name: &str) -> Option<TypeRef> {
+    is_document_helper(name).then(|| TypeRef {
+        raw: "Document".to_string(),
+    })
+}
+
 fn is_datetime_duration_helper(name: &str) -> bool {
     matches!(
         name,

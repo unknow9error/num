@@ -276,6 +276,9 @@ Implemented:
   output functions and known-vector runtime tests;
 - first-class `Bytes` and `Xml` runtime values, with explicit constructors,
   formatters, typed JSON/process-connector boundaries, and bounded diagnostics;
+- metadata-only `Document` runtime values with fixed fields, typed field
+  access, HTTP/process JSON conversion, connector SDK shapes, and persistence
+  round-tripping;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

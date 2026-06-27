@@ -336,6 +336,7 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
             json!({"kind": "Bytes", "base64": crate::hashing::base64_encode(value)})
         }
         Value::Xml(value) => json!({"kind": "Xml", "value": value}),
+        Value::Document(value) => json!({"kind": "Document", "value": value.to_json()}),
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
@@ -415,6 +416,13 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
             crate::xml::validate_xml_document(&raw).map_err(storage_error)?;
             Ok(Value::Xml(raw))
         }
+        "Document" => crate::document::value_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing document value"))?,
+        )
+        .map(Value::Document)
+        .map_err(storage_error),
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,
             string_field(value, "currency")?,
@@ -825,6 +833,36 @@ mod tests {
                     ("manifest".to_string(), Value::Xml("<root/>".to_string())),
                 ]),
             ))
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_idempotency_store_round_trips_document_records() {
+        let root = unique_test_dir("document");
+        let action = action_spec("store_document", Some("document/store"));
+        let document = crate::document::DocumentValue {
+            id: "doc_1".to_string(),
+            name: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size_bytes: 4096,
+            source: "Upload".to_string(),
+            privacy: "private".to_string(),
+            trust: "untrusted".to_string(),
+        };
+        let mut executor = ActionExecutor::new(FileIdempotencyStore::new(&root));
+        executor
+            .execute(&action, RetryPolicy::none(), None, |_| {
+                Ok(Value::Document(document.clone()))
+            })
+            .unwrap();
+
+        let store = FileIdempotencyStore::new(&root);
+        let record = store.load("document/store").unwrap().unwrap();
+
+        assert_eq!(
+            record.outcome,
+            ExecutionOutcome::Succeeded(Value::Document(document))
         );
         let _ = std::fs::remove_dir_all(root);
     }

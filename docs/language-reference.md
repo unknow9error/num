@@ -472,6 +472,64 @@ Intentionally unsupported in this slice:
 - streaming XML or binary parsing;
 - automatic conversion between `Text`, `Bytes`, and `Xml` without helper calls.
 
+### Document Metadata
+
+`Document` is a metadata-only stdlib value for uploaded or connector-provided
+documents. It does not parse file contents in the first slice. The fixed fields
+are:
+
+- `id: Text`
+- `name: Text`
+- `mime_type: Text`
+- `size_bytes: Int`
+- `source: Text`
+- `privacy: Text`
+- `trust: Text`
+
+Example:
+
+```num
+workflow review(document: Document from Upload private untrusted) {
+    let fixture: Document = document_metadata("doc_2", "invoice.pdf", "application/pdf", 2048, "Upload", "private", "trusted")
+    let name: Text = document.name
+    let mime: Text = document.mime_type
+    let size: Int = document.size_bytes
+    audit(name)
+    audit(mime)
+    audit(size)
+}
+```
+
+`document_metadata(id, name, mime_type, size_bytes, source, privacy, trust)`
+constructs a `Document` value for tests, connector mocks, and metadata handoff
+code. The constructor does not read or validate file contents.
+
+Typed HTTP JSON accepts a document metadata object:
+
+```json
+{
+  "id": "doc_1",
+  "name": "contract.pdf",
+  "mime_type": "application/pdf",
+  "size_bytes": 4096,
+  "source": "Upload",
+  "privacy": "private",
+  "trust": "untrusted"
+}
+```
+
+Process connector JSON uses `{ "$document": { ... } }` so connectors can
+distinguish document metadata from an arbitrary struct. The runtime displays
+documents as a bounded metadata summary and does not expose file bytes.
+
+Intentionally unsupported in this slice:
+
+- PDF/DOCX/image parsing;
+- OCR and AI extraction;
+- page counts, checksums, text extraction, thumbnails, and embedded files;
+- MIME sniffing or content validation beyond the explicit metadata fields;
+- storing or streaming raw document bytes inside `Document`.
+
 ### DateTime and Duration Helpers
 
 `DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:

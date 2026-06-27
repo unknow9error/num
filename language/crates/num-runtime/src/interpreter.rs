@@ -3,6 +3,7 @@ use crate::connectors::{
     DemoConnectorExecutor,
 };
 use crate::cost::{CostEntry, CostLedger};
+use crate::document::DocumentValue;
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
@@ -52,6 +53,7 @@ pub enum Value {
     String(String),
     Bytes(Vec<u8>),
     Xml(String),
+    Document(DocumentValue),
     Money(i128, String),
     Brand(String, Box<Value>),
     Secret(Box<Value>),
@@ -81,6 +83,11 @@ impl std::fmt::Display for Value {
                 write!(f, "<bytes len={} sha256={}...>", bytes.len(), &digest[..12])
             }
             Value::Xml(raw) => write!(f, "<xml len={}>", raw.len()),
+            Value::Document(document) => write!(
+                f,
+                "<document id=\"{}\" name=\"{}\" mime=\"{}\" size_bytes={}>",
+                document.id, document.name, document.mime_type, document.size_bytes
+            ),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
@@ -263,6 +270,16 @@ fn value_to_idempotency_key(value: Value) -> String {
         Value::String(value) => value,
         Value::Bytes(value) => format!("bytes:{}", hashing::base64_encode(&value)),
         Value::Xml(value) => format!("xml:{value}"),
+        Value::Document(value) => format!(
+            "document:{}:{}:{}:{}:{}:{}:{}",
+            value.id,
+            value.name,
+            value.mime_type,
+            value.size_bytes,
+            value.source,
+            value.privacy,
+            value.trust
+        ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
             format!("{name}:{}", value_to_idempotency_key(*value))
@@ -356,6 +373,13 @@ fn expect_arity(name: &str, args: &[Value], expected: usize) -> Result<(), Strin
             "{name} expects {expected} argument(s), got {}",
             args.len()
         ))
+    }
+}
+
+fn expect_text_arg(name: &str, label: &str, value: Value) -> Result<String, String> {
+    match value {
+        Value::String(value) => Ok(value),
+        other => Err(format!("{name} expects Text {label}, got {other}")),
     }
 }
 
@@ -1233,6 +1257,9 @@ impl<'a> Runtime<'a> {
                         .get(field)
                         .cloned()
                         .ok_or_else(|| format!("Field '{}' not found in struct", field)),
+                    Value::Document(document) => document
+                        .field(field)
+                        .ok_or_else(|| format!("Document value has no field '{}'", field)),
                     Value::Uncertain(val, conf) => match field.as_str() {
                         "confidence" => Ok(Value::Float(conf)),
                         "value" => Ok(*val),
@@ -1464,6 +1491,9 @@ impl<'a> Runtime<'a> {
             "bytes_from_text" | "bytes_from_base64" | "bytes_to_base64" | "bytes_len"
             | "xml_parse" | "xml_to_text" => {
                 return self.call_bytes_xml_helper(name, args);
+            }
+            "document_metadata" => {
+                return self.call_document_helper(name, args);
             }
             "datetime_parse_iso"
             | "datetime_format_iso"
@@ -2169,6 +2199,37 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn call_document_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if name != "document_metadata" {
+            return Err(format!("unknown document helper `{name}`"));
+        }
+        if args.len() != 7 {
+            return Err(format!(
+                "{name} expects id, name, mime_type, size_bytes, source, privacy, and trust"
+            ));
+        }
+        let mut args = args.into_iter();
+        let id = expect_text_arg(name, "id", args.next().unwrap_or(Value::Null))?;
+        let document_name = expect_text_arg(name, "name", args.next().unwrap_or(Value::Null))?;
+        let mime_type = expect_text_arg(name, "mime_type", args.next().unwrap_or(Value::Null))?;
+        let size_bytes = match args.next().unwrap_or(Value::Null) {
+            Value::Int(value) => value,
+            other => return Err(format!("{name} expects Int size_bytes, got {other}")),
+        };
+        let source = expect_text_arg(name, "source", args.next().unwrap_or(Value::Null))?;
+        let privacy = expect_text_arg(name, "privacy", args.next().unwrap_or(Value::Null))?;
+        let trust = expect_text_arg(name, "trust", args.next().unwrap_or(Value::Null))?;
+        Ok(Value::Document(DocumentValue {
+            id,
+            name: document_name,
+            mime_type,
+            size_bytes,
+            source,
+            privacy,
+            trust,
+        }))
+    }
+
     fn call_datetime_duration_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
         if args.len() != 1 {
             return Err(format!(
@@ -2748,6 +2809,16 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
         Value::Bytes(bytes) => format!("bytes_from_base64(\"{}\")", hashing::base64_encode(bytes)),
         Value::Xml(raw) => format!("xml_parse(\"{}\")", raw.replace('"', "\\\"")),
+        Value::Document(document) => format!(
+            "document_metadata(\"{}\", \"{}\", \"{}\", {}, \"{}\", \"{}\", \"{}\")",
+            document.id.replace('"', "\\\""),
+            document.name.replace('"', "\\\""),
+            document.mime_type.replace('"', "\\\""),
+            document.size_bytes,
+            document.source.replace('"', "\\\""),
+            document.privacy.replace('"', "\\\""),
+            document.trust.replace('"', "\\\"")
+        ),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;
             format!("{} {}", major, currency)

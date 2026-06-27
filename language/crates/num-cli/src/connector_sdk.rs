@@ -182,6 +182,7 @@ struct WrapperUsage {
     uncertain: bool,
     secret: bool,
     json: bool,
+    document: bool,
 }
 
 fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
@@ -215,6 +216,17 @@ fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("export interface Secret<T = string> {\n");
         out.push_str("  name: string;\n");
         out.push_str("  value?: T;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.document {
+        out.push_str("export interface Document {\n");
+        out.push_str("  id: string;\n");
+        out.push_str("  name: string;\n");
+        out.push_str("  mime_type: string;\n");
+        out.push_str("  size_bytes: number;\n");
+        out.push_str("  source: string;\n");
+        out.push_str("  privacy: string;\n");
+        out.push_str("  trust: string;\n");
         out.push_str("}\n\n");
     }
 }
@@ -341,6 +353,7 @@ fn render_python_typevars(out: &mut String, declarations: &[&TypeDecl], wrappers
         || wrappers.result
         || wrappers.uncertain
         || wrappers.secret
+        || wrappers.document
         || declarations
             .iter()
             .any(|decl| !decl.generic_params.is_empty())
@@ -430,6 +443,17 @@ fn render_python_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("class Secret(Generic[T]):\n");
         out.push_str("    name: str\n");
         out.push_str("    value: T | None = None\n\n");
+    }
+    if wrappers.document {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class Document:\n");
+        out.push_str("    id: str\n");
+        out.push_str("    name: str\n");
+        out.push_str("    mime_type: str\n");
+        out.push_str("    size_bytes: int\n");
+        out.push_str("    source: str\n");
+        out.push_str("    privacy: str\n");
+        out.push_str("    trust: str\n\n");
     }
 }
 
@@ -623,6 +647,7 @@ fn collect_wrappers_from_type(ty: &TypeRef, wrappers: &mut WrapperUsage) {
                 "Uncertain" => wrappers.uncertain = true,
                 "Secret" => wrappers.secret = true,
                 "Json" => wrappers.json = true,
+                "Document" => wrappers.document = true,
                 _ => {}
             }
             for arg in args {
@@ -650,6 +675,7 @@ fn type_expr_to_typescript(expr: &TypeExpr) -> String {
             "Bool" => "boolean".to_string(),
             "Unit" => "void".to_string(),
             "Json" => "JsonValue".to_string(),
+            "Document" => "Document".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -733,6 +759,7 @@ fn type_expr_to_python(expr: &TypeExpr) -> String {
             "Bool" => "bool".to_string(),
             "Unit" => "None".to_string(),
             "Json" => "JsonValue".to_string(),
+            "Document" => "Document".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -1108,20 +1135,26 @@ connector payments {
 connector ai {
     assess(request: RefundRequest) -> Uncertain<Risk>
 }
+
+connector documents {
+    store(document: Document) -> Document
+}
 "#;
         let compilation = compile("sdk.num", source);
         assert!(compilation.diagnostics.is_empty());
 
         let sdk = render_typescript_sdk(&compilation.module);
 
-        assert_eq!(sdk.connector_count, 2);
-        assert_eq!(sdk.method_count, 2);
+        assert_eq!(sdk.connector_count, 3);
+        assert_eq!(sdk.method_count, 3);
         assert!(sdk
             .contents
             .contains("export interface NumConnectorEgressContext"));
         assert!(sdk.contents.contains("export interface Money"));
         assert!(sdk.contents.contains("export type Option<T> = T | null;"));
         assert!(sdk.contents.contains("export interface Uncertain<T>"));
+        assert!(sdk.contents.contains("export interface Document"));
+        assert!(sdk.contents.contains("size_bytes: number;"));
         assert!(sdk.contents.contains("export type PaymentId = string;"));
         assert!(sdk.contents.contains("export interface RefundRequest"));
         assert!(sdk
@@ -1133,6 +1166,9 @@ connector ai {
         assert!(sdk
             .contents
             .contains("assess(request: RefundRequest, context?: NumConnectorEgressContext): Promise<Uncertain<Risk>>;"));
+        assert!(sdk.contents.contains(
+            "store(document: Document, context?: NumConnectorEgressContext): Promise<Document>;"
+        ));
     }
 
     #[test]
@@ -1182,14 +1218,18 @@ connector payments {
 connector ai {
     assess(request: RefundRequest) -> Uncertain<Risk>
 }
+
+connector documents {
+    store(document: Document) -> Document
+}
 "#;
         let compilation = compile("sdk.num", source);
         assert!(compilation.diagnostics.is_empty());
 
         let sdk = render_python_sdk(&compilation.module);
 
-        assert_eq!(sdk.connector_count, 2);
-        assert_eq!(sdk.method_count, 2);
+        assert_eq!(sdk.connector_count, 3);
+        assert_eq!(sdk.method_count, 3);
         assert!(sdk.contents.contains("class NumConnectorEgressContext"));
         assert!(sdk
             .contents
@@ -1197,6 +1237,8 @@ connector ai {
         assert!(sdk.contents.contains("@dataclass(frozen=True)"));
         assert!(sdk.contents.contains("class Money(Generic[T]):"));
         assert!(sdk.contents.contains("class Uncertain(Generic[T]):"));
+        assert!(sdk.contents.contains("class Document:"));
+        assert!(sdk.contents.contains("    size_bytes: int"));
         assert!(sdk.contents.contains("PaymentId: TypeAlias = str"));
         assert!(sdk.contents.contains("class RefundRequest:"));
         assert!(sdk.contents.contains(
@@ -1205,6 +1247,7 @@ connector ai {
         assert!(sdk.contents.contains("class PaymentsConnector(Protocol):"));
         assert!(sdk.contents.contains("def find(self, paymentId: PaymentId, context: NumConnectorEgressContext | None = None) -> RefundRequest | None: ..."));
         assert!(sdk.contents.contains("def assess(self, request: RefundRequest, context: NumConnectorEgressContext | None = None) -> Uncertain[Risk]: ..."));
+        assert!(sdk.contents.contains("def store(self, document: Document, context: NumConnectorEgressContext | None = None) -> Document: ..."));
     }
 
     #[test]

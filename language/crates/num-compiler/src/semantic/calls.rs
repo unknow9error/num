@@ -159,6 +159,10 @@ impl<'a> Checker<'a> {
                 self.bytes_xml_helper_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_document_helper(call_name) {
+                self.document_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
             if is_datetime_duration_helper(call_name) {
                 self.datetime_duration_call(raw, call_name, &call.args, env);
                 continue;
@@ -408,6 +412,55 @@ impl<'a> Checker<'a> {
                         .with_help("pass XML text with at least one element tag"),
                     );
                 }
+            }
+        }
+    }
+
+    fn document_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        let expected =
+            document_helper_param_types(call_name).expect("known document helper param types");
+        if args.len() != expected.len() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "document helper `{call_name}` expects {} arguments, got {}",
+                        expected.len(),
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("Document metadata construction uses the fixed first-slice shape")
+                .with_help("pass id, name, mime_type, size_bytes, source, privacy, and trust"),
+            );
+            return;
+        }
+
+        for (index, (arg, expected_ty)) in args.iter().zip(expected.iter()).enumerate() {
+            let Some(actual_ty) = self.expr_type_in_context(arg, env, Some(expected_ty)) else {
+                continue;
+            };
+            if !self.types_compatible(expected_ty, &actual_ty) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2706",
+                        format!(
+                            "document helper `{call_name}` argument {} has type `{}`, expected `{}`",
+                            index + 1,
+                            actual_ty.raw,
+                            expected_ty.raw
+                        ),
+                        raw.span.clone(),
+                    )
+                    .with_reason("Document metadata fields have fixed Text and Int types")
+                    .with_help("pass Text metadata fields and Int size_bytes"),
+                );
             }
         }
     }
@@ -751,6 +804,7 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "bytes_from_text"
             | "bytes_len"
             | "bytes_to_base64"
+            | "document_metadata"
             | "datetime_format_iso"
             | "datetime_parse_iso"
             | "decimal_format"
