@@ -2242,6 +2242,9 @@ fn builtin_type_names() -> HashSet<String> {
         "List",
         "Map",
         "Set",
+        "Queue",
+        "Stack",
+        "Stream",
         "Brand",
         "Money",
         "Secret",
@@ -2285,6 +2288,9 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("List", 1),
         ("Map", 2),
         ("Set", 1),
+        ("Queue", 1),
+        ("Stack", 1),
+        ("Stream", 1),
         ("Brand", 2),
         ("Money", 1),
         ("Secret", 1),
@@ -2694,6 +2700,21 @@ fn is_collection_helper(name: &str) -> bool {
             | "set_contains"
             | "set_insert"
             | "set_remove"
+            | "queue_empty"
+            | "queue_enqueue"
+            | "queue_front"
+            | "queue_dequeue"
+            | "queue_is_empty"
+            | "stack_empty"
+            | "stack_push"
+            | "stack_peek"
+            | "stack_pop"
+            | "stack_is_empty"
+            | "stream_empty"
+            | "stream_append"
+            | "stream_has_next"
+            | "stream_next"
+            | "stream_advance"
     )
 }
 
@@ -2704,7 +2725,16 @@ fn is_collection_empty_constructor_expr(expr: &Expr) -> bool {
             if args.is_empty()
                 && callee
                     .path()
-                    .is_some_and(|path| matches!(path.as_slice(), ["map_empty"] | ["set_empty"]))
+                    .is_some_and(|path| {
+                        matches!(
+                            path.as_slice(),
+                            ["map_empty"]
+                                | ["set_empty"]
+                                | ["queue_empty"]
+                                | ["stack_empty"]
+                                | ["stream_empty"]
+                        )
+                    })
     )
 }
 
@@ -2716,7 +2746,11 @@ fn collection_empty_result_type(expr: &Expr, expected: Option<&TypeRef>) -> Opti
     let expected = expected?;
     let base = type_base_name(&expected.raw);
     match (call_name, base.as_str()) {
-        ("map_empty", "Map") | ("set_empty", "Set") => Some(expected.clone()),
+        ("map_empty", "Map")
+        | ("set_empty", "Set")
+        | ("queue_empty", "Queue")
+        | ("stack_empty", "Stack")
+        | ("stream_empty", "Stream") => Some(expected.clone()),
         _ => None,
     }
 }
@@ -2783,18 +2817,64 @@ fn collection_helper_param_types(
                 },
             ])
         }
+        "queue_enqueue" => collection_value_params(args, env, checker, "Queue"),
+        "queue_front" | "queue_dequeue" | "queue_is_empty" => {
+            collection_self_param(args, env, checker, "Queue")
+        }
+        "stack_push" => collection_value_params(args, env, checker, "Stack"),
+        "stack_peek" | "stack_pop" | "stack_is_empty" => {
+            collection_self_param(args, env, checker, "Stack")
+        }
+        "stream_append" => collection_value_params(args, env, checker, "Stream"),
+        "stream_next" | "stream_advance" | "stream_has_next" => {
+            collection_self_param(args, env, checker, "Stream")
+        }
         _ => None,
     }
 }
 
 fn collection_helper_result_type(name: &str) -> Option<TypeRef> {
     let raw = match name {
-        "map_contains" | "set_contains" => "Bool",
+        "map_contains" | "set_contains" | "queue_is_empty" | "stack_is_empty"
+        | "stream_has_next" => "Bool",
         _ => return None,
     };
     Some(TypeRef {
         raw: raw.to_string(),
     })
+}
+
+fn collection_self_param(
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    checker: &Checker<'_>,
+    type_name: &str,
+) -> Option<Vec<TypeRef>> {
+    let collection_ty = checker.expr_type(args.first()?, env)?;
+    let type_args = generic_args(&collection_ty.raw);
+    if type_base_name(&collection_ty.raw) != type_name || type_args.len() != 1 {
+        return None;
+    }
+    Some(vec![collection_ty])
+}
+
+fn collection_value_params(
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    checker: &Checker<'_>,
+    type_name: &str,
+) -> Option<Vec<TypeRef>> {
+    let collection_ty = checker.expr_type(args.first()?, env)?;
+    let type_args = generic_args(&collection_ty.raw);
+    if type_base_name(&collection_ty.raw) != type_name || type_args.len() != 1 {
+        return None;
+    }
+    Some(vec![
+        collection_ty,
+        TypeRef {
+            raw: type_args[0].clone(),
+        },
+    ])
 }
 
 fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {

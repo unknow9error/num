@@ -46,6 +46,15 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
         _ if raw.starts_with("Secret<") => secret_from_json(module, raw, json),
         _ if raw.starts_with("Map<") => map_from_json(module, raw, json),
         _ if raw.starts_with("Set<") => set_from_json(module, raw, json),
+        _ if raw.starts_with("Queue<") => {
+            ordered_collection_from_json(module, raw, "Queue", json).map(Value::Queue)
+        }
+        _ if raw.starts_with("Stack<") => {
+            ordered_collection_from_json(module, raw, "Stack", json).map(Value::Stack)
+        }
+        _ if raw.starts_with("Stream<") => {
+            ordered_collection_from_json(module, raw, "Stream", json).map(Value::Stream)
+        }
         _ if raw.starts_with("Distance<")
             || raw.starts_with("Duration<")
             || raw.starts_with("Speed<") =>
@@ -136,6 +145,21 @@ fn set_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Value, 
         .map(|item| value_from_json(module, &item_ty, item))
         .collect::<Result<Vec<_>, String>>()
         .map(Value::Set)
+}
+
+fn ordered_collection_from_json(
+    module: &Module,
+    raw: &str,
+    wrapper: &str,
+    json: &JsonValue,
+) -> Result<Vec<Value>, String> {
+    let inner = single_generic_arg(raw, wrapper)?;
+    let item_ty = TypeRef { raw: inner };
+    json.as_array()
+        .ok_or_else(|| format!("expected array for {raw}"))?
+        .iter()
+        .map(|item| value_from_json(module, &item_ty, item))
+        .collect::<Result<Vec<_>, String>>()
 }
 
 fn route_input_type(
@@ -403,6 +427,51 @@ service AccessApi {
                 Value::String("enabled".to_string()),
                 Value::Bool(true)
             )]))
+        );
+    }
+
+    #[test]
+    fn decodes_queue_stack_and_stream_route_input_from_json_body() {
+        let source = r#"
+module test.api
+
+type WorkRequest {
+    events: Queue<Text>
+    rollbacks: Stack<Text>
+    chunks: Stream<Text>
+}
+
+service WorkApi {
+    route POST "/work" {
+        input request: WorkRequest from HttpBody
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let value = route_input_from_body(
+            &compilation.module,
+            "WorkApi",
+            "POST",
+            "/work",
+            r#"{"events":["evt_1"],"rollbacks":["undo_1"],"chunks":["chunk_1"]}"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        let Value::Struct(_, fields) = value else {
+            panic!("expected struct value");
+        };
+        assert_eq!(
+            fields.get("events"),
+            Some(&Value::Queue(vec![Value::String("evt_1".to_string())]))
+        );
+        assert_eq!(
+            fields.get("rollbacks"),
+            Some(&Value::Stack(vec![Value::String("undo_1".to_string())]))
+        );
+        assert_eq!(
+            fields.get("chunks"),
+            Some(&Value::Stream(vec![Value::String("chunk_1".to_string())]))
         );
     }
 

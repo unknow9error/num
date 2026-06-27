@@ -477,7 +477,10 @@ impl<'a> Checker<'a> {
         args: &[Expr],
         env: &HashMap<String, Binding>,
     ) {
-        if matches!(call_name, "map_empty" | "set_empty") {
+        if matches!(
+            call_name,
+            "map_empty" | "set_empty" | "queue_empty" | "stack_empty" | "stream_empty"
+        ) {
             if !args.is_empty() {
                 self.diagnostics.push(
                     Diagnostic::error(
@@ -489,7 +492,7 @@ impl<'a> Checker<'a> {
                         raw.span.clone(),
                     )
                     .with_reason("empty collection constructors infer their type from context")
-                    .with_help("assign `map_empty()` or `set_empty()` to an explicit Map/Set type"),
+                    .with_help("assign the empty constructor to an explicit collection type"),
                 );
             }
             return;
@@ -503,8 +506,8 @@ impl<'a> Checker<'a> {
                     format!("collection helper `{call_name}` received unsupported arguments"),
                     raw.span.clone(),
                 )
-                .with_reason("Map/Set helpers require a typed collection as their first argument")
-                .with_help("pass a Map<K,V> or Set<T> value with compatible key/value arguments"),
+                .with_reason("collection helpers require a typed collection as their first argument")
+                .with_help("pass a compatible Map, Set, Queue, Stack, or Stream value with matching item arguments"),
             );
             return;
         };

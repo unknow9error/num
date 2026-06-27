@@ -46,6 +46,9 @@ pub fn redacted_value(value: &Value) -> Value {
                 .collect(),
         ),
         Value::Set(items) => Value::Set(items.iter().map(redacted_value).collect()),
+        Value::Queue(items) => Value::Queue(items.iter().map(redacted_value).collect()),
+        Value::Stack(items) => Value::Stack(items.iter().map(redacted_value).collect()),
+        Value::Stream(items) => Value::Stream(items.iter().map(redacted_value).collect()),
         Value::Struct(name, fields) => Value::Struct(
             name.clone(),
             fields
@@ -110,6 +113,11 @@ fn collect_explicit_secret_values(value: &Value, values: &mut Vec<String>) {
                 collect_explicit_secret_values(item, values);
             }
         }
+        Value::Queue(items) | Value::Stack(items) | Value::Stream(items) => {
+            for item in items {
+                collect_explicit_secret_values(item, values);
+            }
+        }
         Value::Struct(_, fields) => {
             for value in fields.values() {
                 collect_explicit_secret_values(value, values);
@@ -147,6 +155,11 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             }
         }
         Value::Set(items) => {
+            for item in items {
+                collect_scalar_values(item, values);
+            }
+        }
+        Value::Queue(items) | Value::Stack(items) | Value::Stream(items) => {
             for item in items {
                 collect_scalar_values(item, values);
             }
