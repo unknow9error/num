@@ -1247,6 +1247,62 @@ workflow main(count: Int, deadline: DateTime) {
     }
 
     #[test]
+    fn accepts_decimal_helpers_and_same_type_arithmetic() {
+        let source = r#"
+module tests.decimal
+
+workflow main(raw_amount: Text, raw_fee: Text) {
+    let amount: Decimal = decimal_parse(raw_amount)
+    let fee: Decimal = decimal_parse(raw_fee)
+    let total: Decimal = amount + fee
+    let doubled: Decimal = total * decimal_parse("2")
+    let formatted: Text = decimal_format(doubled)
+    audit(formatted)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_decimal_literal() {
+        let source = r#"
+module tests.decimal
+
+workflow main() {
+    let amount: Decimal = decimal_parse("12.3.4")
+}
+"#;
+
+        assert!(codes(source).contains(&"N2707"));
+    }
+
+    #[test]
+    fn rejects_mixed_decimal_arithmetic() {
+        let source = r#"
+module tests.decimal
+
+workflow main(count: Int, ratio: Float) {
+    let amount: Decimal = decimal_parse("10.50")
+    let invalid_int: Decimal = amount + count
+    let invalid_float: Decimal = amount + ratio
+}
+"#;
+
+        assert_eq!(
+            codes(source)
+                .iter()
+                .filter(|code| **code == "N3004")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

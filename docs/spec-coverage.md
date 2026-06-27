@@ -277,6 +277,8 @@ Implemented:
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;
+- stdlib `Decimal` parsing/formatting and runtime arithmetic with exact decimal
+  values rather than `Float` fallback;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
   reusable sanitizer packs, and policy composition;
 - tenant isolation guard and tenant-aware workflow state load, transition, and

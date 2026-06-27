@@ -59,6 +59,8 @@
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.
+- Added exact `Decimal` parsing, formatting, runtime arithmetic, comparison, and
+  same-type checker coverage without falling back to `Float`.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

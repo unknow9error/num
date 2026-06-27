@@ -330,6 +330,7 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Bool(value) => json!({"kind": "Bool", "value": value}),
         Value::Int(value) => json!({"kind": "Int", "value": value}),
         Value::Float(value) => json!({"kind": "Float", "value": value}),
+        Value::Decimal(value) => json!({"kind": "Decimal", "value": value.to_string()}),
         Value::String(value) => json!({"kind": "String", "value": value}),
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
@@ -370,6 +371,9 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
         "Bool" => Ok(Value::Bool(bool_field(value, "value")?)),
         "Int" => Ok(Value::Int(i64_field(value, "value")?)),
         "Float" => Ok(Value::Float(f64_field(value, "value")?)),
+        "Decimal" => crate::decimal::Decimal::parse(&string_field(value, "value")?)
+            .map(Value::Decimal)
+            .map_err(storage_error),
         "String" => Ok(Value::String(string_field(value, "value")?)),
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,

@@ -159,6 +159,10 @@ impl<'a> Checker<'a> {
                 self.datetime_duration_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_decimal_helper(call_name) {
+                self.decimal_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
 
             if is_builtin_runtime_function(call_name)
                 || is_result_constructor_name(call_name)
@@ -400,6 +404,68 @@ impl<'a> Checker<'a> {
         }
     }
 
+    fn decimal_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if args.len() != 1 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "decimal helper `{call_name}` expects 1 argument, got {}",
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("decimal helpers parse or format exactly one value")
+                .with_help("pass one value with the helper input type"),
+            );
+            return;
+        }
+
+        let expected = decimal_helper_param_types(call_name)
+            .and_then(|mut params| params.pop())
+            .expect("known decimal helper must have one param type");
+        let Some(actual_ty) = self.expr_type_in_context(&args[0], env, Some(&expected)) else {
+            return;
+        };
+        if !self.types_compatible(&expected, &actual_ty) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2706",
+                    format!(
+                        "decimal helper `{call_name}` argument has type `{}`, expected `{}`",
+                        actual_ty.raw, expected.raw
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("decimal helpers use explicit Text and Decimal boundaries")
+                .with_help("parse text first or pass a Decimal value"),
+            );
+            return;
+        }
+
+        if call_name == "decimal_parse" {
+            if let Expr::String(value) = &args[0] {
+                if let Err(reason) = validate_decimal_literal(value) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            "N2707",
+                            format!("invalid literal for `{call_name}`: {reason}"),
+                            raw.span.clone(),
+                        )
+                        .with_reason("literal Decimal values can be validated at compile time")
+                        .with_help("use digits with at most one decimal point"),
+                    );
+                }
+            }
+        }
+    }
+
     pub(super) fn method_call(
         &mut self,
         raw: &RawExpr,
@@ -531,6 +597,8 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "hash_sha256_hex"
             | "datetime_format_iso"
             | "datetime_parse_iso"
+            | "decimal_format"
+            | "decimal_parse"
             | "duration_format_hours"
             | "duration_parse_hours"
             | "validate_email"

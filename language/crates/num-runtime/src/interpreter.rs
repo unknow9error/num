@@ -7,8 +7,8 @@ use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
 use crate::{
-    datetime, hashing, redaction, scalar_validation, ActionSpec, Money, RiskLevel, RuntimeError,
-    SecurityContext,
+    datetime, decimal::Decimal, hashing, redaction, scalar_validation, ActionSpec, Money,
+    RiskLevel, RuntimeError, SecurityContext,
 };
 use num_compiler::ast::{
     Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
@@ -44,6 +44,7 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
+    Decimal(Decimal),
     String(String),
     Money(i128, String),
     Brand(String, Box<Value>),
@@ -62,6 +63,7 @@ impl std::fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Int(i) => write!(f, "{}", i),
             Value::Float(fl) => write!(f, "{}", fl),
+            Value::Decimal(value) => write!(f, "{value}"),
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
@@ -191,6 +193,7 @@ fn value_to_idempotency_key(value: Value) -> String {
         Value::Bool(value) => value.to_string(),
         Value::Int(value) => value.to_string(),
         Value::Float(value) => value.to_string(),
+        Value::Decimal(value) => value.to_string(),
         Value::String(value) => value,
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
@@ -1331,6 +1334,9 @@ impl<'a> Runtime<'a> {
             | "duration_format_hours" => {
                 return self.call_datetime_duration_helper(name, args);
             }
+            "decimal_parse" | "decimal_format" => {
+                return self.call_decimal_helper(name, args);
+            }
             "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
                 return self.call_scalar_validator(name, args);
             }
@@ -1719,6 +1725,33 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn call_decimal_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "{name} expects exactly one argument, got {}",
+                args.len()
+            ));
+        }
+        let value = args.into_iter().next().unwrap_or(Value::Null);
+        match name {
+            "decimal_parse" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                Decimal::parse(&raw)
+                    .map(Value::Decimal)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "decimal_format" => {
+                let Value::Decimal(value) = value else {
+                    return Err(format!("{name} expects Decimal input, got {value}"));
+                };
+                Ok(Value::String(value.to_string()))
+            }
+            _ => Ok(value),
+        }
+    }
+
     fn is_declared_connector_call(&self, name: &str) -> bool {
         let Some((connector_name, method_name)) = name.split_once('.') else {
             return false;
@@ -1856,6 +1889,12 @@ fn compare_ordered_values(op: &str, left: Value, right: Value) -> Result<Value, 
         (Value::Int(left), Value::Float(right)) => compare_f64(op, *left as f64, *right),
         (Value::Float(left), Value::Int(right)) => compare_f64(op, *left, *right as f64),
         (Value::Float(left), Value::Float(right)) => compare_f64(op, *left, *right),
+        (Value::Decimal(left), Value::Decimal(right)) => {
+            let ordering = left
+                .cmp(right)
+                .map_err(|reason| format!("Cannot compare Decimal values: {reason}"))?;
+            compare_ordering(op, ordering)
+        }
         (Value::Money(left_amount, left_currency), Value::Money(right_amount, right_currency))
             if left_currency == right_currency =>
         {
@@ -2020,6 +2059,13 @@ fn eval_arithmetic(op: &str, left: Value, right: Value) -> Result<Value, String>
             "-" => Ok(Value::Float(left - right)),
             "*" => Ok(Value::Float(left * right)),
             "/" => Ok(Value::Float(left / right)),
+            _ => unreachable!(),
+        },
+        (Value::Decimal(left), Value::Decimal(right)) => match op {
+            "+" => left.add(&right).map(Value::Decimal),
+            "-" => left.subtract(&right).map(Value::Decimal),
+            "*" => left.multiply(&right).map(Value::Decimal),
+            "/" => left.divide(&right).map(Value::Decimal),
             _ => unreachable!(),
         },
         (Value::Int(left), Value::Float(right)) => {
@@ -2206,6 +2252,7 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::Float(f) => f.to_string(),
+        Value::Decimal(value) => format!("decimal_parse(\"{value}\")"),
         Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;

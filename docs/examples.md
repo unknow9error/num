@@ -147,6 +147,22 @@ Useful command:
 num check examples/datetime_deadlines/src/main.num
 ```
 
+## `decimal_arithmetic`
+
+Path: `examples/decimal_arithmetic/src/main.num`
+
+Demonstrates:
+
+- parsing user/config text into exact `Decimal` values;
+- same-type decimal arithmetic for invoice totals;
+- formatting `Decimal` back to canonical text for audit output.
+
+Useful command:
+
+```bash
+num check examples/decimal_arithmetic/src/main.num
+```
+
 ## `contract_driven_refund`
 
 Path: `examples/contract_driven_refund/src/main.num`

@@ -37,6 +37,10 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
             .as_f64()
             .map(Value::Float)
             .ok_or_else(|| format!("expected number for {raw}")),
+        "Decimal" => json
+            .as_str()
+            .ok_or_else(|| "expected string for Decimal".to_string())
+            .and_then(|value| crate::decimal::Decimal::parse(value).map(Value::Decimal)),
         _ if raw.starts_with("Money<") => money_from_json(raw, json),
         _ if raw.starts_with("Brand<") => brand_from_json(module, raw, json),
         _ if raw.starts_with("Secret<") => secret_from_json(module, raw, json),

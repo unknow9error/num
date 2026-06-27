@@ -417,6 +417,28 @@ does not infer local time, offsets, daylight-saving transitions, calendars,
 locale formatting, leap seconds, or month/year duration arithmetic. Those remain
 connector or future stdlib work.
 
+### Decimal Helpers
+
+`Decimal` values are exact runtime values parsed through explicit helpers:
+
+```num
+let subtotal: Decimal = decimal_parse(raw_subtotal)
+let tax: Decimal = decimal_parse("2.25")
+let total: Decimal = subtotal + tax
+let display_total: Text = decimal_format(total)
+```
+
+`decimal_parse(value: Text) -> Decimal` accepts ASCII decimal text with an
+optional leading `-` and at most one decimal point. `decimal_format(value:
+Decimal) -> Text` emits canonical text without trailing insignificant zeroes.
+
+Decimal arithmetic is same-type only: `Decimal + Decimal`, `Decimal - Decimal`,
+`Decimal * Decimal`, and `Decimal / Decimal` return `Decimal`; mixed
+`Int`/`Float`/`Decimal` arithmetic is rejected by the checker. Runtime connector
+JSON represents Decimal as `{"$decimal": "12.34"}` so exact values do not fall
+back to JSON floating-point numbers. Division uses a deterministic first-slice
+precision of up to 9 fractional digits and trims insignificant trailing zeroes.
+
 ### `Option<T>`
 
 `Option<T>` represents nullable values without ordinary `null`.

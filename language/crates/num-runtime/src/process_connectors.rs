@@ -200,6 +200,7 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Bool(value) => JsonValue::Bool(*value),
         Value::Int(value) => json!(value),
         Value::Float(value) => json!(value),
+        Value::Decimal(value) => json!({"$decimal": value.to_string()}),
         Value::String(value) => JsonValue::String(value.clone()),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
@@ -267,6 +268,10 @@ pub fn value_from_json(json: &JsonValue) -> Result<Value, String> {
 }
 
 fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
+    if let Some(value) = object.get("$decimal").and_then(JsonValue::as_str) {
+        return crate::decimal::Decimal::parse(value).map(Value::Decimal);
+    }
+
     if let (Some(amount), Some(unit)) = (
         object
             .get("$quantity")

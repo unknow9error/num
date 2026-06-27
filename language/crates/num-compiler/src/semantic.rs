@@ -2656,6 +2656,32 @@ fn datetime_duration_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_decimal_helper(name: &str) -> bool {
+    matches!(name, "decimal_parse" | "decimal_format")
+}
+
+fn decimal_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    let raw = match name {
+        "decimal_parse" => "Text",
+        "decimal_format" => "Decimal",
+        _ => return None,
+    };
+    Some(vec![TypeRef {
+        raw: raw.to_string(),
+    }])
+}
+
+fn decimal_helper_result_type(name: &str) -> Option<TypeRef> {
+    let raw = match name {
+        "decimal_parse" => "Decimal",
+        "decimal_format" => "Text",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
+    })
+}
+
 fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
     match validator {
         "validate_email" => validate_email_literal(value),
@@ -2672,6 +2698,30 @@ fn validate_datetime_duration_literal(helper: &str, value: &str) -> Result<(), S
         "duration_parse_hours" => validate_duration_hours_literal(value),
         _ => Ok(()),
     }
+}
+
+fn validate_decimal_literal(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    if unsigned.is_empty() || unsigned == "." {
+        return Err("expected digits before or after the decimal point".to_string());
+    }
+    let mut parts = unsigned.split('.');
+    let whole = parts.next().unwrap_or_default();
+    let fraction = parts.next();
+    if parts.next().is_some() {
+        return Err("expected at most one decimal point".to_string());
+    }
+    let fraction = fraction.unwrap_or_default();
+    if whole.is_empty() && fraction.is_empty() {
+        return Err("expected digits before or after the decimal point".to_string());
+    }
+    if !whole.chars().all(|ch| ch.is_ascii_digit())
+        || !fraction.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return Err("expected ASCII decimal digits".to_string());
+    }
+    Ok(())
 }
 
 fn validate_iso_utc_literal(value: &str) -> Result<(), String> {
