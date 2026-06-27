@@ -225,6 +225,15 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Set(items) => json!({
             "$set": items.iter().map(value_to_json).collect::<Vec<_>>()
         }),
+        Value::Queue(items) => json!({
+            "$queue": items.iter().map(value_to_json).collect::<Vec<_>>()
+        }),
+        Value::Stack(items) => json!({
+            "$stack": items.iter().map(value_to_json).collect::<Vec<_>>()
+        }),
+        Value::Stream(items) => json!({
+            "$stream": items.iter().map(value_to_json).collect::<Vec<_>>()
+        }),
         Value::Struct(name, fields) => {
             let mut object = Map::new();
             if name != "Object" {
@@ -361,6 +370,30 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
             .map(Value::Set);
     }
 
+    if let Some(items) = object.get("$queue").and_then(JsonValue::as_array) {
+        return items
+            .iter()
+            .map(value_from_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Queue);
+    }
+
+    if let Some(items) = object.get("$stack").and_then(JsonValue::as_array) {
+        return items
+            .iter()
+            .map(value_from_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Stack);
+    }
+
+    if let Some(items) = object.get("$stream").and_then(JsonValue::as_array) {
+        return items
+            .iter()
+            .map(value_from_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Stream);
+    }
+
     let type_name = object
         .get("$type")
         .and_then(JsonValue::as_str)
@@ -458,6 +491,38 @@ mod tests {
         assert_eq!(
             set,
             Value::Set(vec![Value::String("refund.approve".to_string())])
+        );
+    }
+
+    #[test]
+    fn converts_queue_stack_and_stream_values_to_json() {
+        assert_eq!(
+            value_to_json(&Value::Queue(vec![Value::String("evt_1".to_string())])),
+            json!({ "$queue": ["evt_1"] })
+        );
+        assert_eq!(
+            value_to_json(&Value::Stack(vec![Value::String("task_1".to_string())])),
+            json!({ "$stack": ["task_1"] })
+        );
+        assert_eq!(
+            value_to_json(&Value::Stream(vec![Value::String("chunk_1".to_string())])),
+            json!({ "$stream": ["chunk_1"] })
+        );
+    }
+
+    #[test]
+    fn converts_json_queue_stack_and_stream_values_to_runtime_values() {
+        assert_eq!(
+            value_from_json(&json!({ "$queue": ["evt_1"] })).unwrap(),
+            Value::Queue(vec![Value::String("evt_1".to_string())])
+        );
+        assert_eq!(
+            value_from_json(&json!({ "$stack": ["task_1"] })).unwrap(),
+            Value::Stack(vec![Value::String("task_1".to_string())])
+        );
+        assert_eq!(
+            value_from_json(&json!({ "$stream": ["chunk_1"] })).unwrap(),
+            Value::Stream(vec![Value::String("chunk_1".to_string())])
         );
     }
 

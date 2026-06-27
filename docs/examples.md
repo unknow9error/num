@@ -18,6 +18,7 @@ num check examples/scalar_validation/src/main.num
 num check examples/security_hashing/src/main.num
 num check examples/configured_sanitizer_pack/src/main.num
 num check examples/map_set_collections/src/main.num
+num check examples/queue_stack_stream/src/main.num
 num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
@@ -148,6 +149,24 @@ Useful command:
 
 ```bash
 num check examples/map_set_collections/src/main.num
+```
+
+## `queue_stack_stream`
+
+Path: `examples/queue_stack_stream/src/main.num`
+
+Demonstrates:
+
+- FIFO event handling with `Queue<Text>`;
+- LIFO rollback ordering with `Stack<Text>`;
+- synchronous stream inspection with `Stream<Text>`, `stream_next`, and
+  `stream_advance`;
+- pure ordered-collection operations that return updated values.
+
+Useful command:
+
+```bash
+num check examples/queue_stack_stream/src/main.num
 ```
 
 ## `security_hashing`

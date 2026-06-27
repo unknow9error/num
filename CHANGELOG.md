@@ -67,6 +67,9 @@
 - Added minimal `Map<K,V>` and `Set<T>` stdlib helpers, runtime values, JSON
   conversion, and a permission/metadata collection example before the
   Queue/Stack/Stream slice.
+- Added the first `Queue<T>`, `Stack<T>`, and `Stream<T>` stdlib slice with
+  typed pure helpers, runtime values, JSON conversion, and an ordered-work
+  example without promising clustered or async streaming semantics.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

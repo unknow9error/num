@@ -540,6 +540,36 @@ impl<'a> Checker<'a> {
             {
                 Some(first_ty)
             }
+            "queue_front" if type_base_name(&first_ty.raw) == "Queue" && type_args.len() == 1 => {
+                Some(TypeRef {
+                    raw: type_args[0].clone(),
+                })
+            }
+            "queue_enqueue" | "queue_dequeue"
+                if type_base_name(&first_ty.raw) == "Queue" && type_args.len() == 1 =>
+            {
+                Some(first_ty)
+            }
+            "stack_peek" if type_base_name(&first_ty.raw) == "Stack" && type_args.len() == 1 => {
+                Some(TypeRef {
+                    raw: type_args[0].clone(),
+                })
+            }
+            "stack_push" | "stack_pop"
+                if type_base_name(&first_ty.raw) == "Stack" && type_args.len() == 1 =>
+            {
+                Some(first_ty)
+            }
+            "stream_next" if type_base_name(&first_ty.raw) == "Stream" && type_args.len() == 1 => {
+                Some(TypeRef {
+                    raw: type_args[0].clone(),
+                })
+            }
+            "stream_append" | "stream_advance"
+                if type_base_name(&first_ty.raw) == "Stream" && type_args.len() == 1 =>
+            {
+                Some(first_ty)
+            }
             _ => None,
         }
     }

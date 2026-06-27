@@ -1,0 +1,28 @@
+module examples.queue_stack_stream
+
+workflow process_ordered_work(event_id: Text, rollback_step: Text, chunk_id: Text) {
+    let events: Queue<Text> = queue_empty()
+    let events2: Queue<Text> = queue_enqueue(events, event_id)
+    let next_event: Text = queue_front(events2)
+    let remaining_events: Queue<Text> = queue_dequeue(events2)
+
+    let rollbacks: Stack<Text> = stack_empty()
+    let rollbacks2: Stack<Text> = stack_push(rollbacks, rollback_step)
+    let next_rollback: Text = stack_peek(rollbacks2)
+    let remaining_rollbacks: Stack<Text> = stack_pop(rollbacks2)
+
+    let chunks: Stream<Text> = stream_empty()
+    let chunks2: Stream<Text> = stream_append(chunks, chunk_id)
+    let has_chunk: Bool = stream_has_next(chunks2)
+    let next_chunk: Text = stream_next(chunks2)
+    let remaining_chunks: Stream<Text> = stream_advance(chunks2)
+
+    audit(next_event)
+    audit(queue_is_empty(remaining_events))
+    audit(next_rollback)
+    audit(stack_is_empty(remaining_rollbacks))
+    audit(has_chunk)
+    audit(next_chunk)
+    audit(stream_has_next(remaining_chunks))
+}
+

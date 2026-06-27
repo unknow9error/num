@@ -56,6 +56,9 @@ pub enum Value {
     List(Vec<Value>),
     Map(Vec<(Value, Value)>),
     Set(Vec<Value>),
+    Queue(Vec<Value>),
+    Stack(Vec<Value>),
+    Stream(Vec<Value>),
     Struct(String, HashMap<String, Value>),
     Enum(String, String, Option<Box<Value>>),
     Quantity(f64, String),
@@ -96,6 +99,36 @@ impl std::fmt::Display for Value {
             }
             Value::Set(items) => {
                 write!(f, "set(")?;
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, ")")
+            }
+            Value::Queue(items) => {
+                write!(f, "queue(")?;
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, ")")
+            }
+            Value::Stack(items) => {
+                write!(f, "stack(")?;
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, ")")
+            }
+            Value::Stream(items) => {
+                write!(f, "stream(")?;
                 for (index, item) in items.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
@@ -254,6 +287,27 @@ fn value_to_idempotency_key(value: Value) -> String {
                 .map(value_to_idempotency_key)
                 .collect::<Vec<_>>();
             format!("set{{{}}}", items.join(","))
+        }
+        Value::Queue(items) => {
+            let items = items
+                .into_iter()
+                .map(value_to_idempotency_key)
+                .collect::<Vec<_>>();
+            format!("queue{{{}}}", items.join(","))
+        }
+        Value::Stack(items) => {
+            let items = items
+                .into_iter()
+                .map(value_to_idempotency_key)
+                .collect::<Vec<_>>();
+            format!("stack{{{}}}", items.join(","))
+        }
+        Value::Stream(items) => {
+            let items = items
+                .into_iter()
+                .map(value_to_idempotency_key)
+                .collect::<Vec<_>>();
+            format!("stream{{{}}}", items.join(","))
         }
         Value::Struct(name, fields) => {
             let mut pairs = fields
@@ -1407,7 +1461,11 @@ impl<'a> Runtime<'a> {
                 return self.call_decimal_helper(name, args);
             }
             "map_empty" | "map_contains" | "map_get" | "map_insert" | "map_remove"
-            | "set_empty" | "set_contains" | "set_insert" | "set_remove" => {
+            | "set_empty" | "set_contains" | "set_insert" | "set_remove" | "queue_empty"
+            | "queue_enqueue" | "queue_front" | "queue_dequeue" | "queue_is_empty"
+            | "stack_empty" | "stack_push" | "stack_peek" | "stack_pop" | "stack_is_empty"
+            | "stream_empty" | "stream_append" | "stream_has_next" | "stream_next"
+            | "stream_advance" => {
                 return self.call_collection_helper(name, args);
             }
             "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
@@ -1878,6 +1936,146 @@ impl<'a> Runtime<'a> {
                         .cloned()
                         .collect(),
                 ))
+            }
+            "queue_empty" => expect_arity(name, &args, 0).map(|_| Value::Queue(Vec::new())),
+            "queue_enqueue" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Queue(items) = &args[0] else {
+                    return Err(format!(
+                        "queue_enqueue expects Queue as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = items.clone();
+                next.push(args[1].clone());
+                Ok(Value::Queue(next))
+            }
+            "queue_front" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Queue(items) = &args[0] else {
+                    return Err(format!(
+                        "queue_front expects Queue as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                items
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| "queue_front cannot read an empty Queue".to_string())
+            }
+            "queue_dequeue" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Queue(items) = &args[0] else {
+                    return Err(format!(
+                        "queue_dequeue expects Queue as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Queue(items.iter().skip(1).cloned().collect()))
+            }
+            "queue_is_empty" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Queue(items) = &args[0] else {
+                    return Err(format!(
+                        "queue_is_empty expects Queue as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Bool(items.is_empty()))
+            }
+            "stack_empty" => expect_arity(name, &args, 0).map(|_| Value::Stack(Vec::new())),
+            "stack_push" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Stack(items) = &args[0] else {
+                    return Err(format!(
+                        "stack_push expects Stack as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = items.clone();
+                next.push(args[1].clone());
+                Ok(Value::Stack(next))
+            }
+            "stack_peek" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stack(items) = &args[0] else {
+                    return Err(format!(
+                        "stack_peek expects Stack as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                items
+                    .last()
+                    .cloned()
+                    .ok_or_else(|| "stack_peek cannot read an empty Stack".to_string())
+            }
+            "stack_pop" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stack(items) = &args[0] else {
+                    return Err(format!(
+                        "stack_pop expects Stack as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = items.clone();
+                next.pop();
+                Ok(Value::Stack(next))
+            }
+            "stack_is_empty" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stack(items) = &args[0] else {
+                    return Err(format!(
+                        "stack_is_empty expects Stack as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Bool(items.is_empty()))
+            }
+            "stream_empty" => expect_arity(name, &args, 0).map(|_| Value::Stream(Vec::new())),
+            "stream_append" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Stream(items) = &args[0] else {
+                    return Err(format!(
+                        "stream_append expects Stream as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = items.clone();
+                next.push(args[1].clone());
+                Ok(Value::Stream(next))
+            }
+            "stream_has_next" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stream(items) = &args[0] else {
+                    return Err(format!(
+                        "stream_has_next expects Stream as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Bool(!items.is_empty()))
+            }
+            "stream_next" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stream(items) = &args[0] else {
+                    return Err(format!(
+                        "stream_next expects Stream as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                items
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| "stream_next cannot read an empty Stream".to_string())
+            }
+            "stream_advance" => {
+                expect_arity(name, &args, 1)?;
+                let Value::Stream(items) = &args[0] else {
+                    return Err(format!(
+                        "stream_advance expects Stream as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Stream(items.iter().skip(1).cloned().collect()))
             }
             _ => Err(format!("unknown collection helper `{name}`")),
         }
@@ -2512,6 +2710,18 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Set(items) => {
             let parts = items.iter().map(value_to_literal_str).collect::<Vec<_>>();
             format!("set({})", parts.join(", "))
+        }
+        Value::Queue(items) => {
+            let parts = items.iter().map(value_to_literal_str).collect::<Vec<_>>();
+            format!("queue({})", parts.join(", "))
+        }
+        Value::Stack(items) => {
+            let parts = items.iter().map(value_to_literal_str).collect::<Vec<_>>();
+            format!("stack({})", parts.join(", "))
+        }
+        Value::Stream(items) => {
+            let parts = items.iter().map(value_to_literal_str).collect::<Vec<_>>();
+            format!("stream({})", parts.join(", "))
         }
         Value::Struct(name, fields) => {
             let mut parts = Vec::new();

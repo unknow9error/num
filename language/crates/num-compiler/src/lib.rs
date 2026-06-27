@@ -1357,6 +1357,71 @@ workflow main() {
     }
 
     #[test]
+    fn accepts_queue_stack_and_stream_stdlib_helpers() {
+        let source = r#"
+module tests.ordered_collections
+
+workflow main(event: Text) {
+    let queue: Queue<Text> = queue_empty()
+    let queued: Queue<Text> = queue_enqueue(queue, event)
+    let front: Text = queue_front(queued)
+    let queue_done: Queue<Text> = queue_dequeue(queued)
+    let queue_empty_now: Bool = queue_is_empty(queue_done)
+
+    let stack: Stack<Text> = stack_empty()
+    let stacked: Stack<Text> = stack_push(stack, event)
+    let top: Text = stack_peek(stacked)
+    let stack_done: Stack<Text> = stack_pop(stacked)
+    let stack_empty_now: Bool = stack_is_empty(stack_done)
+
+    let stream: Stream<Text> = stream_empty()
+    let stream2: Stream<Text> = stream_append(stream, event)
+    let has_next: Bool = stream_has_next(stream2)
+    let next: Text = stream_next(stream2)
+    let stream_done: Stream<Text> = stream_advance(stream2)
+
+    audit(front)
+    audit(queue_empty_now)
+    audit(top)
+    audit(stack_empty_now)
+    audit(has_next)
+    audit(next)
+    audit(stream_done)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_queue_stack_and_stream_type_mismatches() {
+        let source = r#"
+module tests.ordered_collections
+
+workflow main() {
+    let queue: Queue<Text> = queue_empty()
+    let queue2: Queue<Text> = queue_enqueue(queue, 42)
+    let stack: Stack<Bool> = stack_empty()
+    let stack2: Stack<Bool> = stack_push(stack, "yes")
+    let stream: Stream<Int> = stream_empty()
+    let stream2: Stream<Int> = stream_append(stream, false)
+}
+"#;
+
+        assert_eq!(
+            codes(source)
+                .iter()
+                .filter(|code| **code == "N2706")
+                .count(),
+            3
+        );
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

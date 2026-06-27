@@ -193,9 +193,37 @@ Supported helpers are `map_empty`, `map_contains`, `map_get`, `map_insert`,
 `insert` and `remove` return a new collection value, so immutable bindings stay
 compatible with the language's current mutability model. JSON route decoding
 accepts `Set<T>` as an array, `Map<Text,V>` as a JSON object, and non-text-key
-maps as explicit `{ "$map": [[key, value]] }` pairs. Queue, Stack, and Stream
-remain separate future work because they need stateful ordering, backpressure,
-and streaming lifecycle rules.
+maps as explicit `{ "$map": [[key, value]] }` pairs.
+
+### Queue, Stack, and Stream
+
+`Queue<T>`, `Stack<T>`, and `Stream<T>` have a first stdlib slice with explicit
+constructors and pure helpers. Queue is FIFO, Stack is LIFO, and Stream is an
+ordered immutable sequence that can be inspected with `stream_next` and advanced
+with `stream_advance`. This first slice is intentionally synchronous and local;
+clustered queues, backpressure, async streaming, and provider-backed stream
+lifecycles are separate runtime concerns.
+
+```num
+let events: Queue<Text> = queue_empty()
+let events2: Queue<Text> = queue_enqueue(events, "evt_1")
+let next_event: Text = queue_front(events2)
+
+let rollbacks: Stack<Text> = stack_empty()
+let rollbacks2: Stack<Text> = stack_push(rollbacks, "undo_inventory")
+let next_rollback: Text = stack_peek(rollbacks2)
+
+let chunks: Stream<Text> = stream_empty()
+let chunks2: Stream<Text> = stream_append(chunks, "chunk_1")
+let next_chunk: Text = stream_next(chunks2)
+```
+
+Supported helpers are `queue_empty`, `queue_enqueue`, `queue_front`,
+`queue_dequeue`, `queue_is_empty`, `stack_empty`, `stack_push`, `stack_peek`,
+`stack_pop`, `stack_is_empty`, `stream_empty`, `stream_append`,
+`stream_has_next`, `stream_next`, and `stream_advance`. JSON route decoding
+accepts all three as arrays, and process connector JSON uses explicit
+`$queue`, `$stack`, and `$stream` array wrappers.
 
 ### Type Aliases and Branded Types
 

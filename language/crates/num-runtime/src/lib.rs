@@ -1232,6 +1232,75 @@ workflow main() {
     }
 
     #[test]
+    fn test_runtime_executes_queue_stack_and_stream_helpers() {
+        let source = r#"
+module test.ordered_collections
+
+workflow main() {
+    let queue: Queue<Text> = queue_empty()
+    let queue2: Queue<Text> = queue_enqueue(queue, "first")
+    let queue3: Queue<Text> = queue_enqueue(queue2, "second")
+    let front: Text = queue_front(queue3)
+    let queue4: Queue<Text> = queue_dequeue(queue3)
+    let next_front: Text = queue_front(queue4)
+    let queue5: Queue<Text> = queue_dequeue(queue4)
+    let queue_empty_now: Bool = queue_is_empty(queue5)
+
+    let stack: Stack<Text> = stack_empty()
+    let stack2: Stack<Text> = stack_push(stack, "first")
+    let stack3: Stack<Text> = stack_push(stack2, "second")
+    let top: Text = stack_peek(stack3)
+    let stack4: Stack<Text> = stack_pop(stack3)
+    let next_top: Text = stack_peek(stack4)
+    let stack5: Stack<Text> = stack_pop(stack4)
+    let stack_empty_now: Bool = stack_is_empty(stack5)
+
+    let stream: Stream<Text> = stream_empty()
+    let stream2: Stream<Text> = stream_append(stream, "first")
+    let stream3: Stream<Text> = stream_append(stream2, "second")
+    let has_next: Bool = stream_has_next(stream3)
+    let item: Text = stream_next(stream3)
+    let stream4: Stream<Text> = stream_advance(stream3)
+    let next_item: Text = stream_next(stream4)
+
+    audit(front)
+    audit(next_front)
+    audit(queue_empty_now)
+    audit(top)
+    audit(next_top)
+    audit(stack_empty_now)
+    audit(has_next)
+    audit(item)
+    audit(next_item)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        runtime.run_workflow("main", HashMap::new()).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"first\"".to_string(),
+                "\"second\"".to_string(),
+                "true".to_string(),
+                "\"second\"".to_string(),
+                "\"first\"".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+                "\"first\"".to_string(),
+                "\"second\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn test_runtime_executes_scalar_validator_builtins() {
         let source = r#"
 module test.scalar_validators

@@ -362,6 +362,18 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
             let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
             json!({"kind": "Set", "items": items})
         }
+        Value::Queue(items) => {
+            let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
+            json!({"kind": "Queue", "items": items})
+        }
+        Value::Stack(items) => {
+            let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
+            json!({"kind": "Stack", "items": items})
+        }
+        Value::Stream(items) => {
+            let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
+            json!({"kind": "Stream", "items": items})
+        }
         Value::Struct(name, fields) => {
             let fields = fields
                 .iter()
@@ -452,6 +464,18 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                 .collect::<Result<Vec<_>, RuntimeError>>()?;
             Ok(Value::Set(items))
         }
+        "Queue" => {
+            let items = runtime_items_field(value, "queue")?;
+            Ok(Value::Queue(items))
+        }
+        "Stack" => {
+            let items = runtime_items_field(value, "stack")?;
+            Ok(Value::Stack(items))
+        }
+        "Stream" => {
+            let items = runtime_items_field(value, "stream")?;
+            Ok(Value::Stream(items))
+        }
         "Struct" => {
             let name = string_field(value, "name")?;
             let fields = value
@@ -480,6 +504,16 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
             "unknown runtime value kind '{other}'"
         ))),
     }
+}
+
+fn runtime_items_field(value: &JsonValue, label: &str) -> Result<Vec<Value>, RuntimeError> {
+    value
+        .get("items")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| storage_error(format!("missing {label} items")))?
+        .iter()
+        .map(json_to_runtime_value)
+        .collect::<Result<Vec<_>, RuntimeError>>()
 }
 
 fn string_field(value: &JsonValue, key: &str) -> Result<String, RuntimeError> {
