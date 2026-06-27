@@ -1,0 +1,21 @@
+module examples.xml_bytes_payload
+
+type ImportPayload {
+    body: Bytes
+    manifest: Xml
+}
+
+workflow prepare_import(raw_body: Text from UserInput private, raw_manifest: Text from UserInput private, payload: ImportPayload from UserInput private) {
+    let body: Bytes from UserInput private = bytes_from_text(raw_body)
+    let body_base64: Text from UserInput private = bytes_to_base64(body)
+    let decoded: Bytes from UserInput private = bytes_from_base64(body_base64)
+    let body_size: Int from DerivedData private = bytes_len(decoded)
+    let body_digest: Text from DerivedData private = hash_sha256_hex(decoded)
+    let manifest: Xml from UserInput private = xml_parse(raw_manifest)
+    let payload_size: Int from DerivedData private = bytes_len(payload.body)
+    audit(body_size)
+    audit(payload_size)
+    audit(body_digest)
+    audit(xml_to_text(manifest))
+    audit(xml_to_text(payload.manifest))
+}

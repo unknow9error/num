@@ -120,6 +120,59 @@ workflow main(phone: Option<PhoneNumber>) {
     }
 
     #[test]
+    fn accepts_bytes_and_xml_stdlib_helpers() {
+        let source = r#"
+module tests.bytes_xml
+
+type DocumentPayload {
+    body: Bytes
+    manifest: Xml
+}
+
+workflow main(raw: Text, encoded: Text, payload: DocumentPayload) {
+    let bytes: Bytes = bytes_from_text(raw)
+    let decoded: Bytes = bytes_from_base64(encoded)
+    let encoded2: Text = bytes_to_base64(bytes)
+    let size: Int = bytes_len(decoded)
+    let xml: Xml = xml_parse("<root><item /></root>")
+    let text: Text = xml_to_text(xml)
+    let payload_size: Int = bytes_len(payload.body)
+    let payload_manifest: Text = xml_to_text(payload.manifest)
+    let digest: Text = hash_sha256_hex(bytes)
+    audit(encoded2)
+    audit(size)
+    audit(text)
+    audit(payload_size)
+    audit(payload_manifest)
+    audit(digest)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_bytes_and_xml_helper_type_mismatches() {
+        let source = r#"
+module tests.bytes_xml
+
+workflow main() {
+    let size: Int = bytes_len("abc")
+    let text: Text = xml_to_text("<root/>")
+    let xml: Xml = xml_parse("not xml")
+}
+"#;
+
+        let codes = codes(source);
+        assert_eq!(codes.iter().filter(|code| **code == "N2706").count(), 2);
+        assert!(codes.contains(&"N2707"));
+    }
+
+    #[test]
     fn accepts_option_value_after_is_some_and_guard() {
         let source = r#"
 module tests.option

@@ -274,6 +274,8 @@ Implemented:
   text input;
 - stdlib SHA-256 hashing helpers for `Text`/`Bytes`, with explicit hex/base64
   output functions and known-vector runtime tests;
+- first-class `Bytes` and `Xml` runtime values, with explicit constructors,
+  formatters, typed JSON/process-connector boundaries, and bounded diagnostics;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

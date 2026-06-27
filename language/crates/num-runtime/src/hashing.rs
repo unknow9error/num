@@ -9,7 +9,7 @@ pub fn sha256_base64(bytes: &[u8]) -> String {
     base64_encode(&Sha256::digest(bytes))
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
@@ -30,6 +30,56 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    let normalized = input.trim();
+    if normalized.is_empty() {
+        return Ok(Vec::new());
+    }
+    if normalized.len() % 4 != 0 {
+        return Err("base64 length must be a multiple of 4".to_string());
+    }
+
+    let mut out = Vec::new();
+    for chunk in normalized.as_bytes().chunks(4) {
+        let mut values = [0u8; 4];
+        let mut padding = 0usize;
+        for (index, byte) in chunk.iter().enumerate() {
+            if *byte == b'=' {
+                padding += 1;
+                values[index] = 0;
+            } else if padding > 0 {
+                return Err("base64 padding must be at the end".to_string());
+            } else {
+                values[index] = base64_value(*byte)
+                    .ok_or_else(|| format!("invalid base64 character '{}'", *byte as char))?;
+            }
+        }
+        if padding > 2 {
+            return Err("base64 padding may contain at most two `=` characters".to_string());
+        }
+
+        out.push((values[0] << 2) | (values[1] >> 4));
+        if padding < 2 {
+            out.push((values[1] << 4) | (values[2] >> 2));
+        }
+        if padding == 0 {
+            out.push((values[2] << 6) | values[3]);
+        }
+    }
+    Ok(out)
+}
+
+fn base64_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
 }
 
 struct Sha256 {

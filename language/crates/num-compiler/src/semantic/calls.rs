@@ -155,6 +155,10 @@ impl<'a> Checker<'a> {
                 self.hash_helper_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_bytes_xml_helper(call_name) {
+                self.bytes_xml_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
             if is_datetime_duration_helper(call_name) {
                 self.datetime_duration_call(raw, call_name, &call.args, env);
                 continue;
@@ -343,6 +347,68 @@ impl<'a> Checker<'a> {
                 .with_reason("hash helpers require explicit text or byte input")
                 .with_help("convert the value to Text or Bytes before hashing"),
             );
+        }
+    }
+
+    fn bytes_xml_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if args.len() != 1 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "bytes/xml helper `{call_name}` expects 1 argument, got {}",
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("Bytes and Xml helpers parse or format exactly one value")
+                .with_help("pass one value with the helper input type"),
+            );
+            return;
+        }
+
+        let expected = bytes_xml_helper_param_types(call_name)
+            .and_then(|mut params| params.pop())
+            .expect("known bytes/xml helper must have one param type");
+        let Some(actual_ty) = self.expr_type_in_context(&args[0], env, Some(&expected)) else {
+            return;
+        };
+        if !self.types_compatible(&expected, &actual_ty) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2706",
+                    format!(
+                        "bytes/xml helper `{call_name}` argument has type `{}`, expected `{}`",
+                        actual_ty.raw, expected.raw
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("Bytes and Xml helpers use explicit Text, Bytes, and Xml boundaries")
+                .with_help("parse text first or pass a value with the expected stdlib type"),
+            );
+            return;
+        }
+
+        if call_name == "xml_parse" {
+            if let Expr::String(value) = &args[0] {
+                if let Err(reason) = validate_xml_literal(value) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            "N2707",
+                            format!("invalid literal for `{call_name}`: {reason}"),
+                            raw.span.clone(),
+                        )
+                        .with_reason("literal XML values can be validated at compile time")
+                        .with_help("pass XML text with at least one element tag"),
+                    );
+                }
+            }
         }
     }
 
@@ -681,6 +747,10 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "unbrand"
             | "hash_sha256_base64"
             | "hash_sha256_hex"
+            | "bytes_from_base64"
+            | "bytes_from_text"
+            | "bytes_len"
+            | "bytes_to_base64"
             | "datetime_format_iso"
             | "datetime_parse_iso"
             | "decimal_format"
@@ -702,5 +772,7 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "validate_url"
             | "validate_uuid"
             | "verify_trust"
+            | "xml_parse"
+            | "xml_to_text"
     )
 }

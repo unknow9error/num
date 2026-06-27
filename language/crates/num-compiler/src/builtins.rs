@@ -130,6 +130,42 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Computes a SHA-256 digest for deterministic non-password hashing and returns standard base64 text.",
     },
     BuiltinSymbol {
+        name: "bytes_from_text",
+        kind: BuiltinKind::Function,
+        signature: "bytes_from_text(value: Text) -> Bytes",
+        documentation: "Encodes text as UTF-8 bytes.",
+    },
+    BuiltinSymbol {
+        name: "bytes_from_base64",
+        kind: BuiltinKind::Function,
+        signature: "bytes_from_base64(value: Text) -> Bytes",
+        documentation: "Decodes standard base64 text into Bytes.",
+    },
+    BuiltinSymbol {
+        name: "bytes_to_base64",
+        kind: BuiltinKind::Function,
+        signature: "bytes_to_base64(value: Bytes) -> Text",
+        documentation: "Encodes Bytes as standard base64 text for JSON and connector boundaries.",
+    },
+    BuiltinSymbol {
+        name: "bytes_len",
+        kind: BuiltinKind::Function,
+        signature: "bytes_len(value: Bytes) -> Int",
+        documentation: "Returns the byte length of a Bytes value.",
+    },
+    BuiltinSymbol {
+        name: "xml_parse",
+        kind: BuiltinKind::Function,
+        signature: "xml_parse(value: Text) -> Xml",
+        documentation: "Validates text as the first Xml representation and returns Xml.",
+    },
+    BuiltinSymbol {
+        name: "xml_to_text",
+        kind: BuiltinKind::Function,
+        signature: "xml_to_text(value: Xml) -> Text",
+        documentation: "Returns the original text backing an Xml value.",
+    },
+    BuiltinSymbol {
         name: "datetime_parse_iso",
         kind: BuiltinKind::Function,
         signature: "datetime_parse_iso(value: Text) -> DateTime",

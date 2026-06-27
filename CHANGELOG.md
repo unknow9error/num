@@ -56,6 +56,9 @@
   invalid dynamic text input.
 - Added explicit SHA-256 stdlib hashing helpers for `Text`/`Bytes` inputs with
   hex and base64 output functions for deterministic non-password hashing.
+- Added first-class `Bytes` and `Xml` runtime values with explicit stdlib
+  constructors/formatters, typed JSON and process-connector boundaries,
+  bounded diagnostics, and an import-payload example.
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.

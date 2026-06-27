@@ -361,6 +361,7 @@ The semantic checker recognizes these type names:
 - `Url`
 - `Json`
 - `Bytes`
+- `Xml`
 - `Result`
 - `Option`
 - `List`
@@ -439,6 +440,37 @@ secret values should stay inside `Secret<T>` or an external secret store.
 Hashing does not automatically remove privacy or provenance labels. A hash of
 private user input may still be linkable private data, so declassification
 requires an explicit policy decision or `anonymize(...)` where appropriate.
+
+### Bytes and Xml Helpers
+
+`Bytes` and `Xml` are real stdlib values at runtime. The first slice keeps their
+construction explicit at text boundaries:
+
+```num
+let payload: Bytes = bytes_from_text(raw_text)
+let decoded: Bytes = bytes_from_base64(raw_base64)
+let encoded: Text = bytes_to_base64(payload)
+let size: Int = bytes_len(payload)
+
+let manifest: Xml = xml_parse(raw_manifest)
+let manifest_text: Text = xml_to_text(manifest)
+```
+
+`Bytes` display as a bounded summary such as `<bytes len=3 sha256=...>` rather
+than dumping raw binary data. Connector JSON uses `{ "$bytes_base64": "..." }`.
+Typed HTTP JSON accepts a base64 string or the same wrapper object for `Bytes`.
+
+`Xml` stores the original validated text and displays as `<xml len=...>`.
+Connector JSON uses `{ "$xml": "..." }`. The first slice validates only an
+XML-shaped document boundary: non-empty text, `<...>` delimiters, at least one
+element tag, and no unsupported control characters.
+
+Intentionally unsupported in this slice:
+
+- byte literals and byte slicing;
+- XML DOM traversal, XPath, schemas, namespaces, and canonicalization;
+- streaming XML or binary parsing;
+- automatic conversion between `Text`, `Bytes`, and `Xml` without helper calls.
 
 ### DateTime and Duration Helpers
 

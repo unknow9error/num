@@ -29,6 +29,7 @@ pub mod storage;
 pub mod tenant;
 pub mod worker;
 pub mod workflow_report;
+pub mod xml;
 
 pub type WorkflowId = String;
 pub type TenantId = String;
@@ -1382,7 +1383,7 @@ workflow main(raw: Text, payload: Bytes) {
         let mut runtime = Runtime::new(&compilation.module, vec![]);
         let mut args = HashMap::new();
         args.insert("raw".to_string(), Value::String("abc".to_string()));
-        args.insert("payload".to_string(), Value::String("abc".to_string()));
+        args.insert("payload".to_string(), Value::Bytes(b"abc".to_vec()));
 
         runtime.run_workflow("main", args).unwrap();
 
@@ -1394,6 +1395,86 @@ workflow main(raw: Text, payload: Bytes) {
                 "\"ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=\"".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_runtime_executes_bytes_and_xml_helpers() {
+        let source = r#"
+module test.bytes_xml
+
+workflow main(raw: Text, encoded: Text, raw_xml: Text) {
+    let bytes: Bytes = bytes_from_text(raw)
+    let decoded: Bytes = bytes_from_base64(encoded)
+    let encoded_again: Text = bytes_to_base64(bytes)
+    let len: Int = bytes_len(decoded)
+    let digest: Text = hash_sha256_hex(decoded)
+    let xml: Xml = xml_parse(raw_xml)
+    let text: Text = xml_to_text(xml)
+    audit(encoded_again)
+    audit(len)
+    audit(digest)
+    audit(xml)
+    audit(text)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert("raw".to_string(), Value::String("abc".to_string()));
+        args.insert("encoded".to_string(), Value::String("YWJj".to_string()));
+        args.insert(
+            "raw_xml".to_string(),
+            Value::String("<root><item /></root>".to_string()),
+        );
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"YWJj\"".to_string(),
+                "3".to_string(),
+                "\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"".to_string(),
+                "<xml len=21>".to_string(),
+                "\"<root><item /></root>\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_runtime_rejects_invalid_bytes_and_xml_inputs() {
+        let source = r#"
+module test.bytes_xml
+
+workflow bytes(encoded: Text) {
+    let decoded: Bytes = bytes_from_base64(encoded)
+    audit(decoded)
+}
+
+workflow xml(raw: Text) {
+    let parsed: Xml = xml_parse(raw)
+    audit(parsed)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut bytes_args = HashMap::new();
+        bytes_args.insert("encoded".to_string(), Value::String("%%%".to_string()));
+        assert!(runtime
+            .run_workflow("bytes", bytes_args)
+            .unwrap_err()
+            .contains("bytes_from_base64 failed"));
+
+        let mut xml_runtime = Runtime::new(&compilation.module, vec![]);
+        let mut xml_args = HashMap::new();
+        xml_args.insert("raw".to_string(), Value::String("not xml".to_string()));
+        assert!(xml_runtime
+            .run_workflow("xml", xml_args)
+            .unwrap_err()
+            .contains("xml_parse failed"));
     }
 
     #[test]

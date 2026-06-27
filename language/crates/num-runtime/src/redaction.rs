@@ -1,4 +1,5 @@
 use crate::connectors::{ConnectorCallContext, ConnectorError};
+use crate::hashing;
 use crate::interpreter::Value;
 
 pub const REDACTION_MARKER: &str = "<redacted>";
@@ -136,6 +137,8 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
         Value::Float(value) => values.push(value.to_string()),
         Value::Decimal(value) => values.push(value.to_string()),
         Value::String(value) => values.push(value.clone()),
+        Value::Bytes(value) => values.push(hashing::base64_encode(value)),
+        Value::Xml(value) => values.push(value.clone()),
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));
