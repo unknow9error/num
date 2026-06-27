@@ -346,6 +346,22 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
             let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
             json!({"kind": "List", "items": items})
         }
+        Value::Map(entries) => {
+            let entries = entries
+                .iter()
+                .map(|(key, value)| {
+                    json!({
+                        "key": runtime_value_to_json(key),
+                        "value": runtime_value_to_json(value)
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({"kind": "Map", "entries": entries})
+        }
+        Value::Set(items) => {
+            let items = items.iter().map(runtime_value_to_json).collect::<Vec<_>>();
+            json!({"kind": "Set", "items": items})
+        }
         Value::Struct(name, fields) => {
             let fields = fields
                 .iter()
@@ -407,6 +423,34 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                 .map(json_to_runtime_value)
                 .collect::<Result<Vec<_>, RuntimeError>>()?;
             Ok(Value::List(items))
+        }
+        "Map" => {
+            let entries = value
+                .get("entries")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| storage_error("missing map entries"))?
+                .iter()
+                .map(|entry| {
+                    let key = entry
+                        .get("key")
+                        .ok_or_else(|| storage_error("missing map entry key"))?;
+                    let value = entry
+                        .get("value")
+                        .ok_or_else(|| storage_error("missing map entry value"))?;
+                    Ok((json_to_runtime_value(key)?, json_to_runtime_value(value)?))
+                })
+                .collect::<Result<Vec<_>, RuntimeError>>()?;
+            Ok(Value::Map(entries))
+        }
+        "Set" => {
+            let items = value
+                .get("items")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| storage_error("missing set items"))?
+                .iter()
+                .map(json_to_runtime_value)
+                .collect::<Result<Vec<_>, RuntimeError>>()?;
+            Ok(Value::Set(items))
         }
         "Struct" => {
             let name = string_field(value, "name")?;

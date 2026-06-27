@@ -1303,6 +1303,60 @@ workflow main(count: Int, ratio: Float) {
     }
 
     #[test]
+    fn accepts_map_and_set_stdlib_helpers() {
+        let source = r#"
+module tests.collections
+
+workflow main(permission: Text, enabled: Bool) {
+    let permissions: Set<Text> = set_empty()
+    let permissions2: Set<Text> = set_insert(permissions, permission)
+    let has_permission: Bool = set_contains(permissions2, permission)
+
+    let metadata: Map<Text, Bool> = map_empty()
+    let metadata2: Map<Text, Bool> = map_insert(metadata, "enabled", enabled)
+    let has_key: Bool = map_contains(metadata2, "enabled")
+    let value: Bool = map_get(metadata2, "enabled")
+    let metadata3: Map<Text, Bool> = map_remove(metadata2, "enabled")
+    let permissions3: Set<Text> = set_remove(permissions2, permission)
+
+    audit(has_permission)
+    audit(has_key)
+    audit(value)
+    audit(metadata3)
+    audit(permissions3)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_map_and_set_helper_type_mismatches() {
+        let source = r#"
+module tests.collections
+
+workflow main() {
+    let permissions: Set<Text> = set_empty()
+    let permissions2: Set<Text> = set_insert(permissions, 42)
+    let metadata: Map<Text, Bool> = map_empty()
+    let metadata2: Map<Text, Bool> = map_insert(metadata, "enabled", "yes")
+}
+"#;
+
+        assert_eq!(
+            codes(source)
+                .iter()
+                .filter(|code| **code == "N2706")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn accepts_workflow_service_budget_and_rate_limit_metadata() {
         let source = r#"
 module tests.budget

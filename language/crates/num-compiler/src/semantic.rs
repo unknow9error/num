@@ -2682,6 +2682,121 @@ fn decimal_helper_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_collection_helper(name: &str) -> bool {
+    matches!(
+        name,
+        "map_empty"
+            | "map_contains"
+            | "map_get"
+            | "map_insert"
+            | "map_remove"
+            | "set_empty"
+            | "set_contains"
+            | "set_insert"
+            | "set_remove"
+    )
+}
+
+fn is_collection_empty_constructor_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Call { callee, args }
+            if args.is_empty()
+                && callee
+                    .path()
+                    .is_some_and(|path| matches!(path.as_slice(), ["map_empty"] | ["set_empty"]))
+    )
+}
+
+fn collection_empty_result_type(expr: &Expr, expected: Option<&TypeRef>) -> Option<TypeRef> {
+    let Expr::Call { callee, .. } = expr else {
+        return None;
+    };
+    let call_name = *callee.path()?.first()?;
+    let expected = expected?;
+    let base = type_base_name(&expected.raw);
+    match (call_name, base.as_str()) {
+        ("map_empty", "Map") | ("set_empty", "Set") => Some(expected.clone()),
+        _ => None,
+    }
+}
+
+fn collection_helper_param_types(
+    name: &str,
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    checker: &Checker<'_>,
+) -> Option<Vec<TypeRef>> {
+    match name {
+        "map_contains" | "map_get" | "map_remove" => {
+            let map_ty = checker.expr_type(args.first()?, env)?;
+            let type_args = generic_args(&map_ty.raw);
+            if type_base_name(&map_ty.raw) != "Map" || type_args.len() != 2 {
+                return None;
+            }
+            Some(vec![
+                map_ty,
+                TypeRef {
+                    raw: type_args[0].clone(),
+                },
+            ])
+        }
+        "map_insert" => {
+            let map_ty = checker.expr_type(args.first()?, env)?;
+            let type_args = generic_args(&map_ty.raw);
+            if type_base_name(&map_ty.raw) != "Map" || type_args.len() != 2 {
+                return None;
+            }
+            Some(vec![
+                map_ty,
+                TypeRef {
+                    raw: type_args[0].clone(),
+                },
+                TypeRef {
+                    raw: type_args[1].clone(),
+                },
+            ])
+        }
+        "set_contains" | "set_remove" => {
+            let set_ty = checker.expr_type(args.first()?, env)?;
+            let type_args = generic_args(&set_ty.raw);
+            if type_base_name(&set_ty.raw) != "Set" || type_args.len() != 1 {
+                return None;
+            }
+            Some(vec![
+                set_ty,
+                TypeRef {
+                    raw: type_args[0].clone(),
+                },
+            ])
+        }
+        "set_insert" => {
+            let set_ty = checker.expr_type(args.first()?, env)?;
+            let type_args = generic_args(&set_ty.raw);
+            if type_base_name(&set_ty.raw) != "Set" || type_args.len() != 1 {
+                return None;
+            }
+            Some(vec![
+                set_ty,
+                TypeRef {
+                    raw: type_args[0].clone(),
+                },
+            ])
+        }
+        _ => None,
+    }
+}
+
+fn collection_helper_result_type(name: &str) -> Option<TypeRef> {
+    let raw = match name {
+        "map_contains" | "set_contains" => "Bool",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
+    })
+}
+
 fn validate_scalar_value(validator: &str, value: &str) -> Result<(), String> {
     match validator {
         "validate_email" => validate_email_literal(value),

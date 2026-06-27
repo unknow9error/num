@@ -163,6 +163,10 @@ impl<'a> Checker<'a> {
                 self.decimal_helper_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_collection_helper(call_name) {
+                self.collection_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
 
             if is_builtin_runtime_function(call_name)
                 || is_result_constructor_name(call_name)
@@ -466,6 +470,85 @@ impl<'a> Checker<'a> {
         }
     }
 
+    fn collection_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        if matches!(call_name, "map_empty" | "set_empty") {
+            if !args.is_empty() {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2705",
+                        format!(
+                            "collection helper `{call_name}` expects 0 arguments, got {}",
+                            args.len()
+                        ),
+                        raw.span.clone(),
+                    )
+                    .with_reason("empty collection constructors infer their type from context")
+                    .with_help("assign `map_empty()` or `set_empty()` to an explicit Map/Set type"),
+                );
+            }
+            return;
+        }
+
+        let expected = collection_helper_param_types(call_name, args, env, self);
+        let Some(expected) = expected else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!("collection helper `{call_name}` received unsupported arguments"),
+                    raw.span.clone(),
+                )
+                .with_reason("Map/Set helpers require a typed collection as their first argument")
+                .with_help("pass a Map<K,V> or Set<T> value with compatible key/value arguments"),
+            );
+            return;
+        };
+
+        if args.len() != expected.len() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "collection helper `{call_name}` expects {} argument(s), got {}",
+                        expected.len(),
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("collection helper arity is fixed by the helper name")
+                .with_help("use map_contains/map_get/map_insert/map_remove or set_contains/set_insert/set_remove with the documented arity"),
+            );
+            return;
+        }
+
+        for (index, (arg, expected_ty)) in args.iter().zip(expected.iter()).enumerate() {
+            let Some(actual_ty) = self.expr_type_in_context(arg, env, Some(expected_ty)) else {
+                continue;
+            };
+            if !self.types_compatible(expected_ty, &actual_ty) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2706",
+                        format!(
+                            "collection helper `{call_name}` argument {} has type `{}`, expected `{}`",
+                            index + 1,
+                            actual_ty.raw,
+                            expected_ty.raw
+                        ),
+                        raw.span.clone(),
+                    )
+                    .with_reason("Map/Set operations preserve their generic key and value types")
+                    .with_help("pass keys and values compatible with the collection type parameters"),
+                );
+            }
+        }
+    }
+
     pub(super) fn method_call(
         &mut self,
         raw: &RawExpr,
@@ -601,6 +684,15 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "decimal_parse"
             | "duration_format_hours"
             | "duration_parse_hours"
+            | "map_contains"
+            | "map_empty"
+            | "map_get"
+            | "map_insert"
+            | "map_remove"
+            | "set_contains"
+            | "set_empty"
+            | "set_insert"
+            | "set_remove"
             | "validate_email"
             | "validate_phone_number"
             | "validate_trust"

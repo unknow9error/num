@@ -1,0 +1,17 @@
+module examples.map_set_collections
+
+workflow access_snapshot(permission: Text, enabled: Bool) {
+    let permissions: Set<Text> = set_empty()
+    let permissions2: Set<Text> = set_insert(permissions, permission)
+    let has_permission: Bool = set_contains(permissions2, permission)
+
+    let metadata: Map<Text, Bool> = map_empty()
+    let metadata2: Map<Text, Bool> = map_insert(metadata, "enabled", enabled)
+    let has_enabled: Bool = map_contains(metadata2, "enabled")
+    let enabled_value: Bool = map_get(metadata2, "enabled")
+
+    audit(has_permission)
+    audit(has_enabled)
+    audit(enabled_value)
+}
+

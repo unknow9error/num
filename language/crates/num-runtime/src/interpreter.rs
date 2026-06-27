@@ -54,6 +54,8 @@ pub enum Value {
     Secret(Box<Value>),
     Uncertain(Box<Value>, f64),
     List(Vec<Value>),
+    Map(Vec<(Value, Value)>),
+    Set(Vec<Value>),
     Struct(String, HashMap<String, Value>),
     Enum(String, String, Option<Box<Value>>),
     Quantity(f64, String),
@@ -81,6 +83,26 @@ impl std::fmt::Display for Value {
                     write!(f, "{item}")?;
                 }
                 write!(f, "]")
+            }
+            Value::Map(entries) => {
+                write!(f, "{{")?;
+                for (index, (key, value)) in entries.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{key}: {value}")?;
+                }
+                write!(f, "}}")
+            }
+            Value::Set(items) => {
+                write!(f, "set(")?;
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, ")")
             }
             Value::Struct(name, fields) => {
                 let mut keys = fields.keys().collect::<Vec<_>>();
@@ -213,6 +235,26 @@ fn value_to_idempotency_key(value: Value) -> String {
                 .collect::<Vec<_>>();
             format!("[{}]", items.join(","))
         }
+        Value::Map(entries) => {
+            let entries = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    format!(
+                        "{}=>{}",
+                        value_to_idempotency_key(key),
+                        value_to_idempotency_key(value)
+                    )
+                })
+                .collect::<Vec<_>>();
+            format!("map{{{}}}", entries.join(","))
+        }
+        Value::Set(items) => {
+            let items = items
+                .into_iter()
+                .map(value_to_idempotency_key)
+                .collect::<Vec<_>>();
+            format!("set{{{}}}", items.join(","))
+        }
         Value::Struct(name, fields) => {
             let mut pairs = fields
                 .into_iter()
@@ -239,6 +281,17 @@ fn connector_error_to_runtime_error(method: &str, error: ConnectorError) -> Runt
         code: error.code,
         message: error.message,
         retryable: error.retryable,
+    }
+}
+
+fn expect_arity(name: &str, args: &[Value], expected: usize) -> Result<(), String> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "{name} expects {expected} argument(s), got {}",
+            args.len()
+        ))
     }
 }
 
@@ -1353,6 +1406,10 @@ impl<'a> Runtime<'a> {
             "decimal_parse" | "decimal_format" => {
                 return self.call_decimal_helper(name, args);
             }
+            "map_empty" | "map_contains" | "map_get" | "map_insert" | "map_remove"
+            | "set_empty" | "set_contains" | "set_insert" | "set_remove" => {
+                return self.call_collection_helper(name, args);
+            }
             "validate_email" | "validate_url" | "validate_uuid" | "validate_phone_number" => {
                 return self.call_scalar_validator(name, args);
             }
@@ -1720,6 +1777,110 @@ impl<'a> Runtime<'a> {
             });
         }
         policy.ok_or_else(|| "sanitize pack name must not be empty".to_string())
+    }
+
+    fn call_collection_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        match name {
+            "map_empty" => expect_arity(name, &args, 0).map(|_| Value::Map(Vec::new())),
+            "set_empty" => expect_arity(name, &args, 0).map(|_| Value::Set(Vec::new())),
+            "map_contains" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Map(entries) = &args[0] else {
+                    return Err(format!(
+                        "map_contains expects Map as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Bool(entries.iter().any(|(key, _)| key == &args[1])))
+            }
+            "map_get" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Map(entries) = &args[0] else {
+                    return Err(format!(
+                        "map_get expects Map as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                entries
+                    .iter()
+                    .find(|(key, _)| key == &args[1])
+                    .map(|(_, value)| value.clone())
+                    .ok_or_else(|| format!("map_get missing key {}", args[1]))
+            }
+            "map_insert" => {
+                expect_arity(name, &args, 3)?;
+                let Value::Map(entries) = &args[0] else {
+                    return Err(format!(
+                        "map_insert expects Map as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = entries.clone();
+                if let Some((_, value)) = next.iter_mut().find(|(key, _)| key == &args[1]) {
+                    *value = args[2].clone();
+                } else {
+                    next.push((args[1].clone(), args[2].clone()));
+                }
+                Ok(Value::Map(next))
+            }
+            "map_remove" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Map(entries) = &args[0] else {
+                    return Err(format!(
+                        "map_remove expects Map as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Map(
+                    entries
+                        .iter()
+                        .filter(|(key, _)| key != &args[1])
+                        .cloned()
+                        .collect(),
+                ))
+            }
+            "set_contains" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Set(items) = &args[0] else {
+                    return Err(format!(
+                        "set_contains expects Set as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Bool(items.iter().any(|item| item == &args[1])))
+            }
+            "set_insert" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Set(items) = &args[0] else {
+                    return Err(format!(
+                        "set_insert expects Set as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                let mut next = items.clone();
+                if !next.iter().any(|item| item == &args[1]) {
+                    next.push(args[1].clone());
+                }
+                Ok(Value::Set(next))
+            }
+            "set_remove" => {
+                expect_arity(name, &args, 2)?;
+                let Value::Set(items) = &args[0] else {
+                    return Err(format!(
+                        "set_remove expects Set as first argument, got {}",
+                        args[0]
+                    ));
+                };
+                Ok(Value::Set(
+                    items
+                        .iter()
+                        .filter(|item| *item != &args[1])
+                        .cloned()
+                        .collect(),
+                ))
+            }
+            _ => Err(format!("unknown collection helper `{name}`")),
+        }
     }
 
     fn call_hash_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
@@ -2334,6 +2495,23 @@ fn value_to_literal_str(val: &Value) -> String {
                 parts.push(value_to_literal_str(item));
             }
             format!("[{}]", parts.join(", "))
+        }
+        Value::Map(entries) => {
+            let parts = entries
+                .iter()
+                .map(|(key, item)| {
+                    format!(
+                        "{}: {}",
+                        value_to_literal_str(key),
+                        value_to_literal_str(item)
+                    )
+                })
+                .collect::<Vec<_>>();
+            format!("{{ {} }}", parts.join(", "))
+        }
+        Value::Set(items) => {
+            let parts = items.iter().map(value_to_literal_str).collect::<Vec<_>>();
+            format!("set({})", parts.join(", "))
         }
         Value::Struct(name, fields) => {
             let mut parts = Vec::new();
