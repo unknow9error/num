@@ -205,6 +205,7 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::String(value) => JsonValue::String(value.clone()),
         Value::Bytes(bytes) => json!({"$bytes_base64": hashing::base64_encode(bytes)}),
         Value::Xml(raw) => json!({"$xml": raw}),
+        Value::Document(document) => crate::document::connector_json(document),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -300,6 +301,11 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if let Some(value) = object.get("$xml").and_then(JsonValue::as_str) {
         xml::validate_xml_document(value)?;
         return Ok(Value::Xml(value.to_string()));
+    }
+
+    if object.contains_key("$document") {
+        return crate::document::value_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::Document);
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -463,6 +469,49 @@ mod tests {
         assert_eq!(
             value_from_json(&json!({ "$xml": "<root/>" })).unwrap(),
             Value::Xml("<root/>".to_string())
+        );
+    }
+
+    #[test]
+    fn converts_document_values_to_json() {
+        let document = crate::document::DocumentValue {
+            id: "doc_1".to_string(),
+            name: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size_bytes: 4096,
+            source: "Upload".to_string(),
+            privacy: "private".to_string(),
+            trust: "untrusted".to_string(),
+        };
+
+        assert_eq!(
+            value_to_json(&Value::Document(document.clone())),
+            json!({
+                "$document": {
+                    "id": "doc_1",
+                    "name": "contract.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 4096,
+                    "source": "Upload",
+                    "privacy": "private",
+                    "trust": "untrusted"
+                }
+            })
+        );
+        assert_eq!(
+            value_from_json(&json!({
+                "$document": {
+                    "id": "doc_1",
+                    "name": "contract.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 4096,
+                    "source": "Upload",
+                    "privacy": "private",
+                    "trust": "untrusted"
+                }
+            }))
+            .unwrap(),
+            Value::Document(document)
         );
     }
 

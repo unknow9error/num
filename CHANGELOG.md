@@ -59,6 +59,9 @@
 - Added first-class `Bytes` and `Xml` runtime values with explicit stdlib
   constructors/formatters, typed JSON and process-connector boundaries,
   bounded diagnostics, and an import-payload example.
+- Added a metadata-only `Document` stdlib runtime value with typed field access,
+  HTTP/process JSON conversion, connector SDK shapes, persistence support, and
+  a policy-checked document route example.
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.

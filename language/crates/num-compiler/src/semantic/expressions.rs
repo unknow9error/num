@@ -150,6 +150,8 @@ impl<'a> Checker<'a> {
                         self.option_field(raw, object, &base_ty, field, env);
                     } else if self.is_result_type(&base_ty) {
                         self.result_field(raw, object, &base_ty, field, env);
+                    } else if type_base_name(&base_ty.raw) == "Document" {
+                        self.document_field(raw, &base_ty, field);
                     } else {
                         self.struct_field(raw, &base_ty, field);
                     }
@@ -280,6 +282,22 @@ impl<'a> Checker<'a> {
                 .with_help("guard the access with `if result.is_err { ... }`"),
             );
         }
+    }
+
+    fn document_field(&mut self, raw: &RawExpr, base_ty: &TypeRef, field: &str) {
+        if document_member_type(field).is_some() {
+            return;
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                "N1301",
+                format!("type `{}` has no field `{}`", base_ty.raw, field),
+                raw.span.clone(),
+            )
+            .with_reason("Document metadata has a fixed first-slice shape")
+            .with_help("use `.id`, `.name`, `.mime_type`, `.size_bytes`, `.source`, `.privacy`, or `.trust`"),
+        );
     }
 
     fn struct_field(&mut self, raw: &RawExpr, base_ty: &TypeRef, field: &str) {
@@ -442,6 +460,7 @@ impl<'a> Checker<'a> {
                 .or_else(|| scalar_validator_param_types(call_name))
                 .or_else(|| hash_helper_param_types(call_name))
                 .or_else(|| bytes_xml_helper_param_types(call_name))
+                .or_else(|| document_helper_param_types(call_name))
                 .or_else(|| datetime_duration_param_types(call_name))
                 .or_else(|| decimal_helper_param_types(call_name))
                 .or_else(|| self.enum_constructor_param_types(callee))
@@ -469,6 +488,7 @@ impl<'a> Checker<'a> {
                 .or_else(|| scalar_validator_result_type(call_name))
                 .or_else(|| hash_helper_result_type(call_name))
                 .or_else(|| bytes_xml_helper_result_type(call_name))
+                .or_else(|| document_helper_result_type(call_name))
                 .or_else(|| datetime_duration_result_type(call_name))
                 .or_else(|| decimal_helper_result_type(call_name))
                 .or_else(|| collection_helper_result_type(call_name))
@@ -501,6 +521,9 @@ impl<'a> Checker<'a> {
         let base_name = type_base_name(&base_ty.raw);
         if base_name == "Actor" {
             return actor_member_type(field);
+        }
+        if base_name == "Document" {
+            return document_member_type(field);
         }
         let args = generic_args(&base_ty.raw);
         let substitutions = self
@@ -581,6 +604,18 @@ fn actor_member_type(field: &str) -> Option<TypeRef> {
     match field {
         "id" | "tenant" | "request_id" | "correlation_id" => Some(TypeRef {
             raw: "Text".to_string(),
+        }),
+        _ => None,
+    }
+}
+
+fn document_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "id" | "name" | "mime_type" | "source" | "privacy" | "trust" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        "size_bytes" => Some(TypeRef {
+            raw: "Int".to_string(),
         }),
         _ => None,
     }

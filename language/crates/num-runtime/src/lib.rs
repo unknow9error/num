@@ -9,6 +9,7 @@ pub mod database;
 pub mod datetime;
 pub mod debugger;
 pub mod decimal;
+pub mod document;
 pub mod engine;
 pub mod events;
 pub mod execution;
@@ -1443,6 +1444,57 @@ workflow main(raw: Text, encoded: Text, raw_xml: Text) {
     }
 
     #[test]
+    fn test_runtime_reads_document_metadata_fields() {
+        let source = r#"
+module test.document
+
+workflow main(document: Document from Upload private untrusted) {
+    let constructed: Document = document_metadata("doc_2", "invoice.pdf", "application/pdf", 2048, "Upload", "private", "trusted")
+    audit(document.id)
+    audit(document.name)
+    audit(document.mime_type)
+    audit(document.size_bytes)
+    audit(document.source)
+    audit(document.privacy)
+    audit(document.trust)
+    audit(constructed.name)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "document".to_string(),
+            Value::Document(crate::document::DocumentValue {
+                id: "doc_1".to_string(),
+                name: "contract.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                size_bytes: 4096,
+                source: "Upload".to_string(),
+                privacy: "private".to_string(),
+                trust: "untrusted".to_string(),
+            }),
+        );
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"doc_1\"".to_string(),
+                "\"contract.pdf\"".to_string(),
+                "\"application/pdf\"".to_string(),
+                "4096".to_string(),
+                "\"Upload\"".to_string(),
+                "\"private\"".to_string(),
+                "\"untrusted\"".to_string(),
+                "\"invoice.pdf\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn test_runtime_rejects_invalid_bytes_and_xml_inputs() {
         let source = r#"
 module test.bytes_xml
@@ -1905,6 +1957,33 @@ test workflow "workflow expectations" {
         let mut runtime = Runtime::new(&compilation.module, vec![]);
 
         assert!(runtime.run_test("workflow expectations").is_ok());
+    }
+
+    #[test]
+    fn test_runtime_runs_document_connector_mock() {
+        let source = r#"
+module test.document_mock
+
+connector documents {
+    fetch(id: Text) -> Document
+}
+
+workflow load_document() {
+    let document: Document = documents.fetch("doc_1")
+    assert document.name == "contract.pdf"
+    assert document.size_bytes == 4096
+}
+
+test workflow "document connector mock" {
+    mock_connector documents.fetch("doc_1") => document_metadata("doc_1", "contract.pdf", "application/pdf", 4096, "Upload", "private", "trusted")
+    expect_workflow_success load_document()
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        assert!(runtime.run_test("document connector mock").is_ok());
     }
 
     #[test]

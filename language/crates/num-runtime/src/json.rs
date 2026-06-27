@@ -28,6 +28,7 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
             .ok_or_else(|| format!("expected string for {raw}")),
         "Bytes" => bytes_from_json(json),
         "Xml" => xml_from_json(json),
+        "Document" => crate::document::value_from_json(json).map(Value::Document),
         "Bool" | "Boolean" => json
             .as_bool()
             .map(Value::Bool)
@@ -451,6 +452,40 @@ service ImportApi {
             fields.get("manifest"),
             Some(&Value::Xml("<root/>".to_string()))
         );
+    }
+
+    #[test]
+    fn decodes_document_route_input_from_json_body() {
+        let source = r#"
+module test.api
+
+service DocumentApi {
+    route POST "/documents" {
+        input document: Document from HttpBody private
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let value = route_input_from_body(
+            &compilation.module,
+            "DocumentApi",
+            "POST",
+            "/documents",
+            r#"{"id":"doc_1","name":"contract.pdf","mime_type":"application/pdf","size_bytes":4096,"source":"Upload","privacy":"private","trust":"untrusted"}"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        let Value::Document(document) = value else {
+            panic!("expected document value");
+        };
+        assert_eq!(document.id, "doc_1");
+        assert_eq!(document.name, "contract.pdf");
+        assert_eq!(document.mime_type, "application/pdf");
+        assert_eq!(document.size_bytes, 4096);
+        assert_eq!(document.source, "Upload");
+        assert_eq!(document.privacy, "private");
+        assert_eq!(document.trust, "untrusted");
     }
 
     #[test]

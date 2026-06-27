@@ -1,0 +1,32 @@
+module examples.document_metadata_route
+
+permission ReviewDocument
+
+policy DocumentMetadataPolicy {
+    allow private HttpBody -> external.audit
+}
+
+service DocumentApi {
+    route POST "/documents" requires Permission.ReviewDocument {
+        input document: Document from HttpBody private untrusted
+        let marker: Text from DerivedData public trusted = verify_trust(anonymize(document.id))
+        let size: Int from DerivedData private = document.size_bytes
+        external.audit.send(marker)
+        audit(document.name)
+        audit(document.mime_type)
+        audit(size)
+    }
+}
+
+workflow review_document(document: Document from Upload private untrusted) {
+    require Permission.ReviewDocument for current_user
+
+    let fixture: Document = document_metadata("doc_fixture", "fixture.pdf", "application/pdf", 1024, "Upload", "private", "trusted")
+    let id: Text from Upload private = document.id
+    let mime: Text from Upload private = document.mime_type
+    let size: Int from Upload private = document.size_bytes
+    audit(id)
+    audit(mime)
+    audit(size)
+    audit(fixture.name)
+}
