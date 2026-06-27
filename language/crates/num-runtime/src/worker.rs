@@ -234,12 +234,14 @@ where
                         WorkflowLeaseDisposition::DeadLettered => report.dead_lettered += 1,
                     }
                     report.failed += 1;
-                    report.failures.push(WorkflowWorkerFailure::from_leased_error(
-                        &lease.event,
-                        lease.attempt,
-                        disposition,
-                        error,
-                    ));
+                    report
+                        .failures
+                        .push(WorkflowWorkerFailure::from_leased_error(
+                            &lease.event,
+                            lease.attempt,
+                            disposition,
+                            error,
+                        ));
                     if options.stop_on_error {
                         break;
                     }

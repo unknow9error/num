@@ -16,6 +16,7 @@ num check examples/contract_driven_refund/src/main.num
 num check examples/async_tasks/src/main.num
 num check examples/scalar_validation/src/main.num
 num check examples/security_hashing/src/main.num
+num check examples/configured_sanitizer_pack/src/main.num
 num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
@@ -110,6 +111,23 @@ Useful command:
 
 ```bash
 num check examples/scalar_validation/src/main.num
+```
+
+## `configured_sanitizer_pack`
+
+Path: `examples/configured_sanitizer_pack/src/main.num`
+
+Demonstrates:
+
+- project-defined sanitizer packs in `num.toml`;
+- pack composition through `sanitize(raw, "plain_text+strict_latin_identifier")`;
+- lowercasing and identifier-only character validation for private untrusted
+  user input.
+
+Useful command:
+
+```bash
+num check examples/configured_sanitizer_pack/src/main.num
 ```
 
 ## `security_hashing`

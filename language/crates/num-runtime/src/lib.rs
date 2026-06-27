@@ -1121,6 +1121,67 @@ workflow main() {
     }
 
     #[test]
+    fn test_runtime_uses_configured_sanitizer_pack() {
+        use crate::sanitization::{TextCharClass, TextSanitizationPolicy};
+
+        let source = r#"
+module test.sanitizer_packs
+
+workflow main(raw: Text) {
+    let clean: Text = sanitize(raw, "plain_text+strict_latin_identifier")
+    audit(clean)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]).with_sanitizer_packs([(
+            "strict_latin_identifier".to_string(),
+            TextSanitizationPolicy {
+                max_chars: Some(16),
+                lowercase: true,
+                allowed_chars: Some(TextCharClass::Identifier),
+                ..TextSanitizationPolicy::default()
+            },
+        )]);
+        let mut args = HashMap::new();
+        args.insert("raw".to_string(), Value::String("  SAFE_ID  ".to_string()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(runtime.audit_events(), &["\"safe_id\"".to_string()]);
+    }
+
+    #[test]
+    fn test_runtime_rejects_sanitizer_pack_violation() {
+        use crate::sanitization::{TextCharClass, TextSanitizationPolicy};
+
+        let source = r#"
+module test.sanitizer_packs
+
+workflow main(raw: Text) {
+    let clean: Text = sanitize(raw, "strict_latin_identifier")
+    audit(clean)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]).with_sanitizer_packs([(
+            "strict_latin_identifier".to_string(),
+            TextSanitizationPolicy {
+                allowed_chars: Some(TextCharClass::Identifier),
+                ..TextSanitizationPolicy::default()
+            },
+        )]);
+        let mut args = HashMap::new();
+        args.insert("raw".to_string(), Value::String("unsafe/id".to_string()));
+
+        let err = runtime.run_workflow("main", args).unwrap_err();
+
+        assert!(err.contains("Sanitization failed"));
+        assert!(err.contains("not allowed"));
+    }
+
+    #[test]
     fn test_runtime_executes_scalar_validator_builtins() {
         let source = r#"
 module test.scalar_validators

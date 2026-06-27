@@ -6,6 +6,9 @@ use crate::cost::{CostEntry, CostLedger};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
+use crate::sanitization::{
+    DefaultTextSanitizer, SanitizerPack, TextSanitizationPolicy, TextSanitizer,
+};
 use crate::{
     datetime, decimal::Decimal, hashing, redaction, scalar_validation, ActionSpec, Money,
     RiskLevel, RuntimeError, SecurityContext,
@@ -310,6 +313,7 @@ pub struct Runtime<'a> {
     idempotency: MemoryIdempotencyStore,
     costs: CostLedger,
     rate_limits: RateLimiter,
+    sanitizer_packs: HashMap<String, TextSanitizationPolicy>,
     last_error: Option<RuntimeError>,
     output_enabled: bool,
 }
@@ -354,6 +358,7 @@ impl<'a> Runtime<'a> {
             idempotency: MemoryIdempotencyStore::new(),
             costs: CostLedger::new(),
             rate_limits: RateLimiter::new(),
+            sanitizer_packs: HashMap::new(),
             last_error: None,
             output_enabled: true,
         }
@@ -393,6 +398,14 @@ impl<'a> Runtime<'a> {
 
     pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limits = rate_limiter;
+        self
+    }
+
+    pub fn with_sanitizer_packs(
+        mut self,
+        packs: impl IntoIterator<Item = (String, TextSanitizationPolicy)>,
+    ) -> Self {
+        self.sanitizer_packs.extend(packs);
         self
     }
 
@@ -1322,7 +1335,10 @@ impl<'a> Runtime<'a> {
                 let reason = args.first().cloned().unwrap_or(Value::Null).to_string();
                 return Err(format!("rejected: {reason}"));
             }
-            "anonymize" | "sanitize" | "validate_trust" | "verify_trust" => {
+            "sanitize" => {
+                return self.call_sanitize(args);
+            }
+            "anonymize" | "validate_trust" | "verify_trust" => {
                 return Ok(args.into_iter().next().unwrap_or(Value::Null));
             }
             "hash_sha256_hex" | "hash_sha256_base64" => {
@@ -1656,6 +1672,54 @@ impl<'a> Runtime<'a> {
         }
         .map_err(|reason| format!("{name} failed: {reason}"))?;
         Ok(Value::String(validated))
+    }
+
+    fn call_sanitize(&self, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() == 1 {
+            return Ok(args.into_iter().next().unwrap_or(Value::Null));
+        }
+        if args.len() != 2 {
+            return Err(format!(
+                "sanitize expects 1 value or 2 arguments `(value, pack)`, got {}",
+                args.len()
+            ));
+        }
+        let value = args[0].clone();
+        let Value::String(raw) = value else {
+            return Err(format!(
+                "sanitize pack mode expects Text input, got {value}"
+            ));
+        };
+        let Value::String(pack_spec) = &args[1] else {
+            return Err(format!("sanitize pack name must be Text, got {}", args[1]));
+        };
+        let policy = self.resolve_sanitizer_policy(pack_spec)?;
+        DefaultTextSanitizer::new()
+            .sanitize_text(&raw, &policy)
+            .map(|sanitized| Value::String(sanitized.value))
+            .map_err(runtime_error_to_string)
+    }
+
+    fn resolve_sanitizer_policy(&self, spec: &str) -> Result<TextSanitizationPolicy, String> {
+        let mut policy: Option<TextSanitizationPolicy> = None;
+        for raw_name in spec.split([',', '+']) {
+            let name = raw_name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let next = if let Some(custom) = self.sanitizer_packs.get(name) {
+                custom.clone()
+            } else {
+                SanitizerPack::named(name)
+                    .map(|pack| pack.policy())
+                    .map_err(runtime_error_to_string)?
+            };
+            policy = Some(match policy {
+                Some(current) => current.compose(&next),
+                None => next,
+            });
+        }
+        policy.ok_or_else(|| "sanitize pack name must not be empty".to_string())
     }
 
     fn call_hash_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {

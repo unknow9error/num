@@ -1,0 +1,7 @@
+module examples.configured_sanitizer_pack
+
+workflow clean_identifier(raw: Text from UserInput private untrusted) {
+    let clean: Text from UserInput private trusted = sanitize(raw, "plain_text+strict_latin_identifier")
+    audit(clean)
+}
+

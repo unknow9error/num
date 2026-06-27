@@ -1,0 +1,19 @@
+[language]
+version = "0.3.0"
+compatibility = "exact"
+manifest_schema = 1
+
+[project]
+name = "configured_sanitizer_pack"
+version = "0.1.0"
+source = "src"
+
+[security]
+policy_mode = "strict"
+
+[sanitizer_packs.strict_latin_identifier]
+extends = ["plain_text"]
+max_chars = 32
+lowercase = true
+allowed_chars = "identifier"
+

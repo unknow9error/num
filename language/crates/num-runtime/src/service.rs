@@ -3,12 +3,13 @@ use crate::interpreter::{Runtime, Value};
 use crate::json;
 use crate::rate_limit::RateLimiter;
 use crate::redaction;
+use crate::sanitization::TextSanitizationPolicy;
 use crate::tenant::TenantGuard;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
 use crate::{RuntimeError, SecurityContext, TenantId};
 use num_compiler::ast::{Declaration, Module};
 use serde_json::{json, Value as JsonValue};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 type ServiceAuditRecorder<'a> =
@@ -24,6 +25,7 @@ pub struct ServiceRuntime<'a> {
     tenant_guard: TenantGuard,
     service_tenant: TenantId,
     rate_limiter: RateLimiter,
+    sanitizer_packs: HashMap<String, TextSanitizationPolicy>,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -42,6 +44,7 @@ impl<'a> ServiceRuntime<'a> {
             tenant_guard: TenantGuard::disabled(),
             service_tenant: "default".to_string(),
             rate_limiter: RateLimiter::new(),
+            sanitizer_packs: HashMap::new(),
         }
     }
 
@@ -61,6 +64,7 @@ impl<'a> ServiceRuntime<'a> {
             tenant_guard: TenantGuard::disabled(),
             service_tenant: "default".to_string(),
             rate_limiter: RateLimiter::new(),
+            sanitizer_packs: HashMap::new(),
         }
     }
 
@@ -93,6 +97,14 @@ impl<'a> ServiceRuntime<'a> {
 
     pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn with_sanitizer_packs(
+        mut self,
+        packs: impl IntoIterator<Item = (String, TextSanitizationPolicy)>,
+    ) -> Self {
+        self.sanitizer_packs.extend(packs);
         self
     }
 
@@ -205,7 +217,8 @@ impl<'a> ServiceRuntime<'a> {
             security.clone(),
             Box::new(self.connectors.clone()),
         )
-        .with_rate_limiter(self.rate_limiter.clone());
+        .with_rate_limiter(self.rate_limiter.clone())
+        .with_sanitizer_packs(self.sanitizer_packs.clone());
         runtime.set_output_enabled(self.output_enabled);
         let result =
             runtime.run_service_route(&self.service_name, &request.method, &request.path, input);

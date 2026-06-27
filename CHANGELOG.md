@@ -61,6 +61,9 @@
   comparisons.
 - Added exact `Decimal` parsing, formatting, runtime arithmetic, comparison, and
   same-type checker coverage without falling back to `Float`.
+- Added project-defined sanitizer packs in `num.toml`, including manifest
+  validation, runtime `sanitize(value, "pack")` resolution, pack composition,
+  and a configured sanitizer example project.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

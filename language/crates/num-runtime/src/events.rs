@@ -357,10 +357,8 @@ impl FileWorkflowEventQueue {
                 continue;
             }
             let (item, lease) = read_leased_queue_item(&path)?;
-            let expired = now
-                .duration_since(lease.leased_at)
-                .unwrap_or_default()
-                >= options.lease_timeout;
+            let expired =
+                now.duration_since(lease.leased_at).unwrap_or_default() >= options.lease_timeout;
             if !expired {
                 continue;
             }
@@ -398,10 +396,7 @@ impl FileWorkflowEventQueue {
         while event_prefix_exists(dir, prefix)? {
             prefix += 1;
         }
-        Ok(dir.join(format!(
-            "{prefix:030}-{}.json",
-            safe_file_id(&event.id)
-        )))
+        Ok(dir.join(format!("{prefix:030}-{}.json", safe_file_id(&event.id))))
     }
 }
 
@@ -625,9 +620,8 @@ fn write_leased_item(
     worker_id: &str,
     leased_at: SystemTime,
 ) -> Result<(), RuntimeError> {
-    let bytes =
-        serde_json::to_vec_pretty(&leased_queue_item_to_json(item, worker_id, leased_at))
-            .map_storage()?;
+    let bytes = serde_json::to_vec_pretty(&leased_queue_item_to_json(item, worker_id, leased_at))
+        .map_storage()?;
     fs::write(path, bytes).map_storage()
 }
 
@@ -638,10 +632,9 @@ fn write_dead_letter_item(
     worker_id: &str,
     error: &str,
 ) -> Result<(), RuntimeError> {
-    let bytes = serde_json::to_vec_pretty(&dead_letter_item_to_json(
-        event, attempt, worker_id, error,
-    ))
-    .map_storage()?;
+    let bytes =
+        serde_json::to_vec_pretty(&dead_letter_item_to_json(event, attempt, worker_id, error))
+            .map_storage()?;
     fs::write(path, bytes).map_storage()
 }
 
@@ -845,10 +838,7 @@ mod tests {
             .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
             .unwrap();
 
-        let lease = queue
-            .claim(&lease_options("worker_a", 3))
-            .unwrap()
-            .unwrap();
+        let lease = queue.claim(&lease_options("worker_a", 3)).unwrap().unwrap();
         assert_eq!(lease.event.id, "evt_wait");
         assert_eq!(lease.worker_id, "worker_a");
         assert_eq!(lease.attempt, 1);
@@ -856,7 +846,10 @@ mod tests {
 
         queue.ack(&lease).unwrap();
         assert_eq!(json_file_count(&queue.leases_dir()), 0);
-        assert!(queue.claim(&lease_options("worker_a", 3)).unwrap().is_none());
+        assert!(queue
+            .claim(&lease_options("worker_a", 3))
+            .unwrap()
+            .is_none());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -870,10 +863,7 @@ mod tests {
             .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
             .unwrap();
 
-        let lease = queue
-            .claim(&lease_options("worker_a", 3))
-            .unwrap()
-            .unwrap();
+        let lease = queue.claim(&lease_options("worker_a", 3)).unwrap().unwrap();
         std::thread::sleep(Duration::from_millis(2));
 
         let heartbeat = queue.heartbeat_lease("evt_wait", "worker_a").unwrap();
@@ -896,10 +886,7 @@ mod tests {
         queue
             .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
             .unwrap();
-        queue
-            .claim(&lease_options("worker_a", 3))
-            .unwrap()
-            .unwrap();
+        queue.claim(&lease_options("worker_a", 3)).unwrap().unwrap();
 
         let err = queue.heartbeat_lease("evt_wait", "worker_b").unwrap_err();
 
@@ -916,27 +903,24 @@ mod tests {
             .enqueue(WorkflowEvent::complete("evt_complete", "wf_file"))
             .unwrap();
 
-        let first = queue
-            .claim(&lease_options("worker_a", 2))
-            .unwrap()
-            .unwrap();
+        let first = queue.claim(&lease_options("worker_a", 2)).unwrap().unwrap();
         assert_eq!(first.attempt, 1);
         assert_eq!(
             queue.fail(&first, "workflow missing", 2).unwrap(),
             super::WorkflowLeaseDisposition::Requeued
         );
 
-        let second = queue
-            .claim(&lease_options("worker_b", 2))
-            .unwrap()
-            .unwrap();
+        let second = queue.claim(&lease_options("worker_b", 2)).unwrap().unwrap();
         assert_eq!(second.attempt, 2);
         assert_eq!(
             queue.fail(&second, "workflow missing", 2).unwrap(),
             super::WorkflowLeaseDisposition::DeadLettered
         );
         assert_eq!(json_file_count(&queue.dead_letter_dir()), 1);
-        assert!(queue.claim(&lease_options("worker_c", 2)).unwrap().is_none());
+        assert!(queue
+            .claim(&lease_options("worker_c", 2))
+            .unwrap()
+            .is_none());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -949,10 +933,7 @@ mod tests {
         queue
             .enqueue(WorkflowEvent::wait("evt_wait", "wf_file"))
             .unwrap();
-        let first = queue
-            .claim(&lease_options("worker_a", 3))
-            .unwrap()
-            .unwrap();
+        let first = queue.claim(&lease_options("worker_a", 3)).unwrap().unwrap();
         assert_eq!(first.attempt, 1);
 
         let recovered = queue
