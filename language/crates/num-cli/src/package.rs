@@ -1,5 +1,6 @@
 use crate::compatibility;
 use crate::registry::LocalRegistry;
+use num_runtime::sanitization::{SanitizerPack, TextCharClass, TextSanitizationPolicy};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -21,6 +22,7 @@ pub struct PackageManifest {
     pub security: PackageSecurity,
     pub connectors: Vec<PackageConnectorProcess>,
     pub javascript: Vec<PackageJavaScriptModule>,
+    pub sanitizer_packs: Vec<PackageSanitizerPack>,
     pub dependencies: Vec<PackageDependency>,
 }
 
@@ -106,6 +108,18 @@ pub struct PackageJavaScriptModule {
     pub export: String,
     pub cwd: Option<String>,
     pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageSanitizerPack {
+    pub name: String,
+    pub extends: Vec<String>,
+    pub trim: Option<bool>,
+    pub strip_control_chars: Option<bool>,
+    pub max_chars: Option<usize>,
+    pub lowercase: Option<bool>,
+    pub collapse_whitespace: Option<bool>,
+    pub allowed_chars: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,6 +224,7 @@ impl PackageManifest {
         let mut tenant_isolation = None;
         let mut connectors = Vec::new();
         let mut javascript = Vec::new();
+        let mut sanitizer_packs = Vec::new();
         let mut dependencies = Vec::new();
 
         for raw_line in source.lines() {
@@ -285,6 +300,13 @@ impl PackageManifest {
                         javascript.push(module);
                     }
                 }
+                section if section.starts_with("sanitizer_packs.") => {
+                    let name = section
+                        .strip_prefix("sanitizer_packs.")
+                        .unwrap_or_default()
+                        .trim();
+                    upsert_sanitizer_pack(&mut sanitizer_packs, name, &key, value);
+                }
                 "security" => match key.as_str() {
                     "policy_mode" => policy_mode = parse_toml_string(value),
                     "tenant_isolation" => tenant_isolation = parse_toml_bool(value),
@@ -296,6 +318,7 @@ impl PackageManifest {
 
         connectors.sort_by(|left, right| left.method.cmp(&right.method));
         javascript.sort_by(|left, right| left.method.cmp(&right.method));
+        sanitizer_packs.sort_by(|left, right| left.name.cmp(&right.name));
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
 
         Self {
@@ -345,6 +368,7 @@ impl PackageManifest {
             },
             connectors,
             javascript,
+            sanitizer_packs,
             dependencies,
         }
     }
@@ -359,6 +383,42 @@ impl PackageManifest {
 
     pub fn lock_path(&self) -> PathBuf {
         self.root.join("num.lock")
+    }
+
+    pub fn sanitizer_pack_policies(&self) -> Result<Vec<(String, TextSanitizationPolicy)>, String> {
+        let mut out = Vec::new();
+        let mut resolving = BTreeSet::new();
+        for pack in &self.sanitizer_packs {
+            let policy = self.resolve_sanitizer_pack_policy(&pack.name, &mut resolving)?;
+            out.push((pack.name.clone(), policy));
+        }
+        Ok(out)
+    }
+
+    fn resolve_sanitizer_pack_policy(
+        &self,
+        name: &str,
+        resolving: &mut BTreeSet<String>,
+    ) -> Result<TextSanitizationPolicy, String> {
+        if !resolving.insert(name.to_string()) {
+            return Err(format!(
+                "sanitizer pack `{name}` extends itself recursively"
+            ));
+        }
+        let Some(pack) = self.sanitizer_packs.iter().find(|pack| pack.name == name) else {
+            resolving.remove(name);
+            return SanitizerPack::named(name)
+                .map(|pack| pack.policy())
+                .map_err(|_| format!("unknown sanitizer pack `{name}`"));
+        };
+        let mut policy = TextSanitizationPolicy::default();
+        for parent in &pack.extends {
+            let parent_policy = self.resolve_sanitizer_pack_policy(parent, resolving)?;
+            policy = policy.compose(&parent_policy);
+        }
+        policy = policy.compose(&pack_policy(pack)?);
+        resolving.remove(name);
+        Ok(policy)
     }
 
     pub fn path_dependency_manifests(&self) -> Result<Vec<PackageManifest>, String> {
@@ -1062,6 +1122,78 @@ fn parse_javascript_module(method: &str, value: &str) -> Option<PackageJavaScrip
     })
 }
 
+fn upsert_sanitizer_pack(
+    packs: &mut Vec<PackageSanitizerPack>,
+    name: &str,
+    key: &str,
+    value: &str,
+) {
+    let name = name.trim();
+    if name.is_empty() {
+        return;
+    }
+    let index = packs.iter().position(|pack| pack.name == name);
+    let index = index.unwrap_or_else(|| {
+        packs.push(PackageSanitizerPack {
+            name: name.to_string(),
+            ..PackageSanitizerPack::default()
+        });
+        packs.len() - 1
+    });
+    let pack = &mut packs[index];
+    match key {
+        "extends" => pack.extends = parse_toml_string_array(value),
+        "trim" => pack.trim = parse_toml_bool(value),
+        "strip_control_chars" => pack.strip_control_chars = parse_toml_bool(value),
+        "max_chars" => pack.max_chars = parse_toml_usize(value),
+        "lowercase" => pack.lowercase = parse_toml_bool(value),
+        "collapse_whitespace" => pack.collapse_whitespace = parse_toml_bool(value),
+        "allowed_chars" => pack.allowed_chars = parse_toml_string(value),
+        _ => {}
+    }
+}
+
+fn pack_policy(pack: &PackageSanitizerPack) -> Result<TextSanitizationPolicy, String> {
+    let mut policy = TextSanitizationPolicy::default();
+    if let Some(trim) = pack.trim {
+        policy.trim = trim;
+    }
+    if let Some(strip_control_chars) = pack.strip_control_chars {
+        policy.strip_control_chars = strip_control_chars;
+    }
+    if let Some(max_chars) = pack.max_chars {
+        if max_chars == 0 {
+            return Err(format!(
+                "sanitizer pack `{}` has invalid max_chars 0",
+                pack.name
+            ));
+        }
+        policy.max_chars = Some(max_chars);
+    }
+    if let Some(lowercase) = pack.lowercase {
+        policy.lowercase = lowercase;
+    }
+    if let Some(collapse_whitespace) = pack.collapse_whitespace {
+        policy.collapse_whitespace = collapse_whitespace;
+    }
+    if let Some(allowed_chars) = &pack.allowed_chars {
+        policy.allowed_chars = Some(parse_text_char_class(&pack.name, allowed_chars)?);
+    }
+    Ok(policy)
+}
+
+fn parse_text_char_class(pack_name: &str, value: &str) -> Result<TextCharClass, String> {
+    match value {
+        "alpha_hyphen" | "latin_identifier" => Ok(TextCharClass::AlphaHyphen),
+        "email" => Ok(TextCharClass::Email),
+        "identifier" => Ok(TextCharClass::Identifier),
+        "person_name" | "name" => Ok(TextCharClass::PersonName),
+        other => Err(format!(
+            "sanitizer pack `{pack_name}` has unknown allowed_chars `{other}`"
+        )),
+    }
+}
+
 fn parse_dependency(name: &str, value: &str) -> Option<PackageDependency> {
     if let Some(version) = parse_toml_string(value) {
         return Some(PackageDependency {
@@ -1294,6 +1426,10 @@ fn parse_toml_u32(value: &str) -> Option<u32> {
     value.trim().parse().ok()
 }
 
+fn parse_toml_usize(value: &str) -> Option<usize> {
+    value.trim().parse().ok()
+}
+
 fn push_lock_field(out: &mut String, key: &str, value: &str) {
     out.push_str(key);
     out.push_str(" = \"");
@@ -1515,6 +1651,75 @@ tenant_isolation = true
 
         assert_eq!(manifest.security.policy_mode, "strict");
         assert!(manifest.security.tenant_isolation);
+    }
+
+    #[test]
+    fn manifest_reads_configured_sanitizer_packs() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[sanitizer_packs.strict_latin_identifier]
+extends = ["plain_text"]
+max_chars = 32
+lowercase = true
+allowed_chars = "identifier"
+"#,
+        );
+
+        assert_eq!(manifest.sanitizer_packs.len(), 1);
+        let policies = manifest.sanitizer_pack_policies().unwrap();
+        assert_eq!(policies.len(), 1);
+        assert_eq!(policies[0].0, "strict_latin_identifier");
+        assert_eq!(policies[0].1.max_chars, Some(32));
+        assert!(policies[0].1.lowercase);
+    }
+
+    #[test]
+    fn manifest_rejects_invalid_sanitizer_pack_config() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[sanitizer_packs.bad]
+max_chars = 0
+"#,
+        );
+
+        let err = manifest.sanitizer_pack_policies().unwrap_err();
+
+        assert!(err.contains("max_chars 0"));
+    }
+
+    #[test]
+    fn manifest_rejects_recursive_sanitizer_pack_extends() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[sanitizer_packs.loop]
+extends = ["loop"]
+"#,
+        );
+
+        let err = manifest.sanitizer_pack_policies().unwrap_err();
+
+        assert!(err.contains("extends itself recursively"));
     }
 
     #[test]

@@ -675,7 +675,9 @@ mod tests {
         let store = FileStateStore::new(&root);
         let workflow = store.load_workflow("wf_lifecycle").unwrap().unwrap();
         assert_eq!(workflow.status, WorkflowStatus::Completed);
-        assert!(workflow.metadata.contains_key("num.processed_event.evt-resume"));
+        assert!(workflow
+            .metadata
+            .contains_key("num.processed_event.evt-resume"));
 
         let audit = fs::read_to_string(root.join("audit/events.jsonl")).unwrap();
         assert_eq!(audit.matches("\"kind\":\"Resumed\"").count(), 1);

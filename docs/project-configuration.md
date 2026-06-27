@@ -182,6 +182,36 @@ path = "../num-registry"
 `path` points to a local filesystem registry root. If omitted, commands use the
 `NUM_REGISTRY_PATH` environment variable when registry dependencies are present.
 
+### `[sanitizer_packs.<name>]`
+
+Projects can define named text sanitizer packs in the manifest and use them at
+runtime with `sanitize(value, "pack_name")`. Pack specs can compose built-in and
+project packs with `+` or `,`, for example
+`sanitize(raw, "plain_text+strict_latin_identifier")`.
+
+```toml
+[sanitizer_packs.strict_latin_identifier]
+extends = ["plain_text"]
+max_chars = 32
+lowercase = true
+allowed_chars = "identifier"
+```
+
+Supported fields:
+
+- `extends` - array of built-in or project pack names to compose first.
+- `trim` - trims leading/trailing whitespace when `true`.
+- `strip_control_chars` - removes control characters when `true`.
+- `max_chars` - maximum character count; `0` is rejected.
+- `lowercase` - lowercases text when `true`.
+- `collapse_whitespace` - collapses whitespace runs when `true`.
+- `allowed_chars` - one of `alpha_hyphen`, `latin_identifier`, `email`,
+  `identifier`, `person_name`, or `name`.
+
+The runtime rejects unknown pack names, recursive `extends`, unknown
+`allowed_chars` values, and impossible limits with manifest diagnostics before
+running project code.
+
 ### `[connectors]`
 
 External connector methods can be backed by local processes. The key is the

@@ -98,6 +98,7 @@ pub fn report_manifest(manifest: &PackageManifest) -> CompatibilityReport {
 pub fn validate_manifest(manifest: &PackageManifest) -> Result<CompatibilityReport, String> {
     validate_manifest_schema(manifest)?;
     validate_language_version(manifest)?;
+    manifest.sanitizer_pack_policies()?;
     Ok(CompatibilityReport::from_manifest(manifest))
 }
 

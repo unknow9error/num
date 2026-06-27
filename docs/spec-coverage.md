@@ -280,7 +280,8 @@ Implemented:
 - stdlib `Decimal` parsing/formatting and runtime arithmetic with exact decimal
   values rather than `Float` fallback;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
-  reusable sanitizer packs, and policy composition;
+  reusable sanitizer packs, project-configured sanitizer packs, and policy
+  composition;
 - tenant isolation guard and tenant-aware workflow state load, transition, and
   queued-event processing helpers;
 - in-memory database connector executor for generated SQL connector contracts;
@@ -651,7 +652,7 @@ Major full-spec areas not implemented in v0.3.0:
   lease and heartbeat model;
 - external secrets manager integration such as Vault/KMS/cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
-- locale-specific sanitizer catalogs and externally configured sanitizer packs;
+- locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative
   built-in email, URL, UUID, and phone-number checks;
 - password hashing helpers such as Argon2/bcrypt; SHA-256 helpers are limited

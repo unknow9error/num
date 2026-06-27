@@ -118,12 +118,14 @@ fn run() -> Result<(), String> {
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path, !options.format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
 
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
-            );
+            )
+            .with_sanitizer_packs(sanitizer_packs);
             runtime.set_output_enabled(!options.format_json);
 
             let workflow_name = demo::first_workflow_name(&compilation.module)
@@ -151,6 +153,7 @@ fn run() -> Result<(), String> {
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let tests = compilation
                 .module
                 .declarations
@@ -172,7 +175,8 @@ fn run() -> Result<(), String> {
                     &compilation.module,
                     demo::default_permissions(),
                     Box::new(connectors.clone()),
-                );
+                )
+                .with_sanitizer_packs(sanitizer_packs.clone());
                 let result = runtime.run_test(test_name);
                 persist_interpreter_audits(&audit_target, "test", runtime.audit_events())?;
                 match result {
@@ -209,11 +213,13 @@ fn run() -> Result<(), String> {
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path, false)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
-            );
+            )
+            .with_sanitizer_packs(sanitizer_packs);
             runtime.set_output_enabled(false);
             let workflow_name = demo::first_workflow_name(&compilation.module)
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
@@ -238,11 +244,13 @@ fn run() -> Result<(), String> {
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path, !options.format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
-            );
+            )
+            .with_sanitizer_packs(sanitizer_packs);
             runtime.set_output_enabled(!options.format_json);
             let workflow_name = options
                 .workflow_name
@@ -521,11 +529,13 @@ fn run() -> Result<(), String> {
             let compilation = compile_checked(&path)?;
             let connectors = connector_executor_for_path(&path, !format_json)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let mut runtime = num_runtime::interpreter::Runtime::with_connectors(
                 &compilation.module,
                 demo::default_permissions(),
                 Box::new(connectors.clone()),
-            );
+            )
+            .with_sanitizer_packs(sanitizer_packs);
             runtime.set_output_enabled(!format_json);
             let workflow_name = demo::first_workflow_name(&compilation.module)
                 .ok_or_else(|| "No workflow declared in the module".to_string())?;
@@ -619,6 +629,7 @@ fn run() -> Result<(), String> {
             let connectors = connector_executor_for_path(&path, false)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -627,7 +638,8 @@ fn run() -> Result<(), String> {
             )
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
             .with_output_enabled(false)
-            .with_tenant_isolation(tenant_isolation);
+            .with_tenant_isolation(tenant_isolation)
+            .with_sanitizer_packs(sanitizer_packs);
             let mut request = num_runtime::http::HttpRequest::new(method, route_path, "");
             route_options.apply_headers(&mut request);
             let response = runtime.handle_http_request_with_empty_body_input(&request, input);
@@ -648,6 +660,7 @@ fn run() -> Result<(), String> {
             let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -655,7 +668,8 @@ fn run() -> Result<(), String> {
                 connectors,
             )
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
-            .with_tenant_isolation(tenant_isolation);
+            .with_tenant_isolation(tenant_isolation)
+            .with_sanitizer_packs(sanitizer_packs);
 
             println!("Serving one request for service {service_name} on http://{addr}");
             http::serve_once(&addr, |request| {
@@ -679,6 +693,7 @@ fn run() -> Result<(), String> {
             let connectors = connector_executor_for_path(&path, true)?;
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
+            let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -686,7 +701,8 @@ fn run() -> Result<(), String> {
                 connectors,
             )
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
-            .with_tenant_isolation(tenant_isolation);
+            .with_tenant_isolation(tenant_isolation)
+            .with_sanitizer_packs(sanitizer_packs);
 
             println!("Serving service {service_name} on http://{}", options.addr);
             http::serve(&options.addr, options.max_requests, |request| {
@@ -838,6 +854,15 @@ fn is_deferred_service_route_policy_diagnostic(
 
 fn span_contains(container: &num_compiler::span::Span, inner: &num_compiler::span::Span) -> bool {
     inner.source == container.source && inner.start >= container.start && inner.end <= container.end
+}
+
+fn runtime_sanitizer_packs(
+    path: &Path,
+) -> Result<Vec<(String, num_runtime::sanitization::TextSanitizationPolicy)>, String> {
+    let Some(manifest) = package::PackageManifest::discover(path)? else {
+        return Ok(Vec::new());
+    };
+    manifest.sanitizer_pack_policies()
 }
 
 fn connector_executor_for_path(

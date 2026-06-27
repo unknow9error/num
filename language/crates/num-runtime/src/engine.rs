@@ -792,11 +792,10 @@ mod tests {
 
         assert_eq!(first.status, WorkflowStatus::Running);
         assert_eq!(replay.status, WorkflowStatus::Running);
-        let loaded = engine
-            .load_workflow("wf_replayed_start")
-            .unwrap()
-            .unwrap();
-        assert!(loaded.metadata.contains_key("num.processed_event.evt_start"));
+        let loaded = engine.load_workflow("wf_replayed_start").unwrap().unwrap();
+        assert!(loaded
+            .metadata
+            .contains_key("num.processed_event.evt_start"));
         let events = fs::read_to_string(&audit_path).unwrap();
         assert_eq!(events.matches("\"kind\":\"Started\"").count(), 1);
         let _ = fs::remove_dir_all(root);

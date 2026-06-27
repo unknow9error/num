@@ -610,6 +610,10 @@ character count. It also supports reusable sanitizer packs for plain text,
 email, person names, and identifiers. Packs compose into a single stricter
 policy: boolean cleanup options are combined, `max_chars` keeps the tighter
 limit, and allowed character classes are intersected when possible.
+Projects can add named packs in `num.toml` under
+`[sanitizer_packs.<name>]`, then call `sanitize(value, "name")` or compose
+packs with `+`/`,` such as `sanitize(raw, "plain_text+strict_latin_identifier")`.
+The one-argument form `sanitize(value)` remains the compatibility trust gateway.
 
 ### Privacy
 
