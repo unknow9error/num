@@ -2236,6 +2236,7 @@ fn builtin_type_names() -> HashSet<String> {
         "Json",
         "Actor",
         "Bytes",
+        "Xml",
         "Result",
         "Option",
         "Task",
@@ -2282,6 +2283,7 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("Json", 0),
         ("Actor", 0),
         ("Bytes", 0),
+        ("Xml", 0),
         ("Result", 2),
         ("Option", 1),
         ("Task", 1),
@@ -2627,6 +2629,43 @@ fn hash_helper_result_type(name: &str) -> Option<TypeRef> {
     })
 }
 
+fn is_bytes_xml_helper(name: &str) -> bool {
+    matches!(
+        name,
+        "bytes_from_text"
+            | "bytes_from_base64"
+            | "bytes_to_base64"
+            | "bytes_len"
+            | "xml_parse"
+            | "xml_to_text"
+    )
+}
+
+fn bytes_xml_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
+    let raw = match name {
+        "bytes_from_text" | "bytes_from_base64" | "xml_parse" => "Text",
+        "bytes_to_base64" | "bytes_len" => "Bytes",
+        "xml_to_text" => "Xml",
+        _ => return None,
+    };
+    Some(vec![TypeRef {
+        raw: raw.to_string(),
+    }])
+}
+
+fn bytes_xml_helper_result_type(name: &str) -> Option<TypeRef> {
+    let raw = match name {
+        "bytes_from_text" | "bytes_from_base64" => "Bytes",
+        "bytes_to_base64" | "xml_to_text" => "Text",
+        "bytes_len" => "Int",
+        "xml_parse" => "Xml",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
+    })
+}
+
 fn is_datetime_duration_helper(name: &str) -> bool {
     matches!(
         name,
@@ -2917,6 +2956,37 @@ fn validate_decimal_literal(value: &str) -> Result<(), String> {
         return Err("expected ASCII decimal digits".to_string());
     }
     Ok(())
+}
+
+fn validate_xml_literal(value: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("XML value cannot be empty".to_string());
+    }
+    if !trimmed.starts_with('<') || !trimmed.ends_with('>') {
+        return Err("XML value must start with '<' and end with '>'".to_string());
+    }
+    if trimmed
+        .chars()
+        .any(|ch| ch.is_control() && !ch.is_whitespace())
+    {
+        return Err("XML value contains unsupported control characters".to_string());
+    }
+    let mut rest = trimmed;
+    while let Some(offset) = rest.find('<') {
+        rest = &rest[offset + 1..];
+        if matches!(rest.chars().next(), Some('!') | Some('?') | Some('/')) {
+            continue;
+        }
+        if rest
+            .chars()
+            .take_while(|ch| !ch.is_whitespace() && !matches!(ch, '/' | '>'))
+            .any(|ch| ch == '_' || ch == ':' || ch == '-' || ch.is_ascii_alphanumeric())
+        {
+            return Ok(());
+        }
+    }
+    Err("XML value must contain at least one element tag".to_string())
 }
 
 fn validate_iso_utc_literal(value: &str) -> Result<(), String> {

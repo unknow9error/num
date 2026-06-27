@@ -187,6 +187,23 @@ Useful command:
 num check examples/security_hashing/src/main.num
 ```
 
+## `xml_bytes_payload`
+
+Path: `examples/xml_bytes_payload/src/main.num`
+
+Demonstrates:
+
+- explicit `Text -> Bytes` and base64 `Text -> Bytes` boundaries;
+- `Bytes` length and SHA-256 fingerprinting without dumping raw binary data;
+- explicit `Text -> Xml` validation and `Xml -> Text` formatting;
+- using `Bytes` and `Xml` as fields in a structured import payload.
+
+Useful command:
+
+```bash
+num check examples/xml_bytes_payload/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

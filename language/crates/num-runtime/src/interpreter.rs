@@ -9,6 +9,7 @@ use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLi
 use crate::sanitization::{
     DefaultTextSanitizer, SanitizerPack, TextSanitizationPolicy, TextSanitizer,
 };
+use crate::xml;
 use crate::{
     datetime, decimal::Decimal, hashing, redaction, scalar_validation, ActionSpec, Money,
     RiskLevel, RuntimeError, SecurityContext,
@@ -49,6 +50,8 @@ pub enum Value {
     Float(f64),
     Decimal(Decimal),
     String(String),
+    Bytes(Vec<u8>),
+    Xml(String),
     Money(i128, String),
     Brand(String, Box<Value>),
     Secret(Box<Value>),
@@ -73,6 +76,11 @@ impl std::fmt::Display for Value {
             Value::Float(fl) => write!(f, "{}", fl),
             Value::Decimal(value) => write!(f, "{value}"),
             Value::String(s) => write!(f, "\"{}\"", s),
+            Value::Bytes(bytes) => {
+                let digest = hashing::sha256_hex(bytes);
+                write!(f, "<bytes len={} sha256={}...>", bytes.len(), &digest[..12])
+            }
+            Value::Xml(raw) => write!(f, "<xml len={}>", raw.len()),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
@@ -253,6 +261,8 @@ fn value_to_idempotency_key(value: Value) -> String {
         Value::Float(value) => value.to_string(),
         Value::Decimal(value) => value.to_string(),
         Value::String(value) => value,
+        Value::Bytes(value) => format!("bytes:{}", hashing::base64_encode(&value)),
+        Value::Xml(value) => format!("xml:{value}"),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
             format!("{name}:{}", value_to_idempotency_key(*value))
@@ -1451,6 +1461,10 @@ impl<'a> Runtime<'a> {
             "hash_sha256_hex" | "hash_sha256_base64" => {
                 return self.call_hash_helper(name, args);
             }
+            "bytes_from_text" | "bytes_from_base64" | "bytes_to_base64" | "bytes_len"
+            | "xml_parse" | "xml_to_text" => {
+                return self.call_bytes_xml_helper(name, args);
+            }
             "datetime_parse_iso"
             | "datetime_format_iso"
             | "duration_parse_hours"
@@ -2089,15 +2103,70 @@ impl<'a> Runtime<'a> {
             ));
         }
         let value = args.into_iter().next().unwrap_or(Value::Null);
-        let Value::String(raw) = value else {
-            return Err(format!("{name} expects Text or Bytes input, got {value}"));
+        let bytes = match value {
+            Value::String(raw) => raw.into_bytes(),
+            Value::Bytes(bytes) => bytes,
+            other => return Err(format!("{name} expects Text or Bytes input, got {other}")),
         };
         let digest = match name {
-            "hash_sha256_hex" => hashing::sha256_hex(raw.as_bytes()),
-            "hash_sha256_base64" => hashing::sha256_base64(raw.as_bytes()),
-            _ => raw,
+            "hash_sha256_hex" => hashing::sha256_hex(&bytes),
+            "hash_sha256_base64" => hashing::sha256_base64(&bytes),
+            _ => return Err(format!("unknown hash helper `{name}`")),
         };
         Ok(Value::String(digest))
+    }
+
+    fn call_bytes_xml_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "{name} expects exactly one Bytes or Xml helper argument, got {}",
+                args.len()
+            ));
+        }
+        let value = args.into_iter().next().unwrap_or(Value::Null);
+        match name {
+            "bytes_from_text" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                Ok(Value::Bytes(raw.into_bytes()))
+            }
+            "bytes_from_base64" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                hashing::base64_decode(&raw)
+                    .map(Value::Bytes)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "bytes_to_base64" => {
+                let Value::Bytes(bytes) = value else {
+                    return Err(format!("{name} expects Bytes input, got {value}"));
+                };
+                Ok(Value::String(hashing::base64_encode(&bytes)))
+            }
+            "bytes_len" => {
+                let Value::Bytes(bytes) = value else {
+                    return Err(format!("{name} expects Bytes input, got {value}"));
+                };
+                Ok(Value::Int(bytes.len() as i64))
+            }
+            "xml_parse" => {
+                let Value::String(raw) = value else {
+                    return Err(format!("{name} expects Text input, got {value}"));
+                };
+                xml::validate_xml_document(&raw)
+                    .map(|()| Value::Xml(raw))
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            "xml_to_text" => {
+                let Value::Xml(raw) = value else {
+                    return Err(format!("{name} expects Xml input, got {value}"));
+                };
+                Ok(Value::String(raw))
+            }
+            _ => Err(format!("unknown bytes/xml helper `{name}`")),
+        }
     }
 
     fn call_datetime_duration_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
@@ -2677,6 +2746,8 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Float(f) => f.to_string(),
         Value::Decimal(value) => format!("decimal_parse(\"{value}\")"),
         Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+        Value::Bytes(bytes) => format!("bytes_from_base64(\"{}\")", hashing::base64_encode(bytes)),
+        Value::Xml(raw) => format!("xml_parse(\"{}\")", raw.replace('"', "\\\"")),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;
             format!("{} {}", major, currency)

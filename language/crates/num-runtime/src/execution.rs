@@ -332,6 +332,10 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Float(value) => json!({"kind": "Float", "value": value}),
         Value::Decimal(value) => json!({"kind": "Decimal", "value": value.to_string()}),
         Value::String(value) => json!({"kind": "String", "value": value}),
+        Value::Bytes(value) => {
+            json!({"kind": "Bytes", "base64": crate::hashing::base64_encode(value)})
+        }
+        Value::Xml(value) => json!({"kind": "Xml", "value": value}),
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
@@ -403,6 +407,14 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
             .map(Value::Decimal)
             .map_err(storage_error),
         "String" => Ok(Value::String(string_field(value, "value")?)),
+        "Bytes" => crate::hashing::base64_decode(&string_field(value, "base64")?)
+            .map(Value::Bytes)
+            .map_err(storage_error),
+        "Xml" => {
+            let raw = string_field(value, "value")?;
+            crate::xml::validate_xml_document(&raw).map_err(storage_error)?;
+            Ok(Value::Xml(raw))
+        }
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,
             string_field(value, "currency")?,
@@ -595,6 +607,7 @@ mod tests {
     };
     use crate::interpreter::Value;
     use crate::{ActionSpec, Money, RiskLevel, RuntimeError};
+    use std::collections::HashMap;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -779,6 +792,39 @@ mod tests {
         assert_eq!(
             record.outcome,
             ExecutionOutcome::Succeeded(Value::List(vec![Value::String("user_1".to_string())]))
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_idempotency_store_round_trips_bytes_and_xml_records() {
+        let root = unique_test_dir("bytes-xml");
+        let action = action_spec("import_document", Some("document/import"));
+        let mut executor = ActionExecutor::new(FileIdempotencyStore::new(&root));
+        executor
+            .execute(&action, RetryPolicy::none(), None, |_| {
+                Ok(Value::Struct(
+                    "DocumentImport".to_string(),
+                    HashMap::from([
+                        ("payload".to_string(), Value::Bytes(b"abc".to_vec())),
+                        ("manifest".to_string(), Value::Xml("<root/>".to_string())),
+                    ]),
+                ))
+            })
+            .unwrap();
+
+        let store = FileIdempotencyStore::new(&root);
+        let record = store.load("document/import").unwrap().unwrap();
+
+        assert_eq!(
+            record.outcome,
+            ExecutionOutcome::Succeeded(Value::Struct(
+                "DocumentImport".to_string(),
+                HashMap::from([
+                    ("payload".to_string(), Value::Bytes(b"abc".to_vec())),
+                    ("manifest".to_string(), Value::Xml("<root/>".to_string())),
+                ]),
+            ))
         );
         let _ = std::fs::remove_dir_all(root);
     }

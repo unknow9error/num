@@ -1,6 +1,7 @@
 use crate::connectors::{ConnectorCallContext, ConnectorError, ConnectorExecutor};
 use crate::interpreter::Value;
 use crate::redaction;
+use crate::{hashing, xml};
 use serde_json::{json, Map, Value as JsonValue};
 use std::collections::HashMap;
 use std::io::{ErrorKind, Write};
@@ -202,6 +203,8 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Float(value) => json!(value),
         Value::Decimal(value) => json!({"$decimal": value.to_string()}),
         Value::String(value) => JsonValue::String(value.clone()),
+        Value::Bytes(bytes) => json!({"$bytes_base64": hashing::base64_encode(bytes)}),
+        Value::Xml(raw) => json!({"$xml": raw}),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -288,6 +291,15 @@ pub fn value_from_json(json: &JsonValue) -> Result<Value, String> {
 fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if let Some(value) = object.get("$decimal").and_then(JsonValue::as_str) {
         return crate::decimal::Decimal::parse(value).map(Value::Decimal);
+    }
+
+    if let Some(value) = object.get("$bytes_base64").and_then(JsonValue::as_str) {
+        return hashing::base64_decode(value).map(Value::Bytes);
+    }
+
+    if let Some(value) = object.get("$xml").and_then(JsonValue::as_str) {
+        xml::validate_xml_document(value)?;
+        return Ok(Value::Xml(value.to_string()));
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -430,6 +442,27 @@ mod tests {
                 "$type": "Payment",
                 "amount": { "minor_units": 15000, "currency": "KZT" }
             })
+        );
+    }
+
+    #[test]
+    fn converts_bytes_and_xml_values_to_json() {
+        assert_eq!(
+            value_to_json(&Value::Bytes(b"abc".to_vec())),
+            json!({ "$bytes_base64": "YWJj" })
+        );
+        assert_eq!(
+            value_to_json(&Value::Xml("<root/>".to_string())),
+            json!({ "$xml": "<root/>" })
+        );
+
+        assert_eq!(
+            value_from_json(&json!({ "$bytes_base64": "YWJj" })).unwrap(),
+            Value::Bytes(b"abc".to_vec())
+        );
+        assert_eq!(
+            value_from_json(&json!({ "$xml": "<root/>" })).unwrap(),
+            Value::Xml("<root/>".to_string())
         );
     }
 

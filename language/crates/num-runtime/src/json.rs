@@ -1,4 +1,5 @@
 use crate::interpreter::Value;
+use crate::{hashing, xml};
 use num_compiler::ast::{Declaration, Module, TypeBody, TypeDecl, TypeRef};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -21,10 +22,12 @@ pub fn route_input_from_body(
 pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Result<Value, String> {
     let raw = ty.raw.trim();
     match raw {
-        "Text" | "String" | "Email" | "Url" | "Uuid" | "PhoneNumber" | "Bytes" | "DateTime" => json
+        "Text" | "String" | "Email" | "Url" | "Uuid" | "PhoneNumber" | "DateTime" => json
             .as_str()
             .map(|value| Value::String(value.to_string()))
             .ok_or_else(|| format!("expected string for {raw}")),
+        "Bytes" => bytes_from_json(json),
+        "Xml" => xml_from_json(json),
         "Bool" | "Boolean" => json
             .as_bool()
             .map(Value::Bool)
@@ -71,6 +74,33 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
         }
         _ => declared_value_from_json(module, raw, json),
     }
+}
+
+fn bytes_from_json(json: &JsonValue) -> Result<Value, String> {
+    if let Some(value) = json.as_str() {
+        return hashing::base64_decode(value).map(Value::Bytes);
+    }
+    let value = json
+        .as_object()
+        .and_then(|object| object.get("$bytes_base64"))
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| {
+            "expected base64 string or { \"$bytes_base64\": string } for Bytes".to_string()
+        })?;
+    hashing::base64_decode(value).map(Value::Bytes)
+}
+
+fn xml_from_json(json: &JsonValue) -> Result<Value, String> {
+    let value = json
+        .as_str()
+        .or_else(|| {
+            json.as_object()
+                .and_then(|object| object.get("$xml"))
+                .and_then(JsonValue::as_str)
+        })
+        .ok_or_else(|| "expected string or { \"$xml\": string } for Xml".to_string())?;
+    xml::validate_xml_document(value)?;
+    Ok(Value::Xml(value.to_string()))
 }
 
 fn secret_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Value, String> {
@@ -382,6 +412,44 @@ service BillingApi {
         assert_eq!(
             fields.get("amount"),
             Some(&Value::Money(15000, "KZT".to_string()))
+        );
+    }
+
+    #[test]
+    fn decodes_bytes_and_xml_route_input_from_json_body() {
+        let source = r#"
+module test.api
+
+type ImportRequest {
+    payload: Bytes
+    manifest: Xml
+}
+
+service ImportApi {
+    route POST "/imports" {
+        input request: ImportRequest from HttpBody
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let value = route_input_from_body(
+            &compilation.module,
+            "ImportApi",
+            "POST",
+            "/imports",
+            r#"{"payload":"YWJj","manifest":"<root/>"}"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        let Value::Struct(name, fields) = value else {
+            panic!("expected struct value");
+        };
+        assert_eq!(name, "ImportRequest");
+        assert_eq!(fields.get("payload"), Some(&Value::Bytes(b"abc".to_vec())));
+        assert_eq!(
+            fields.get("manifest"),
+            Some(&Value::Xml("<root/>".to_string()))
         );
     }
 
