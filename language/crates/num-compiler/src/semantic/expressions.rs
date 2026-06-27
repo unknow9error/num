@@ -347,6 +347,9 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
+                if let Some(res) = self.collection_helper_result_type(callee, args, env) {
+                    return Some(res);
+                }
                 self.unbrand_result_type(callee, args, env)
                     .or_else(|| self.call_result_type(callee))
             }
@@ -411,6 +414,9 @@ impl<'a> Checker<'a> {
         if is_option_constructor_expr(expr) {
             return self.option_constructor_result_type(expr, env, expected);
         }
+        if is_collection_empty_constructor_expr(expr) {
+            return collection_empty_result_type(expr, expected);
+        }
         if self.is_enum_constructor_expr(expr) {
             return self.enum_constructor_result_type(expr, expected);
         }
@@ -463,6 +469,7 @@ impl<'a> Checker<'a> {
                 .or_else(|| hash_helper_result_type(call_name))
                 .or_else(|| datetime_duration_result_type(call_name))
                 .or_else(|| decimal_helper_result_type(call_name))
+                .or_else(|| collection_helper_result_type(call_name))
                 .or_else(|| self.brand_constructor_result_type(callee)),
             [namespace, method] => self
                 .connector_methods
@@ -503,6 +510,38 @@ impl<'a> Checker<'a> {
             .get(&base_name)
             .and_then(|fields| fields.get(field))
             .map(|field| substitute_type_params(&field.ty, &substitutions))
+    }
+
+    fn collection_helper_result_type(
+        &self,
+        callee: &Expr,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) -> Option<TypeRef> {
+        let path = callee.path()?;
+        let [name] = path.as_slice() else {
+            return None;
+        };
+        let first_ty = self.expr_type(args.first()?, env)?;
+        let type_args = generic_args(&first_ty.raw);
+        match *name {
+            "map_get" if type_base_name(&first_ty.raw) == "Map" && type_args.len() == 2 => {
+                Some(TypeRef {
+                    raw: type_args[1].clone(),
+                })
+            }
+            "map_insert" | "map_remove"
+                if type_base_name(&first_ty.raw) == "Map" && type_args.len() == 2 =>
+            {
+                Some(first_ty)
+            }
+            "set_insert" | "set_remove"
+                if type_base_name(&first_ty.raw) == "Set" && type_args.len() == 1 =>
+            {
+                Some(first_ty)
+            }
+            _ => None,
+        }
     }
 }
 

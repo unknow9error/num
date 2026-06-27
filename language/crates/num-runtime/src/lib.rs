@@ -1182,6 +1182,56 @@ workflow main(raw: Text) {
     }
 
     #[test]
+    fn test_runtime_executes_map_and_set_helpers() {
+        let source = r#"
+module test.collections
+
+workflow main() {
+    let permissions: Set<Text> = set_empty()
+    let permissions2: Set<Text> = set_insert(permissions, "refund.approve")
+    let permissions3: Set<Text> = set_insert(permissions2, "refund.approve")
+    let has_permission: Bool = set_contains(permissions3, "refund.approve")
+    let permissions4: Set<Text> = set_remove(permissions3, "refund.approve")
+    let removed: Bool = set_contains(permissions4, "refund.approve")
+
+    let metadata: Map<Text, Bool> = map_empty()
+    let metadata2: Map<Text, Bool> = map_insert(metadata, "enabled", true)
+    let metadata3: Map<Text, Bool> = map_insert(metadata2, "enabled", false)
+    let has_key: Bool = map_contains(metadata3, "enabled")
+    let value: Bool = map_get(metadata3, "enabled")
+    let metadata4: Map<Text, Bool> = map_remove(metadata3, "enabled")
+    let removed_key: Bool = map_contains(metadata4, "enabled")
+
+    audit(has_permission)
+    audit(removed)
+    audit(has_key)
+    audit(value)
+    audit(removed_key)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        runtime.run_workflow("main", HashMap::new()).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "true".to_string(),
+                "false".to_string(),
+                "true".to_string(),
+                "false".to_string(),
+                "false".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn test_runtime_executes_scalar_validator_builtins() {
         let source = r#"
 module test.scalar_validators

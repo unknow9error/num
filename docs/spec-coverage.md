@@ -279,6 +279,8 @@ Implemented:
   arithmetic, and DateTime comparison;
 - stdlib `Decimal` parsing/formatting and runtime arithmetic with exact decimal
   values rather than `Float` fallback;
+- stdlib `Map<K,V>` and `Set<T>` helpers with runtime values, typed operations,
+  and JSON conversion for supported key/value shapes;
 - runtime text sanitization policy/result contracts, a default text sanitizer,
   reusable sanitizer packs, project-configured sanitizer packs, and policy
   composition;

@@ -216,6 +216,15 @@ pub fn value_to_json(value: &Value) -> JsonValue {
             "confidence": confidence,
         }),
         Value::List(items) => JsonValue::Array(items.iter().map(value_to_json).collect()),
+        Value::Map(entries) => json!({
+            "$map": entries
+                .iter()
+                .map(|(key, value)| json!([value_to_json(key), value_to_json(value)]))
+                .collect::<Vec<_>>()
+        }),
+        Value::Set(items) => json!({
+            "$set": items.iter().map(value_to_json).collect::<Vec<_>>()
+        }),
         Value::Struct(name, fields) => {
             let mut object = Map::new();
             if name != "Object" {
@@ -330,6 +339,28 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
         return Ok(Value::Secret(Box::new(value_from_json(value)?)));
     }
 
+    if let Some(entries) = object.get("$map").and_then(JsonValue::as_array) {
+        let mut out = Vec::new();
+        for entry in entries {
+            let pair = entry
+                .as_array()
+                .ok_or_else(|| "`$map` entries must be two-item arrays".to_string())?;
+            if pair.len() != 2 {
+                return Err("`$map` entries must contain key and value".to_string());
+            }
+            out.push((value_from_json(&pair[0])?, value_from_json(&pair[1])?));
+        }
+        return Ok(Value::Map(out));
+    }
+
+    if let Some(items) = object.get("$set").and_then(JsonValue::as_array) {
+        return items
+            .iter()
+            .map(value_from_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Set);
+    }
+
     let type_name = object
         .get("$type")
         .and_then(JsonValue::as_str)
@@ -387,6 +418,46 @@ mod tests {
                 )),
                 0.92
             )
+        );
+    }
+
+    #[test]
+    fn converts_map_and_set_values_to_json() {
+        let value = Value::Map(vec![(
+            Value::String("enabled".to_string()),
+            Value::Bool(true),
+        )]);
+
+        assert_eq!(
+            value_to_json(&value),
+            json!({ "$map": [["enabled", true]] })
+        );
+
+        let set = Value::Set(vec![Value::String("refund.approve".to_string())]);
+        assert_eq!(value_to_json(&set), json!({ "$set": ["refund.approve"] }));
+    }
+
+    #[test]
+    fn converts_json_map_and_set_values_to_runtime_values() {
+        let map = value_from_json(&json!({
+            "$map": [["enabled", true]]
+        }))
+        .unwrap();
+        assert_eq!(
+            map,
+            Value::Map(vec![(
+                Value::String("enabled".to_string()),
+                Value::Bool(true)
+            )])
+        );
+
+        let set = value_from_json(&json!({
+            "$set": ["refund.approve"]
+        }))
+        .unwrap();
+        assert_eq!(
+            set,
+            Value::Set(vec![Value::String("refund.approve".to_string())])
         );
     }
 

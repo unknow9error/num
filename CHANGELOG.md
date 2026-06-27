@@ -64,6 +64,9 @@
 - Added project-defined sanitizer packs in `num.toml`, including manifest
   validation, runtime `sanitize(value, "pack")` resolution, pack composition,
   and a configured sanitizer example project.
+- Added minimal `Map<K,V>` and `Set<T>` stdlib helpers, runtime values, JSON
+  conversion, and a permission/metadata collection example before the
+  Queue/Stack/Stream slice.
 - Extended `num migrate --source` with an idempotent rewrite that normalizes
   legacy workflow/service `rate_limit` metadata spelling to `rate limit`.
 - Extended the `num.cost_dashboard.v1` read model with request and correlation

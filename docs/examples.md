@@ -17,6 +17,7 @@ num check examples/async_tasks/src/main.num
 num check examples/scalar_validation/src/main.num
 num check examples/security_hashing/src/main.num
 num check examples/configured_sanitizer_pack/src/main.num
+num check examples/map_set_collections/src/main.num
 num test examples/workflow_lifecycle
 num check examples/connector_echo_pipeline
 ```
@@ -128,6 +129,25 @@ Useful command:
 
 ```bash
 num check examples/configured_sanitizer_pack/src/main.num
+```
+
+## `map_set_collections`
+
+Path: `examples/map_set_collections/src/main.num`
+
+Demonstrates:
+
+- `Set<Text>` permission accumulation with `set_empty`, `set_insert`, and
+  `set_contains`;
+- `Map<Text, Bool>` metadata updates with `map_empty`, `map_insert`,
+  `map_contains`, and `map_get`;
+- pure collection operations that return updated values instead of mutating
+  bindings.
+
+Useful command:
+
+```bash
+num check examples/map_set_collections/src/main.num
 ```
 
 ## `security_hashing`

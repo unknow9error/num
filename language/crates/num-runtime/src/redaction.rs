@@ -39,6 +39,13 @@ pub fn redacted_value(value: &Value) -> Value {
             Value::Uncertain(Box::new(redacted_value(inner)), *confidence)
         }
         Value::List(items) => Value::List(items.iter().map(redacted_value).collect()),
+        Value::Map(entries) => Value::Map(
+            entries
+                .iter()
+                .map(|(key, value)| (redacted_value(key), redacted_value(value)))
+                .collect(),
+        ),
+        Value::Set(items) => Value::Set(items.iter().map(redacted_value).collect()),
         Value::Struct(name, fields) => Value::Struct(
             name.clone(),
             fields
@@ -92,6 +99,17 @@ fn collect_explicit_secret_values(value: &Value, values: &mut Vec<String>) {
                 collect_explicit_secret_values(item, values);
             }
         }
+        Value::Map(entries) => {
+            for (key, value) in entries {
+                collect_explicit_secret_values(key, values);
+                collect_explicit_secret_values(value, values);
+            }
+        }
+        Value::Set(items) => {
+            for item in items {
+                collect_explicit_secret_values(item, values);
+            }
+        }
         Value::Struct(_, fields) => {
             for value in fields.values() {
                 collect_explicit_secret_values(value, values);
@@ -118,6 +136,17 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             collect_scalar_values(inner, values)
         }
         Value::List(items) => {
+            for item in items {
+                collect_scalar_values(item, values);
+            }
+        }
+        Value::Map(entries) => {
+            for (key, value) in entries {
+                collect_scalar_values(key, values);
+                collect_scalar_values(value, values);
+            }
+        }
+        Value::Set(items) => {
             for item in items {
                 collect_scalar_values(item, values);
             }

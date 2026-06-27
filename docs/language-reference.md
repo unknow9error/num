@@ -171,6 +171,32 @@ workflow main(page: Page<RefundRequest>) {
 Generic type references are checked for arity, and field access substitutes
 the concrete generic arguments into field result types.
 
+### Map and Set
+
+`Map<K, V>` and `Set<T>` are available through explicit stdlib constructors
+and pure helper functions. Literal syntax is intentionally deferred: constructors
+avoid adding collection grammar before Queue, Stack, and Stream semantics are
+specified.
+
+```num
+let permissions: Set<Text> = set_empty()
+let permissions2: Set<Text> = set_insert(permissions, "refund.approve")
+let has_permission: Bool = set_contains(permissions2, "refund.approve")
+
+let metadata: Map<Text, Bool> = map_empty()
+let metadata2: Map<Text, Bool> = map_insert(metadata, "enabled", true)
+let enabled: Bool = map_get(metadata2, "enabled")
+```
+
+Supported helpers are `map_empty`, `map_contains`, `map_get`, `map_insert`,
+`map_remove`, `set_empty`, `set_contains`, `set_insert`, and `set_remove`.
+`insert` and `remove` return a new collection value, so immutable bindings stay
+compatible with the language's current mutability model. JSON route decoding
+accepts `Set<T>` as an array, `Map<Text,V>` as a JSON object, and non-text-key
+maps as explicit `{ "$map": [[key, value]] }` pairs. Queue, Stack, and Stream
+remain separate future work because they need stateful ordering, backpressure,
+and streaming lifecycle rules.
+
 ### Type Aliases and Branded Types
 
 Type aliases are declared with `=`.

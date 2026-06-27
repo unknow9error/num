@@ -44,6 +44,8 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
         _ if raw.starts_with("Money<") => money_from_json(raw, json),
         _ if raw.starts_with("Brand<") => brand_from_json(module, raw, json),
         _ if raw.starts_with("Secret<") => secret_from_json(module, raw, json),
+        _ if raw.starts_with("Map<") => map_from_json(module, raw, json),
+        _ if raw.starts_with("Set<") => set_from_json(module, raw, json),
         _ if raw.starts_with("Distance<")
             || raw.starts_with("Duration<")
             || raw.starts_with("Speed<") =>
@@ -72,6 +74,68 @@ fn secret_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Valu
         .to_string();
     value_from_json(module, &TypeRef { raw: inner }, json)
         .map(|value| Value::Secret(Box::new(value)))
+}
+
+fn map_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Value, String> {
+    let args = generic_args_for(raw, "Map")?;
+    if args.len() != 2 {
+        return Err(format!("invalid Map type '{raw}'"));
+    }
+    let key_ty = TypeRef {
+        raw: args[0].clone(),
+    };
+    let value_ty = TypeRef {
+        raw: args[1].clone(),
+    };
+
+    if key_ty.raw == "Text" {
+        let object = json
+            .as_object()
+            .ok_or_else(|| format!("expected object for {raw}"))?;
+        return object
+            .iter()
+            .map(|(key, value)| {
+                Ok((
+                    Value::String(key.clone()),
+                    value_from_json(module, &value_ty, value)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()
+            .map(Value::Map);
+    }
+
+    let entries = json
+        .as_object()
+        .and_then(|object| object.get("$map"))
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| format!("expected {{ \"$map\": [[key, value]] }} for {raw}"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let pair = entry
+                .as_array()
+                .ok_or_else(|| format!("expected two-item map entry for {raw}"))?;
+            if pair.len() != 2 {
+                return Err(format!("expected two-item map entry for {raw}"));
+            }
+            Ok((
+                value_from_json(module, &key_ty, &pair[0])?,
+                value_from_json(module, &value_ty, &pair[1])?,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(Value::Map)
+}
+
+fn set_from_json(module: &Module, raw: &str, json: &JsonValue) -> Result<Value, String> {
+    let inner = single_generic_arg(raw, "Set")?;
+    let item_ty = TypeRef { raw: inner };
+    json.as_array()
+        .ok_or_else(|| format!("expected array for {raw}"))?
+        .iter()
+        .map(|item| value_from_json(module, &item_ty, item))
+        .collect::<Result<Vec<_>, String>>()
+        .map(Value::Set)
 }
 
 fn route_input_type(
@@ -213,6 +277,18 @@ fn single_generic_arg(raw: &str, wrapper: &str) -> Result<String, String> {
         .ok_or_else(|| format!("invalid {wrapper} type '{raw}'"))
 }
 
+fn generic_args_for(raw: &str, wrapper: &str) -> Result<Vec<String>, String> {
+    let inner = raw
+        .strip_prefix(&format!("{wrapper}<"))
+        .and_then(|value| value.strip_suffix('>'))
+        .ok_or_else(|| format!("invalid {wrapper} type '{raw}'"))?;
+    Ok(split_top_level(inner, ',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 fn split_top_level(input: &str, delimiter: char) -> impl Iterator<Item = &str> {
     let mut depth = 0_i32;
     let mut start = 0_usize;
@@ -282,6 +358,51 @@ service BillingApi {
         assert_eq!(
             fields.get("amount"),
             Some(&Value::Money(15000, "KZT".to_string()))
+        );
+    }
+
+    #[test]
+    fn decodes_map_and_set_route_input_from_json_body() {
+        let source = r#"
+module test.api
+
+type AccessRequest {
+    permissions: Set<Text>
+    metadata: Map<Text, Bool>
+}
+
+service AccessApi {
+    route POST "/access" {
+        input request: AccessRequest from HttpBody
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let value = route_input_from_body(
+            &compilation.module,
+            "AccessApi",
+            "POST",
+            "/access",
+            r#"{"permissions":["refund.approve"],"metadata":{"enabled":true}}"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        let Value::Struct(_, fields) = value else {
+            panic!("expected struct value");
+        };
+        assert_eq!(
+            fields.get("permissions"),
+            Some(&Value::Set(vec![Value::String(
+                "refund.approve".to_string()
+            )]))
+        );
+        assert_eq!(
+            fields.get("metadata"),
+            Some(&Value::Map(vec![(
+                Value::String("enabled".to_string()),
+                Value::Bool(true)
+            )]))
         );
     }
 
