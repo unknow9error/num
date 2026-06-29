@@ -1,0 +1,18 @@
+module examples.pdf_docx_metadata
+
+workflow inspect_pdf(document: Document from Upload private untrusted, bytes: Bytes from Upload private untrusted) {
+    let pdf: Pdf from Upload private untrusted = pdf_parse_metadata(document, bytes)
+    let pages: Int from DerivedData private = pdf.page_count
+    audit(pdf.name)
+    audit(pdf.mime_type)
+    audit(pages)
+}
+
+workflow inspect_docx(document: Document from Upload private untrusted, bytes: Bytes from Upload private untrusted) {
+    let docx: Docx from Upload private untrusted = docx_parse_metadata(document, bytes)
+    let paragraphs: Int from DerivedData private = docx.paragraph_count
+    audit(docx.name)
+    audit(docx.title)
+    audit(docx.creator)
+    audit(paragraphs)
+}

@@ -148,6 +148,15 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             values.push(value.privacy.clone());
             values.push(value.trust.clone());
         }
+        Value::Pdf(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values)
+        }
+        Value::Docx(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.title.clone());
+            values.push(value.creator.clone());
+            values.push(value.paragraph_count.to_string());
+        }
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));

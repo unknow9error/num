@@ -2667,23 +2667,45 @@ fn bytes_xml_helper_result_type(name: &str) -> Option<TypeRef> {
 }
 
 fn is_document_helper(name: &str) -> bool {
-    name == "document_metadata"
+    matches!(
+        name,
+        "document_metadata"
+            | "pdf_metadata"
+            | "docx_metadata"
+            | "pdf_parse_metadata"
+            | "docx_parse_metadata"
+    )
 }
 
 fn document_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
-    is_document_helper(name).then(|| {
-        ["Text", "Text", "Text", "Int", "Text", "Text", "Text"]
+    let params = match name {
+        "document_metadata" => &["Text", "Text", "Text", "Int", "Text", "Text", "Text"][..],
+        "pdf_metadata" => &["Document", "Int"][..],
+        "docx_metadata" => &["Document", "Text", "Text", "Int"][..],
+        "pdf_parse_metadata" | "docx_parse_metadata" => &["Document", "Bytes"][..],
+        _ => return None,
+    };
+    Some(
+        params
             .into_iter()
             .map(|raw| TypeRef {
-                raw: raw.to_string(),
+                raw: (*raw).to_string(),
             })
-            .collect()
-    })
+            .collect(),
+    )
 }
 
 fn document_helper_result_type(name: &str) -> Option<TypeRef> {
-    is_document_helper(name).then(|| TypeRef {
-        raw: "Document".to_string(),
+    let raw = match name {
+        "document_metadata" => "Document",
+        "pdf_metadata" => "Pdf",
+        "docx_metadata" => "Docx",
+        "pdf_parse_metadata" => "Pdf",
+        "docx_parse_metadata" => "Docx",
+        _ => return None,
+    };
+    Some(TypeRef {
+        raw: raw.to_string(),
     })
 }
 

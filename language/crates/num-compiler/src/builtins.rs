@@ -178,6 +178,30 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Builds a metadata-only Document value without parsing file contents.",
     },
     BuiltinSymbol {
+        name: "pdf_metadata",
+        kind: BuiltinKind::Function,
+        signature: "pdf_metadata(document: Document, page_count: Int) -> Pdf",
+        documentation: "Builds a metadata-only Pdf wrapper from already validated Document metadata.",
+    },
+    BuiltinSymbol {
+        name: "docx_metadata",
+        kind: BuiltinKind::Function,
+        signature: "docx_metadata(document: Document, title: Text, creator: Text, paragraph_count: Int) -> Docx",
+        documentation: "Builds a metadata-only Docx wrapper from already validated Document metadata.",
+    },
+    BuiltinSymbol {
+        name: "pdf_parse_metadata",
+        kind: BuiltinKind::Function,
+        signature: "pdf_parse_metadata(document: Document, bytes: Bytes) -> Pdf",
+        documentation: "Parses safe PDF metadata from bytes and returns a Pdf wrapper preserving the original Document metadata.",
+    },
+    BuiltinSymbol {
+        name: "docx_parse_metadata",
+        kind: BuiltinKind::Function,
+        signature: "docx_parse_metadata(document: Document, bytes: Bytes) -> Docx",
+        documentation: "Parses safe DOCX metadata from stored ZIP test-fixture bytes and returns a Docx wrapper preserving the original Document metadata.",
+    },
+    BuiltinSymbol {
         name: "datetime_parse_iso",
         kind: BuiltinKind::Function,
         signature: "datetime_parse_iso(value: Text) -> DateTime",

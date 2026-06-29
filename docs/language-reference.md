@@ -530,6 +530,51 @@ Intentionally unsupported in this slice:
 - MIME sniffing or content validation beyond the explicit metadata fields;
 - storing or streaming raw document bytes inside `Document`.
 
+### Pdf and Docx Metadata
+
+`Pdf` and `Docx` are document-specialized metadata wrappers. They preserve the
+original `Document` metadata and add format-specific fields:
+
+- `Pdf.document: Document`
+- `Pdf.page_count: Int`
+- `Docx.document: Document`
+- `Docx.title: Text`
+- `Docx.creator: Text`
+- `Docx.paragraph_count: Int`
+
+Both wrappers also expose the base `Document` fields directly, such as
+`pdf.name`, `pdf.privacy`, `docx.mime_type`, and `docx.source`.
+
+```num
+let pdf: Pdf = pdf_parse_metadata(document, pdf_bytes)
+let pages: Int = pdf.page_count
+
+let docx: Docx = docx_parse_metadata(document, docx_bytes)
+let title: Text = docx.title
+let paragraphs: Int = docx.paragraph_count
+```
+
+`pdf_metadata(document, page_count)` and
+`docx_metadata(document, title, creator, paragraph_count)` build wrappers from
+already validated metadata. They are intended for connector mocks, test
+fixtures, and adapters that receive trusted metadata from an external document
+service.
+
+`pdf_parse_metadata(document, bytes)` accepts a PDF byte stream with a `%PDF-`
+header and `%%EOF` marker, then counts page objects. `docx_parse_metadata`
+accepts a deliberately small first-slice DOCX fixture shape: ZIP local file
+entries stored without compression, with `word/document.xml` and optional
+`docProps/core.xml`. Compressed DOCX files are rejected with a structured
+runtime error until a real ZIP/Deflate parser boundary is introduced.
+
+Intentionally unsupported in this slice:
+
+- PDF text extraction, outlines, annotations, forms, embedded files, images, or
+  cryptographic validation;
+- DOCX styles, tables, comments, tracked changes, relationships, media, or
+  compressed ZIP parsing;
+- OCR and AI extraction, which belong to the later document extraction boundary.
+
 ### DateTime and Duration Helpers
 
 `DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:

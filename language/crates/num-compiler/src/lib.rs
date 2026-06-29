@@ -214,6 +214,55 @@ workflow main() {
     }
 
     #[test]
+    fn accepts_pdf_and_docx_metadata_helpers() {
+        let source = r#"
+module tests.document_formats
+
+workflow main(document: Document, pdf_bytes: Bytes, docx_bytes: Bytes) {
+    let pdf: Pdf = pdf_parse_metadata(document, pdf_bytes)
+    let pdf_fixture: Pdf = pdf_metadata(document, 3)
+    let pages: Int = pdf.page_count
+    let fixture_pages: Int = pdf_fixture.page_count
+    let pdf_name: Text = pdf.name
+    let docx: Docx = docx_parse_metadata(document, docx_bytes)
+    let docx_fixture: Docx = docx_metadata(document, "Contract", "Ada", 5)
+    let title: Text = docx.title
+    let creator: Text = docx.creator
+    let paragraphs: Int = docx.paragraph_count
+    let fixture_paragraphs: Int = docx_fixture.paragraph_count
+    let docx_source: Text = docx.source
+    audit(pages)
+    audit(fixture_pages)
+    audit(pdf_name)
+    audit(title)
+    audit(creator)
+    audit(paragraphs)
+    audit(fixture_paragraphs)
+    audit(docx_source)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_document_format_helper_type_mismatch() {
+        let source = r#"
+module tests.document_formats
+
+workflow main(document: Document) {
+    let pdf: Pdf = pdf_parse_metadata(document, "not bytes")
+}
+"#;
+
+        assert!(codes(source).contains(&"N2706"));
+    }
+
+    #[test]
     fn rejects_bytes_and_xml_helper_type_mismatches() {
         let source = r#"
 module tests.bytes_xml
