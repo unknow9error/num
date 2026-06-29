@@ -170,6 +170,22 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
                 collect_scalar_values(&Value::SpreadsheetSheet(sheet.clone()), values);
             }
         }
+        Value::Image(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.width.to_string());
+            values.push(value.height.to_string());
+            values.push(value.format.clone());
+        }
+        Value::OcrResult(value) => {
+            collect_scalar_values(&Value::Image(value.image.clone()), values);
+            values.push(value.text.clone());
+            values.push(value.confidence.to_string());
+            values.push(value.provider.clone());
+            values.push(value.model.clone());
+            values.push(value.source.clone());
+            values.push(value.privacy.clone());
+            values.push(value.trust.clone());
+        }
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));

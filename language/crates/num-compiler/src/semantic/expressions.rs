@@ -152,7 +152,13 @@ impl<'a> Checker<'a> {
                         self.result_field(raw, object, &base_ty, field, env);
                     } else if matches!(
                         type_base_name(&base_ty.raw).as_str(),
-                        "Document" | "Pdf" | "Docx" | "SpreadsheetSheet" | "Spreadsheet"
+                        "Document"
+                            | "Pdf"
+                            | "Docx"
+                            | "SpreadsheetSheet"
+                            | "Spreadsheet"
+                            | "Image"
+                            | "OcrResult"
                     ) {
                         self.document_field(raw, &base_ty, field);
                     } else {
@@ -295,6 +301,8 @@ impl<'a> Checker<'a> {
             "Docx" => docx_member_type(field).is_some(),
             "SpreadsheetSheet" => spreadsheet_sheet_member_type(field).is_some(),
             "Spreadsheet" => spreadsheet_member_type(field).is_some(),
+            "Image" => image_member_type(field).is_some(),
+            "OcrResult" => ocr_result_member_type(field).is_some(),
             _ => false,
         };
         if exists {
@@ -549,6 +557,12 @@ impl<'a> Checker<'a> {
         if base_name == "Spreadsheet" {
             return spreadsheet_member_type(field);
         }
+        if base_name == "Image" {
+            return image_member_type(field);
+        }
+        if base_name == "OcrResult" {
+            return ocr_result_member_type(field);
+        }
         let args = generic_args(&base_ty.raw);
         let substitutions = self
             .type_generic_params
@@ -699,6 +713,36 @@ fn spreadsheet_member_type(field: &str) -> Option<TypeRef> {
             raw: "List<Text>".to_string(),
         }),
         _ => document_member_type(field),
+    }
+}
+
+fn image_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "width" | "height" => Some(TypeRef {
+            raw: "Int".to_string(),
+        }),
+        "format" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        _ => document_member_type(field),
+    }
+}
+
+fn ocr_result_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "image" => Some(TypeRef {
+            raw: "Image".to_string(),
+        }),
+        "text" | "provider" | "model" | "source" | "privacy" | "trust" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        "confidence" => Some(TypeRef {
+            raw: "Float".to_string(),
+        }),
+        _ => None,
     }
 }
 

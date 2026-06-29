@@ -285,6 +285,9 @@ Implemented:
 - first-slice `Spreadsheet` and `SpreadsheetSheet` metadata wrappers with safe
   sheet-level XLSX metadata parsing, malformed-input errors, typed field access,
   and runtime/connector persistence conversion without formula execution;
+- first-slice `Image` and `OcrResult` metadata wrappers with safe PNG/JPEG
+  dimension parsing, deterministic OCR handoff values, typed field access, and
+  runtime/connector persistence conversion without OCR provider execution;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

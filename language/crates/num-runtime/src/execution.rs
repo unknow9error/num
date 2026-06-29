@@ -343,6 +343,8 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
             json!({"kind": "SpreadsheetSheet", "value": value.to_json()})
         }
         Value::Spreadsheet(value) => json!({"kind": "Spreadsheet", "value": value.to_json()}),
+        Value::Image(value) => json!({"kind": "Image", "value": value.to_json()}),
+        Value::OcrResult(value) => json!({"kind": "OcrResult", "value": value.to_json()}),
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
@@ -456,6 +458,20 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                 .ok_or_else(|| storage_error("missing spreadsheet value"))?,
         )
         .map(Value::Spreadsheet)
+        .map_err(storage_error),
+        "Image" => crate::document::image_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing image value"))?,
+        )
+        .map(Value::Image)
+        .map_err(storage_error),
+        "OcrResult" => crate::document::ocr_result_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing OCR result value"))?,
+        )
+        .map(Value::OcrResult)
         .map_err(storage_error),
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,
@@ -957,6 +973,49 @@ mod tests {
                             header_row: 1,
                         }],
                     }),
+                ),
+                (
+                    "image".to_string(),
+                    Value::Image(crate::document::ImageValue {
+                        document: crate::document::DocumentValue {
+                            id: "doc_4".to_string(),
+                            name: "invoice.png".to_string(),
+                            mime_type: "image/png".to_string(),
+                            size_bytes: 128,
+                            source: "Upload".to_string(),
+                            privacy: "private".to_string(),
+                            trust: "untrusted".to_string(),
+                        },
+                        width: 640,
+                        height: 480,
+                        format: "png".to_string(),
+                    }),
+                ),
+                (
+                    "ocr".to_string(),
+                    Value::OcrResult(
+                        crate::document::ocr_result(
+                            crate::document::ImageValue {
+                                document: crate::document::DocumentValue {
+                                    id: "doc_5".to_string(),
+                                    name: "scan.jpg".to_string(),
+                                    mime_type: "image/jpeg".to_string(),
+                                    size_bytes: 256,
+                                    source: "Upload".to_string(),
+                                    privacy: "private".to_string(),
+                                    trust: "untrusted".to_string(),
+                                },
+                                width: 320,
+                                height: 200,
+                                format: "jpeg".to_string(),
+                            },
+                            "Invoice total".to_string(),
+                            0.91,
+                            "fake-ocr".to_string(),
+                            "fixture-v1".to_string(),
+                        )
+                        .unwrap(),
+                    ),
                 ),
             ]),
         );
