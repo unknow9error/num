@@ -224,6 +224,24 @@ Useful command:
 num check examples/document_metadata_route/src/main.num
 ```
 
+## `pdf_docx_metadata`
+
+Path: `examples/pdf_docx_metadata/src/main.num`
+
+Demonstrates:
+
+- `Pdf` and `Docx` wrappers over `Document` metadata;
+- `pdf_parse_metadata(document, bytes)` for safe PDF page-count metadata;
+- `docx_parse_metadata(document, bytes)` for stored-ZIP DOCX test fixtures;
+- `pdf_metadata(...)` and `docx_metadata(...)` for trusted metadata fixtures;
+- preserving source/privacy/trust metadata from the original `Document`.
+
+Useful command:
+
+```bash
+num check examples/pdf_docx_metadata/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

@@ -408,6 +408,37 @@ mod tests {
         }
     }
 
+    fn test_docx_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(zip_local_entry(
+            "docProps/core.xml",
+            b"<cp:coreProperties><dc:title>Contract</dc:title><dc:creator>Ada</dc:creator></cp:coreProperties>",
+        ));
+        out.extend(zip_local_entry(
+            "word/document.xml",
+            b"<w:document><w:body><w:p/><w:p/></w:body></w:document>",
+        ));
+        out
+    }
+
+    fn zip_local_entry(name: &str, contents: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(b"PK\x03\x04");
+        out.extend(20u16.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out.extend(0u32.to_le_bytes());
+        out.extend((contents.len() as u32).to_le_bytes());
+        out.extend((contents.len() as u32).to_le_bytes());
+        out.extend((name.len() as u16).to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out.extend(name.as_bytes());
+        out.extend(contents);
+        out
+    }
+
     #[test]
     fn test_interpreter_success() {
         let source = r#"
@@ -1495,6 +1526,66 @@ workflow main(document: Document from Upload private untrusted) {
     }
 
     #[test]
+    fn test_runtime_parses_pdf_and_docx_metadata() {
+        let source = r#"
+module test.document_formats
+
+workflow main(document: Document, pdf_bytes: Bytes, docx_bytes: Bytes) {
+    let pdf: Pdf = pdf_parse_metadata(document, pdf_bytes)
+    let docx: Docx = docx_parse_metadata(document, docx_bytes)
+    audit(pdf.page_count)
+    audit(pdf.name)
+    audit(docx.title)
+    audit(docx.creator)
+    audit(docx.paragraph_count)
+    audit(docx.privacy)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "document".to_string(),
+            Value::Document(crate::document::DocumentValue {
+                id: "doc_1".to_string(),
+                name: "contract.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                size_bytes: 4096,
+                source: "Upload".to_string(),
+                privacy: "private".to_string(),
+                trust: "untrusted".to_string(),
+            }),
+        );
+        args.insert(
+            "pdf_bytes".to_string(),
+            Value::Bytes(
+                b"%PDF-1.7
+1 0 obj << /Type /Pages /Count 2 >> endobj
+2 0 obj << /Type /Page /Parent 1 0 R >> endobj
+3 0 obj << /Type /Page /Parent 1 0 R >> endobj
+%%EOF"
+                    .to_vec(),
+            ),
+        );
+        args.insert("docx_bytes".to_string(), Value::Bytes(test_docx_bytes()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "2".to_string(),
+                "\"contract.pdf\"".to_string(),
+                "\"Contract\"".to_string(),
+                "\"Ada\"".to_string(),
+                "2".to_string(),
+                "\"private\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn test_runtime_rejects_invalid_bytes_and_xml_inputs() {
         let source = r#"
 module test.bytes_xml
@@ -1984,6 +2075,48 @@ test workflow "document connector mock" {
         let mut runtime = Runtime::new(&compilation.module, vec![]);
 
         assert!(runtime.run_test("document connector mock").is_ok());
+    }
+
+    #[test]
+    fn test_runtime_runs_pdf_docx_connector_mocks() {
+        let source = r#"
+module test.document_format_mock
+
+connector documents {
+    fetch_pdf(id: Text) -> Pdf
+    fetch_docx(id: Text) -> Docx
+}
+
+workflow load_pdf() {
+    let pdf: Pdf = documents.fetch_pdf("doc_pdf")
+    assert pdf.name == "contract.pdf"
+    assert pdf.page_count == 3
+}
+
+workflow load_docx() {
+    let docx: Docx = documents.fetch_docx("doc_docx")
+    assert docx.name == "contract.docx"
+    assert docx.title == "Contract"
+    assert docx.creator == "Ada"
+    assert docx.paragraph_count == 5
+}
+
+test workflow "pdf docx connector mocks" {
+    mock_connector documents.fetch_pdf("doc_pdf") => pdf_metadata(document_metadata("doc_pdf", "contract.pdf", "application/pdf", 4096, "Upload", "private", "trusted"), 3)
+    mock_connector documents.fetch_docx("doc_docx") => docx_metadata(document_metadata("doc_docx", "contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 8192, "Upload", "private", "trusted"), "Contract", "Ada", 5)
+    expect_workflow_success load_pdf()
+    expect_workflow_success load_docx()
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        assert!(runtime.run_test("pdf docx connector mocks").is_ok());
     }
 
     #[test]

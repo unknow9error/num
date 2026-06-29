@@ -150,7 +150,10 @@ impl<'a> Checker<'a> {
                         self.option_field(raw, object, &base_ty, field, env);
                     } else if self.is_result_type(&base_ty) {
                         self.result_field(raw, object, &base_ty, field, env);
-                    } else if type_base_name(&base_ty.raw) == "Document" {
+                    } else if matches!(
+                        type_base_name(&base_ty.raw).as_str(),
+                        "Document" | "Pdf" | "Docx"
+                    ) {
                         self.document_field(raw, &base_ty, field);
                     } else {
                         self.struct_field(raw, &base_ty, field);
@@ -285,7 +288,14 @@ impl<'a> Checker<'a> {
     }
 
     fn document_field(&mut self, raw: &RawExpr, base_ty: &TypeRef, field: &str) {
-        if document_member_type(field).is_some() {
+        let base_name = type_base_name(&base_ty.raw);
+        let exists = match base_name.as_str() {
+            "Document" => document_member_type(field).is_some(),
+            "Pdf" => pdf_member_type(field).is_some(),
+            "Docx" => docx_member_type(field).is_some(),
+            _ => false,
+        };
+        if exists {
             return;
         }
 
@@ -525,6 +535,12 @@ impl<'a> Checker<'a> {
         if base_name == "Document" {
             return document_member_type(field);
         }
+        if base_name == "Pdf" {
+            return pdf_member_type(field);
+        }
+        if base_name == "Docx" {
+            return docx_member_type(field);
+        }
         let args = generic_args(&base_ty.raw);
         let substitutions = self
             .type_generic_params
@@ -618,6 +634,33 @@ fn document_member_type(field: &str) -> Option<TypeRef> {
             raw: "Int".to_string(),
         }),
         _ => None,
+    }
+}
+
+fn pdf_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "page_count" => Some(TypeRef {
+            raw: "Int".to_string(),
+        }),
+        _ => document_member_type(field),
+    }
+}
+
+fn docx_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "title" | "creator" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        "paragraph_count" => Some(TypeRef {
+            raw: "Int".to_string(),
+        }),
+        _ => document_member_type(field),
     }
 }
 

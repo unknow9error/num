@@ -183,6 +183,8 @@ struct WrapperUsage {
     secret: bool,
     json: bool,
     document: bool,
+    pdf: bool,
+    docx: bool,
 }
 
 fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
@@ -227,6 +229,20 @@ fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("  source: string;\n");
         out.push_str("  privacy: string;\n");
         out.push_str("  trust: string;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.pdf {
+        out.push_str("export interface Pdf extends Document {\n");
+        out.push_str("  document: Document;\n");
+        out.push_str("  page_count: number;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.docx {
+        out.push_str("export interface Docx extends Document {\n");
+        out.push_str("  document: Document;\n");
+        out.push_str("  title: string;\n");
+        out.push_str("  creator: string;\n");
+        out.push_str("  paragraph_count: number;\n");
         out.push_str("}\n\n");
     }
 }
@@ -354,6 +370,8 @@ fn render_python_typevars(out: &mut String, declarations: &[&TypeDecl], wrappers
         || wrappers.uncertain
         || wrappers.secret
         || wrappers.document
+        || wrappers.pdf
+        || wrappers.docx
         || declarations
             .iter()
             .any(|decl| !decl.generic_params.is_empty())
@@ -454,6 +472,20 @@ fn render_python_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("    source: str\n");
         out.push_str("    privacy: str\n");
         out.push_str("    trust: str\n\n");
+    }
+    if wrappers.pdf {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class Pdf(Document):\n");
+        out.push_str("    document: Document\n");
+        out.push_str("    page_count: int\n\n");
+    }
+    if wrappers.docx {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class Docx(Document):\n");
+        out.push_str("    document: Document\n");
+        out.push_str("    title: str\n");
+        out.push_str("    creator: str\n");
+        out.push_str("    paragraph_count: int\n\n");
     }
 }
 
@@ -648,6 +680,14 @@ fn collect_wrappers_from_type(ty: &TypeRef, wrappers: &mut WrapperUsage) {
                 "Secret" => wrappers.secret = true,
                 "Json" => wrappers.json = true,
                 "Document" => wrappers.document = true,
+                "Pdf" => {
+                    wrappers.document = true;
+                    wrappers.pdf = true;
+                }
+                "Docx" => {
+                    wrappers.document = true;
+                    wrappers.docx = true;
+                }
                 _ => {}
             }
             for arg in args {
@@ -676,6 +716,8 @@ fn type_expr_to_typescript(expr: &TypeExpr) -> String {
             "Unit" => "void".to_string(),
             "Json" => "JsonValue".to_string(),
             "Document" => "Document".to_string(),
+            "Pdf" => "Pdf".to_string(),
+            "Docx" => "Docx".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -760,6 +802,8 @@ fn type_expr_to_python(expr: &TypeExpr) -> String {
             "Unit" => "None".to_string(),
             "Json" => "JsonValue".to_string(),
             "Document" => "Document".to_string(),
+            "Pdf" => "Pdf".to_string(),
+            "Docx" => "Docx".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -1138,6 +1182,8 @@ connector ai {
 
 connector documents {
     store(document: Document) -> Document
+    inspectPdf(document: Pdf) -> Pdf
+    inspectDocx(document: Docx) -> Docx
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1146,7 +1192,7 @@ connector documents {
         let sdk = render_typescript_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 3);
+        assert_eq!(sdk.method_count, 5);
         assert!(sdk
             .contents
             .contains("export interface NumConnectorEgressContext"));
@@ -1155,6 +1201,14 @@ connector documents {
         assert!(sdk.contents.contains("export interface Uncertain<T>"));
         assert!(sdk.contents.contains("export interface Document"));
         assert!(sdk.contents.contains("size_bytes: number;"));
+        assert!(sdk
+            .contents
+            .contains("export interface Pdf extends Document"));
+        assert!(sdk.contents.contains("page_count: number;"));
+        assert!(sdk
+            .contents
+            .contains("export interface Docx extends Document"));
+        assert!(sdk.contents.contains("paragraph_count: number;"));
         assert!(sdk.contents.contains("export type PaymentId = string;"));
         assert!(sdk.contents.contains("export interface RefundRequest"));
         assert!(sdk
@@ -1168,6 +1222,12 @@ connector documents {
             .contains("assess(request: RefundRequest, context?: NumConnectorEgressContext): Promise<Uncertain<Risk>>;"));
         assert!(sdk.contents.contains(
             "store(document: Document, context?: NumConnectorEgressContext): Promise<Document>;"
+        ));
+        assert!(sdk.contents.contains(
+            "inspectPdf(document: Pdf, context?: NumConnectorEgressContext): Promise<Pdf>;"
+        ));
+        assert!(sdk.contents.contains(
+            "inspectDocx(document: Docx, context?: NumConnectorEgressContext): Promise<Docx>;"
         ));
     }
 
@@ -1221,6 +1281,8 @@ connector ai {
 
 connector documents {
     store(document: Document) -> Document
+    inspect_pdf(document: Pdf) -> Pdf
+    inspect_docx(document: Docx) -> Docx
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1229,7 +1291,7 @@ connector documents {
         let sdk = render_python_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 3);
+        assert_eq!(sdk.method_count, 5);
         assert!(sdk.contents.contains("class NumConnectorEgressContext"));
         assert!(sdk
             .contents
@@ -1239,6 +1301,10 @@ connector documents {
         assert!(sdk.contents.contains("class Uncertain(Generic[T]):"));
         assert!(sdk.contents.contains("class Document:"));
         assert!(sdk.contents.contains("    size_bytes: int"));
+        assert!(sdk.contents.contains("class Pdf(Document):"));
+        assert!(sdk.contents.contains("    page_count: int"));
+        assert!(sdk.contents.contains("class Docx(Document):"));
+        assert!(sdk.contents.contains("    paragraph_count: int"));
         assert!(sdk.contents.contains("PaymentId: TypeAlias = str"));
         assert!(sdk.contents.contains("class RefundRequest:"));
         assert!(sdk.contents.contains(
@@ -1248,6 +1314,8 @@ connector documents {
         assert!(sdk.contents.contains("def find(self, paymentId: PaymentId, context: NumConnectorEgressContext | None = None) -> RefundRequest | None: ..."));
         assert!(sdk.contents.contains("def assess(self, request: RefundRequest, context: NumConnectorEgressContext | None = None) -> Uncertain[Risk]: ..."));
         assert!(sdk.contents.contains("def store(self, document: Document, context: NumConnectorEgressContext | None = None) -> Document: ..."));
+        assert!(sdk.contents.contains("def inspect_pdf(self, document: Pdf, context: NumConnectorEgressContext | None = None) -> Pdf: ..."));
+        assert!(sdk.contents.contains("def inspect_docx(self, document: Docx, context: NumConnectorEgressContext | None = None) -> Docx: ..."));
     }
 
     #[test]

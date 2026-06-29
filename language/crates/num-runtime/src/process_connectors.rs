@@ -206,6 +206,8 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Bytes(bytes) => json!({"$bytes_base64": hashing::base64_encode(bytes)}),
         Value::Xml(raw) => json!({"$xml": raw}),
         Value::Document(document) => crate::document::connector_json(document),
+        Value::Pdf(pdf) => crate::document::pdf_connector_json(pdf),
+        Value::Docx(docx) => crate::document::docx_connector_json(docx),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -306,6 +308,15 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if object.contains_key("$document") {
         return crate::document::value_from_json(&JsonValue::Object(object.clone()))
             .map(Value::Document);
+    }
+
+    if object.contains_key("$pdf") {
+        return crate::document::pdf_from_json(&JsonValue::Object(object.clone())).map(Value::Pdf);
+    }
+
+    if object.contains_key("$docx") {
+        return crate::document::docx_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::Docx);
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -512,6 +523,44 @@ mod tests {
             }))
             .unwrap(),
             Value::Document(document)
+        );
+    }
+
+    #[test]
+    fn converts_pdf_and_docx_values_to_json() {
+        let document = crate::document::DocumentValue {
+            id: "doc_1".to_string(),
+            name: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size_bytes: 4096,
+            source: "Upload".to_string(),
+            privacy: "private".to_string(),
+            trust: "untrusted".to_string(),
+        };
+        let pdf = crate::document::PdfValue {
+            document: document.clone(),
+            page_count: 2,
+        };
+        let docx = crate::document::DocxValue {
+            document: crate::document::DocumentValue {
+                mime_type:
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        .to_string(),
+                name: "contract.docx".to_string(),
+                ..document.clone()
+            },
+            title: "Contract".to_string(),
+            creator: "Ada".to_string(),
+            paragraph_count: 3,
+        };
+
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::Pdf(pdf.clone()))).unwrap(),
+            Value::Pdf(pdf)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::Docx(docx.clone()))).unwrap(),
+            Value::Docx(docx)
         );
     }
 

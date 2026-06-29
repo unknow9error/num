@@ -62,6 +62,9 @@
 - Added a metadata-only `Document` stdlib runtime value with typed field access,
   HTTP/process JSON conversion, connector SDK shapes, persistence support, and
   a policy-checked document route example.
+- Added first-slice `Pdf` and `Docx` metadata wrappers with explicit byte
+  parsers, structured malformed-file errors, runtime/connector/persistence
+  conversion, and a PDF/DOCX metadata example without text extraction.
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.

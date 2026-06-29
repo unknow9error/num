@@ -279,6 +279,9 @@ Implemented:
 - metadata-only `Document` runtime values with fixed fields, typed field
   access, HTTP/process JSON conversion, connector SDK shapes, and persistence
   round-tripping;
+- first-slice `Pdf` and `Docx` metadata wrappers with safe bounded metadata
+  parsers, malformed-input errors, typed field access, and runtime/connector
+  persistence conversion;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

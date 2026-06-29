@@ -3,7 +3,7 @@ use crate::connectors::{
     DemoConnectorExecutor,
 };
 use crate::cost::{CostEntry, CostLedger};
-use crate::document::DocumentValue;
+use crate::document::{DocumentValue, DocxValue, PdfValue};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
@@ -54,6 +54,8 @@ pub enum Value {
     Bytes(Vec<u8>),
     Xml(String),
     Document(DocumentValue),
+    Pdf(PdfValue),
+    Docx(DocxValue),
     Money(i128, String),
     Brand(String, Box<Value>),
     Secret(Box<Value>),
@@ -88,6 +90,8 @@ impl std::fmt::Display for Value {
                 "<document id=\"{}\" name=\"{}\" mime=\"{}\" size_bytes={}>",
                 document.id, document.name, document.mime_type, document.size_bytes
             ),
+            Value::Pdf(pdf) => write!(f, "{pdf}"),
+            Value::Docx(docx) => write!(f, "{docx}"),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
@@ -279,6 +283,30 @@ fn value_to_idempotency_key(value: Value) -> String {
             value.source,
             value.privacy,
             value.trust
+        ),
+        Value::Pdf(value) => format!(
+            "pdf:{}:{}:{}:{}:{}:{}:{}:{}",
+            value.document.id,
+            value.document.name,
+            value.document.mime_type,
+            value.document.size_bytes,
+            value.document.source,
+            value.document.privacy,
+            value.document.trust,
+            value.page_count
+        ),
+        Value::Docx(value) => format!(
+            "docx:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            value.document.id,
+            value.document.name,
+            value.document.mime_type,
+            value.document.size_bytes,
+            value.document.source,
+            value.document.privacy,
+            value.document.trust,
+            value.title,
+            value.creator,
+            value.paragraph_count
         ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
@@ -1260,6 +1288,12 @@ impl<'a> Runtime<'a> {
                     Value::Document(document) => document
                         .field(field)
                         .ok_or_else(|| format!("Document value has no field '{}'", field)),
+                    Value::Pdf(pdf) => pdf
+                        .field(field)
+                        .ok_or_else(|| format!("Pdf value has no field '{}'", field)),
+                    Value::Docx(docx) => docx
+                        .field(field)
+                        .ok_or_else(|| format!("Docx value has no field '{}'", field)),
                     Value::Uncertain(val, conf) => match field.as_str() {
                         "confidence" => Ok(Value::Float(conf)),
                         "value" => Ok(*val),
@@ -1492,8 +1526,11 @@ impl<'a> Runtime<'a> {
             | "xml_parse" | "xml_to_text" => {
                 return self.call_bytes_xml_helper(name, args);
             }
-            "document_metadata" => {
+            "document_metadata" | "pdf_metadata" | "docx_metadata" => {
                 return self.call_document_helper(name, args);
+            }
+            "pdf_parse_metadata" | "docx_parse_metadata" => {
+                return self.call_document_format_helper(name, args);
             }
             "datetime_parse_iso"
             | "datetime_format_iso"
@@ -2200,6 +2237,48 @@ impl<'a> Runtime<'a> {
     }
 
     fn call_document_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if name == "pdf_metadata" {
+            if args.len() != 2 {
+                return Err(format!("{name} expects a Document and page_count"));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let page_count = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int page_count, got {other}")),
+            };
+            return Ok(Value::Pdf(PdfValue {
+                document,
+                page_count,
+            }));
+        }
+        if name == "docx_metadata" {
+            if args.len() != 4 {
+                return Err(format!(
+                    "{name} expects a Document, title, creator, and paragraph_count"
+                ));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let title = expect_text_arg(name, "title", args.next().unwrap_or(Value::Null))?;
+            let creator = expect_text_arg(name, "creator", args.next().unwrap_or(Value::Null))?;
+            let paragraph_count = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int paragraph_count, got {other}")),
+            };
+            return Ok(Value::Docx(DocxValue {
+                document,
+                title,
+                creator,
+                paragraph_count,
+            }));
+        }
         if name != "document_metadata" {
             return Err(format!("unknown document helper `{name}`"));
         }
@@ -2228,6 +2307,33 @@ impl<'a> Runtime<'a> {
             privacy,
             trust,
         }))
+    }
+
+    fn call_document_format_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != 2 {
+            return Err(format!(
+                "{name} expects a Document and Bytes argument, got {}",
+                args.len()
+            ));
+        }
+        let mut args = args.into_iter();
+        let document = match args.next().unwrap_or(Value::Null) {
+            Value::Document(value) => value,
+            other => return Err(format!("{name} expects Document metadata, got {other}")),
+        };
+        let bytes = match args.next().unwrap_or(Value::Null) {
+            Value::Bytes(value) => value,
+            other => return Err(format!("{name} expects Bytes input, got {other}")),
+        };
+        match name {
+            "pdf_parse_metadata" => crate::document::parse_pdf_metadata(document, &bytes)
+                .map(Value::Pdf)
+                .map_err(|reason| format!("{name} failed: {reason}")),
+            "docx_parse_metadata" => crate::document::parse_docx_metadata(document, &bytes)
+                .map(Value::Docx)
+                .map_err(|reason| format!("{name} failed: {reason}")),
+            _ => Err(format!("unknown document format helper `{name}`")),
+        }
     }
 
     fn call_datetime_duration_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
@@ -2818,6 +2924,18 @@ fn value_to_literal_str(val: &Value) -> String {
             document.source.replace('"', "\\\""),
             document.privacy.replace('"', "\\\""),
             document.trust.replace('"', "\\\"")
+        ),
+        Value::Pdf(pdf) => format!(
+            "pdf_metadata({}, {})",
+            value_to_literal_str(&Value::Document(pdf.document.clone())),
+            pdf.page_count
+        ),
+        Value::Docx(docx) => format!(
+            "docx_metadata({}, \"{}\", \"{}\", {})",
+            value_to_literal_str(&Value::Document(docx.document.clone())),
+            docx.title.replace('"', "\\\""),
+            docx.creator.replace('"', "\\\""),
+            docx.paragraph_count
         ),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;
