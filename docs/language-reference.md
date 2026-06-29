@@ -620,6 +620,54 @@ Intentionally unsupported in this slice:
 - cell-level import and large-file streaming, which belong to later document
   extraction work.
 
+### Image Metadata and OCR Handoff
+
+`Image` is a document-specialized metadata wrapper for safe image inspection
+before OCR or pixel decoding. It preserves the original `Document` metadata and
+adds dimensions:
+
+- `Image.document: Document`
+- `Image.width: Int`
+- `Image.height: Int`
+- `Image.format: Text`
+
+`OcrResult` represents the output of a fake OCR fixture or external OCR
+connector handoff:
+
+- `OcrResult.image: Image`
+- `OcrResult.text: Text`
+- `OcrResult.confidence: Float`
+- `OcrResult.provider: Text`
+- `OcrResult.model: Text`
+- `OcrResult.source: Text`
+- `OcrResult.privacy: Text`
+- `OcrResult.trust: Text`
+
+OCR text is always created with `trust` set to `"untrusted"` in this first
+slice. Workflows must sanitize, validate, or send it through a human review
+step before treating the extracted text as trusted data.
+
+```num
+let image: Image = image_parse_metadata(document, bytes)
+let fixture: Image = image_metadata(document, 640, 480, "png")
+let ocr: OcrResult = ocr_result(fixture, "Invoice total", 0.91, "fake-ocr", "fixture-v1")
+```
+
+`image_parse_metadata(document, bytes)` reads only PNG IHDR or JPEG SOF
+dimensions. It does not decode pixels, inspect EXIF, run OCR, or call external
+providers. `ocr_result(image, text, confidence, provider, model)` is the
+deterministic handoff constructor for tests and connector adapters; connector
+implementations receive normal egress context, including tenant/request
+metadata, through generated SDK contracts.
+
+Intentionally unsupported in this slice:
+
+- OCR engines, provider clients, OCR billing, and provider-specific options;
+- EXIF/GPS/color-profile parsing and image transformations;
+- pixel decoding, thumbnails, object detection, handwriting recognition, and
+  layout analysis;
+- trusting extracted text automatically.
+
 ### DateTime and Duration Helpers
 
 `DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:

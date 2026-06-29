@@ -70,6 +70,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in document subtype for sheet-level spreadsheet metadata.",
     },
     BuiltinSymbol {
+        name: "Image",
+        kind: BuiltinKind::Type,
+        signature: "Image",
+        documentation: "Built-in document subtype for safe image metadata.",
+    },
+    BuiltinSymbol {
+        name: "OcrResult",
+        kind: BuiltinKind::Type,
+        signature: "OcrResult",
+        documentation: "Built-in value for OCR connector handoff results that remain untrusted by default.",
+    },
+    BuiltinSymbol {
         name: "Distance",
         kind: BuiltinKind::Type,
         signature: "Distance<Unit>",
@@ -226,6 +238,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Builds a metadata-only Spreadsheet wrapper from already validated sheet metadata JSON.",
     },
     BuiltinSymbol {
+        name: "image_metadata",
+        kind: BuiltinKind::Function,
+        signature: "image_metadata(document: Document, width: Int, height: Int, format: Text) -> Image",
+        documentation: "Builds a metadata-only Image wrapper from already validated image metadata.",
+    },
+    BuiltinSymbol {
+        name: "ocr_result",
+        kind: BuiltinKind::Function,
+        signature: "ocr_result(image: Image, text: Text, confidence: Float, provider: Text, model: Text) -> OcrResult",
+        documentation: "Builds an untrusted OCR result for fake OCR tests and connector handoff adapters.",
+    },
+    BuiltinSymbol {
         name: "pdf_parse_metadata",
         kind: BuiltinKind::Function,
         signature: "pdf_parse_metadata(document: Document, bytes: Bytes) -> Pdf",
@@ -242,6 +266,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         kind: BuiltinKind::Function,
         signature: "spreadsheet_parse_metadata(document: Document, bytes: Bytes) -> Spreadsheet",
         documentation: "Parses safe sheet-level XLSX metadata from stored ZIP test-fixture bytes without executing formulas.",
+    },
+    BuiltinSymbol {
+        name: "image_parse_metadata",
+        kind: BuiltinKind::Function,
+        signature: "image_parse_metadata(document: Document, bytes: Bytes) -> Image",
+        documentation: "Parses safe PNG/JPEG image dimensions from bytes without decoding pixels or running OCR.",
     },
     BuiltinSymbol {
         name: "datetime_parse_iso",

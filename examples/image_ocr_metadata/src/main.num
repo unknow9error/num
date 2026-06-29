@@ -1,0 +1,40 @@
+module examples.image_ocr_metadata
+
+connector ocr {
+    extract(image: Image) -> OcrResult
+}
+
+policy OcrHandoffPolicy {
+    allow private Upload -> ocr.extract
+}
+
+workflow inspect_image(document: Document from Upload private untrusted, bytes: Bytes from Upload private untrusted) {
+    let image: Image from Upload private untrusted = image_parse_metadata(document, bytes)
+    audit("image_metadata")
+    audit(image.name)
+    audit(image.width)
+    audit(image.height)
+    audit(image.format)
+    audit(image.privacy)
+    audit(image.trust)
+}
+
+workflow fake_ocr(document: Document from Upload private untrusted) {
+    let image: Image from Upload private untrusted = image_metadata(document, 640, 480, "png")
+    let result: OcrResult from OCR private untrusted = ocr_result(image, "Invoice total", 0.91, "fake-ocr", "fixture-v1")
+    audit("ocr_handoff")
+    audit(result.provider)
+    audit(result.model)
+    audit(result.confidence)
+    audit(result.source)
+    audit(result.privacy)
+    audit(result.trust)
+}
+
+workflow connector_ocr(image: Image from Upload private untrusted) {
+    let result: OcrResult from OCR private untrusted = ocr.extract(image)
+    audit("ocr_connector_handoff")
+    audit(current_user.tenant)
+    audit(result.provider)
+    audit(result.trust)
+}

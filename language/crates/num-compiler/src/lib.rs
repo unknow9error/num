@@ -298,6 +298,41 @@ workflow main(document: Document, bytes: Bytes) {
     }
 
     #[test]
+    fn accepts_image_metadata_and_ocr_result_helpers() {
+        let source = r#"
+module tests.image_ocr
+
+workflow main(document: Document, bytes: Bytes) {
+    let parsed: Image = image_parse_metadata(document, bytes)
+    let fixture: Image = image_metadata(document, 640, 480, "png")
+    let result: OcrResult = ocr_result(fixture, "Invoice total", 0.91, "fake-ocr", "fixture-v1")
+    let width: Int = parsed.width
+    let height: Int = parsed.height
+    let format: Text = parsed.format
+    let text: Text = result.text
+    let confidence: Float = result.confidence
+    let source: Text = result.source
+    let privacy: Text = result.privacy
+    let trust: Text = result.trust
+    audit(width)
+    audit(height)
+    audit(format)
+    audit(text)
+    audit(confidence)
+    audit(source)
+    audit(privacy)
+    audit(trust)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
     fn rejects_bytes_and_xml_helper_type_mismatches() {
         let source = r#"
 module tests.bytes_xml

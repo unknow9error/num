@@ -438,6 +438,18 @@ mod tests {
         out
     }
 
+    fn test_png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(b"\x89PNG\r\n\x1a\n");
+        out.extend(13u32.to_be_bytes());
+        out.extend(b"IHDR");
+        out.extend(width.to_be_bytes());
+        out.extend(height.to_be_bytes());
+        out.extend([8, 2, 0, 0, 0]);
+        out.extend(0u32.to_be_bytes());
+        out
+    }
+
     fn zip_local_entry(name: &str, contents: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend(b"PK\x03\x04");
@@ -1659,6 +1671,70 @@ workflow main(document: Document, bytes: Bytes) {
                 "4".to_string(),
                 "2".to_string(),
                 "1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_runtime_parses_image_metadata_and_fake_ocr() {
+        let source = r#"
+module test.image_ocr
+
+workflow main(document: Document, bytes: Bytes) {
+    let image: Image = image_parse_metadata(document, bytes)
+    let fixture: Image = image_metadata(document, 320, 200, "png")
+    let result: OcrResult = ocr_result(fixture, "Invoice total", 0.91, "fake-ocr", "fixture-v1")
+    audit(image.width)
+    audit(image.height)
+    audit(image.format)
+    audit(image.privacy)
+    audit(result.text)
+    audit(result.confidence)
+    audit(result.provider)
+    audit(result.model)
+    audit(result.source)
+    audit(result.privacy)
+    audit(result.trust)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "document".to_string(),
+            Value::Document(crate::document::DocumentValue {
+                id: "image_1".to_string(),
+                name: "invoice.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size_bytes: 128,
+                source: "Upload".to_string(),
+                privacy: "private".to_string(),
+                trust: "untrusted".to_string(),
+            }),
+        );
+        args.insert("bytes".to_string(), Value::Bytes(test_png_bytes(640, 480)));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "640".to_string(),
+                "480".to_string(),
+                "\"png\"".to_string(),
+                "\"private\"".to_string(),
+                "\"Invoice total\"".to_string(),
+                "0.91".to_string(),
+                "\"fake-ocr\"".to_string(),
+                "\"fixture-v1\"".to_string(),
+                "\"OCR:fake-ocr\"".to_string(),
+                "\"private\"".to_string(),
+                "\"untrusted\"".to_string(),
             ]
         );
     }

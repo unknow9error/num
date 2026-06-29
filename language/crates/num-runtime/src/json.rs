@@ -35,6 +35,8 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
             crate::document::spreadsheet_sheet_from_json(json).map(Value::SpreadsheetSheet)
         }
         "Spreadsheet" => crate::document::spreadsheet_from_json(json).map(Value::Spreadsheet),
+        "Image" => crate::document::image_from_json(json).map(Value::Image),
+        "OcrResult" => crate::document::ocr_result_from_json(json).map(Value::OcrResult),
         "Bool" | "Boolean" => json
             .as_bool()
             .map(Value::Bool)

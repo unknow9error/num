@@ -2256,6 +2256,7 @@ fn builtin_type_names() -> HashSet<String> {
         "SpreadsheetSheet",
         "Spreadsheet",
         "Image",
+        "OcrResult",
         "Unit",
         "Distance",
         "Speed",
@@ -2305,6 +2306,7 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("SpreadsheetSheet", 0),
         ("Spreadsheet", 0),
         ("Image", 0),
+        ("OcrResult", 0),
         ("Unit", 0),
         ("Distance", 1),
         ("Speed", 1),
@@ -2678,9 +2680,12 @@ fn is_document_helper(name: &str) -> bool {
             | "docx_metadata"
             | "spreadsheet_sheet_metadata"
             | "spreadsheet_metadata"
+            | "image_metadata"
+            | "ocr_result"
             | "pdf_parse_metadata"
             | "docx_parse_metadata"
             | "spreadsheet_parse_metadata"
+            | "image_parse_metadata"
     )
 }
 
@@ -2691,9 +2696,12 @@ fn document_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
         "docx_metadata" => &["Document", "Text", "Text", "Int"][..],
         "spreadsheet_sheet_metadata" => &["Text", "Int", "Int", "Int"][..],
         "spreadsheet_metadata" => &["Document", "Text"][..],
-        "pdf_parse_metadata" | "docx_parse_metadata" | "spreadsheet_parse_metadata" => {
-            &["Document", "Bytes"][..]
-        }
+        "image_metadata" => &["Document", "Int", "Int", "Text"][..],
+        "ocr_result" => &["Image", "Text", "Float", "Text", "Text"][..],
+        "pdf_parse_metadata"
+        | "docx_parse_metadata"
+        | "spreadsheet_parse_metadata"
+        | "image_parse_metadata" => &["Document", "Bytes"][..],
         _ => return None,
     };
     Some(
@@ -2713,9 +2721,12 @@ fn document_helper_result_type(name: &str) -> Option<TypeRef> {
         "docx_metadata" => "Docx",
         "spreadsheet_sheet_metadata" => "SpreadsheetSheet",
         "spreadsheet_metadata" => "Spreadsheet",
+        "image_metadata" => "Image",
+        "ocr_result" => "OcrResult",
         "pdf_parse_metadata" => "Pdf",
         "docx_parse_metadata" => "Docx",
         "spreadsheet_parse_metadata" => "Spreadsheet",
+        "image_parse_metadata" => "Image",
         _ => return None,
     };
     Some(TypeRef {

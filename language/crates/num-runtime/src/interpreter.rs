@@ -4,7 +4,8 @@ use crate::connectors::{
 };
 use crate::cost::{CostEntry, CostLedger};
 use crate::document::{
-    DocumentValue, DocxValue, PdfValue, SpreadsheetSheetValue, SpreadsheetValue,
+    DocumentValue, DocxValue, ImageValue, OcrResultValue, PdfValue, SpreadsheetSheetValue,
+    SpreadsheetValue,
 };
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
@@ -60,6 +61,8 @@ pub enum Value {
     Docx(DocxValue),
     SpreadsheetSheet(SpreadsheetSheetValue),
     Spreadsheet(SpreadsheetValue),
+    Image(ImageValue),
+    OcrResult(OcrResultValue),
     Money(i128, String),
     Brand(String, Box<Value>),
     Secret(Box<Value>),
@@ -98,6 +101,8 @@ impl std::fmt::Display for Value {
             Value::Docx(docx) => write!(f, "{docx}"),
             Value::SpreadsheetSheet(sheet) => write!(f, "{sheet}"),
             Value::Spreadsheet(spreadsheet) => write!(f, "{spreadsheet}"),
+            Value::Image(image) => write!(f, "{image}"),
+            Value::OcrResult(result) => write!(f, "{result}"),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
@@ -327,6 +332,19 @@ fn value_to_idempotency_key(value: Value) -> String {
                 .map(|sheet| value_to_idempotency_key(Value::SpreadsheetSheet(sheet.clone())))
                 .collect::<Vec<_>>()
                 .join("|")
+        ),
+        Value::Image(value) => format!(
+            "image:{}:{}:{}:{}",
+            value.document.id, value.width, value.height, value.format
+        ),
+        Value::OcrResult(value) => format!(
+            "ocr:{}:{}:{}:{}:{}:{}",
+            value.image.document.id,
+            value.text,
+            value.confidence,
+            value.provider,
+            value.model,
+            value.trust
         ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
@@ -1320,6 +1338,12 @@ impl<'a> Runtime<'a> {
                     Value::Spreadsheet(spreadsheet) => spreadsheet
                         .field(field)
                         .ok_or_else(|| format!("Spreadsheet value has no field '{}'", field)),
+                    Value::Image(image) => image
+                        .field(field)
+                        .ok_or_else(|| format!("Image value has no field '{}'", field)),
+                    Value::OcrResult(result) => result
+                        .field(field)
+                        .ok_or_else(|| format!("OcrResult value has no field '{}'", field)),
                     Value::Uncertain(val, conf) => match field.as_str() {
                         "confidence" => Ok(Value::Float(conf)),
                         "value" => Ok(*val),
@@ -1556,10 +1580,15 @@ impl<'a> Runtime<'a> {
             | "pdf_metadata"
             | "docx_metadata"
             | "spreadsheet_sheet_metadata"
-            | "spreadsheet_metadata" => {
+            | "spreadsheet_metadata"
+            | "image_metadata"
+            | "ocr_result" => {
                 return self.call_document_helper(name, args);
             }
-            "pdf_parse_metadata" | "docx_parse_metadata" | "spreadsheet_parse_metadata" => {
+            "pdf_parse_metadata"
+            | "docx_parse_metadata"
+            | "spreadsheet_parse_metadata"
+            | "image_parse_metadata" => {
                 return self.call_document_format_helper(name, args);
             }
             "datetime_parse_iso"
@@ -2361,6 +2390,56 @@ impl<'a> Runtime<'a> {
                 sheets,
             }));
         }
+        if name == "image_metadata" {
+            if args.len() != 4 {
+                return Err(format!(
+                    "{name} expects a Document, width, height, and format"
+                ));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let width = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int width, got {other}")),
+            };
+            let height = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int height, got {other}")),
+            };
+            let format = expect_text_arg(name, "format", args.next().unwrap_or(Value::Null))?;
+            return Ok(Value::Image(ImageValue {
+                document,
+                width,
+                height,
+                format,
+            }));
+        }
+        if name == "ocr_result" {
+            if args.len() != 5 {
+                return Err(format!(
+                    "{name} expects an Image, text, confidence, provider, and model"
+                ));
+            }
+            let mut args = args.into_iter();
+            let image = match args.next().unwrap_or(Value::Null) {
+                Value::Image(value) => value,
+                other => return Err(format!("{name} expects Image metadata, got {other}")),
+            };
+            let text = expect_text_arg(name, "text", args.next().unwrap_or(Value::Null))?;
+            let confidence = match args.next().unwrap_or(Value::Null) {
+                Value::Float(value) => value,
+                Value::Int(value) => value as f64,
+                other => return Err(format!("{name} expects Float confidence, got {other}")),
+            };
+            let provider = expect_text_arg(name, "provider", args.next().unwrap_or(Value::Null))?;
+            let model = expect_text_arg(name, "model", args.next().unwrap_or(Value::Null))?;
+            return crate::document::ocr_result(image, text, confidence, provider, model)
+                .map(Value::OcrResult)
+                .map_err(|reason| format!("{name} failed: {reason}"));
+        }
         if name != "document_metadata" {
             return Err(format!("unknown document helper `{name}`"));
         }
@@ -2419,6 +2498,9 @@ impl<'a> Runtime<'a> {
                     .map(Value::Spreadsheet)
                     .map_err(|reason| format!("{name} failed: {reason}"))
             }
+            "image_parse_metadata" => crate::document::parse_image_metadata(document, &bytes)
+                .map(Value::Image)
+                .map_err(|reason| format!("{name} failed: {reason}")),
             _ => Err(format!("unknown document format helper `{name}`")),
         }
     }
@@ -3044,6 +3126,21 @@ fn value_to_literal_str(val: &Value) -> String {
             .to_string()
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
+        ),
+        Value::Image(image) => format!(
+            "image_metadata({}, {}, {}, \"{}\")",
+            value_to_literal_str(&Value::Document(image.document.clone())),
+            image.width,
+            image.height,
+            image.format.replace('"', "\\\"")
+        ),
+        Value::OcrResult(result) => format!(
+            "ocr_result({}, \"{}\", {}, \"{}\", \"{}\")",
+            value_to_literal_str(&Value::Image(result.image.clone())),
+            result.text.replace('"', "\\\""),
+            result.confidence,
+            result.provider.replace('"', "\\\""),
+            result.model.replace('"', "\\\"")
         ),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;

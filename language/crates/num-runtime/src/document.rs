@@ -40,6 +40,26 @@ pub struct SpreadsheetValue {
     pub sheets: Vec<SpreadsheetSheetValue>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageValue {
+    pub document: DocumentValue,
+    pub width: i64,
+    pub height: i64,
+    pub format: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrResultValue {
+    pub image: ImageValue,
+    pub text: String,
+    pub confidence: f64,
+    pub provider: String,
+    pub model: String,
+    pub source: String,
+    pub privacy: String,
+    pub trust: String,
+}
+
 impl std::fmt::Display for DocumentValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -86,6 +106,26 @@ impl std::fmt::Display for SpreadsheetValue {
             f,
             "<spreadsheet id=\"{}\" name=\"{}\" sheets={}>",
             self.document.id, self.document.name, self.sheet_count
+        )
+    }
+}
+
+impl std::fmt::Display for ImageValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<image id=\"{}\" name=\"{}\" format=\"{}\" width={} height={}>",
+            self.document.id, self.document.name, self.format, self.width, self.height
+        )
+    }
+}
+
+impl std::fmt::Display for OcrResultValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<ocr_result image=\"{}\" provider=\"{}\" confidence={:.2} trust=\"{}\">",
+            self.image.document.id, self.provider, self.confidence, self.trust
         )
     }
 }
@@ -207,6 +247,56 @@ impl SpreadsheetValue {
     }
 }
 
+impl ImageValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "document" => Some(crate::interpreter::Value::Document(self.document.clone())),
+            "width" => Some(crate::interpreter::Value::Int(self.width)),
+            "height" => Some(crate::interpreter::Value::Int(self.height)),
+            "format" => Some(crate::interpreter::Value::String(self.format.clone())),
+            _ => self.document.field(field),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "document": self.document.to_json(),
+            "width": self.width,
+            "height": self.height,
+            "format": self.format,
+        })
+    }
+}
+
+impl OcrResultValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "image" => Some(crate::interpreter::Value::Image(self.image.clone())),
+            "text" => Some(crate::interpreter::Value::String(self.text.clone())),
+            "confidence" => Some(crate::interpreter::Value::Float(self.confidence)),
+            "provider" => Some(crate::interpreter::Value::String(self.provider.clone())),
+            "model" => Some(crate::interpreter::Value::String(self.model.clone())),
+            "source" => Some(crate::interpreter::Value::String(self.source.clone())),
+            "privacy" => Some(crate::interpreter::Value::String(self.privacy.clone())),
+            "trust" => Some(crate::interpreter::Value::String(self.trust.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "image": self.image.to_json(),
+            "text": self.text,
+            "confidence": self.confidence,
+            "provider": self.provider,
+            "model": self.model,
+            "source": self.source,
+            "privacy": self.privacy,
+            "trust": self.trust,
+        })
+    }
+}
+
 pub fn value_from_json(json: &JsonValue) -> Result<DocumentValue, String> {
     let object = json
         .as_object()
@@ -322,6 +412,54 @@ pub fn spreadsheet_from_json(json: &JsonValue) -> Result<SpreadsheetValue, Strin
     })
 }
 
+pub fn image_from_json(json: &JsonValue) -> Result<ImageValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$image")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for Image".to_string())?;
+    let document = object
+        .get("document")
+        .ok_or_else(|| "Image field `document` is required".to_string())
+        .and_then(value_from_json)?;
+    Ok(ImageValue {
+        document,
+        width: required_i64(object, "width")?,
+        height: required_i64(object, "height")?,
+        format: required_string(object, "format")?,
+    })
+}
+
+pub fn ocr_result_from_json(json: &JsonValue) -> Result<OcrResultValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$ocr_result")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for OcrResult".to_string())?;
+    let image = object
+        .get("image")
+        .ok_or_else(|| "OcrResult field `image` is required".to_string())
+        .and_then(image_from_json)?;
+    Ok(OcrResultValue {
+        image,
+        text: required_string(object, "text")?,
+        confidence: required_f64(object, "confidence")?,
+        provider: required_string(object, "provider")?,
+        model: required_string(object, "model")?,
+        source: optional_string(object, "source")?,
+        privacy: optional_string(object, "privacy")?,
+        trust: optional_string(object, "trust")?,
+    })
+}
+
 pub fn connector_json(value: &DocumentValue) -> JsonValue {
     json!({ "$document": value.to_json() })
 }
@@ -340,6 +478,14 @@ pub fn spreadsheet_sheet_connector_json(value: &SpreadsheetSheetValue) -> JsonVa
 
 pub fn spreadsheet_connector_json(value: &SpreadsheetValue) -> JsonValue {
     json!({ "$spreadsheet": value.to_json() })
+}
+
+pub fn image_connector_json(value: &ImageValue) -> JsonValue {
+    json!({ "$image": value.to_json() })
+}
+
+pub fn ocr_result_connector_json(value: &OcrResultValue) -> JsonValue {
+    json!({ "$ocr_result": value.to_json() })
 }
 
 pub fn parse_pdf_metadata(document: DocumentValue, bytes: &[u8]) -> Result<PdfValue, String> {
@@ -424,6 +570,44 @@ pub fn parse_spreadsheet_metadata(
     })
 }
 
+pub fn parse_image_metadata(document: DocumentValue, bytes: &[u8]) -> Result<ImageValue, String> {
+    let (format, width, height) = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        parse_png_dimensions(bytes)?
+    } else if bytes.starts_with(b"\xff\xd8") {
+        parse_jpeg_dimensions(bytes)?
+    } else {
+        return Err("malformed image: unsupported or missing image header".to_string());
+    };
+    Ok(ImageValue {
+        document,
+        width,
+        height,
+        format,
+    })
+}
+
+pub fn ocr_result(
+    image: ImageValue,
+    text: String,
+    confidence: f64,
+    provider: String,
+    model: String,
+) -> Result<OcrResultValue, String> {
+    if !(0.0..=1.0).contains(&confidence) {
+        return Err("OCR confidence must be between 0.0 and 1.0".to_string());
+    }
+    Ok(OcrResultValue {
+        source: format!("OCR:{provider}"),
+        privacy: image.document.privacy.clone(),
+        trust: "untrusted".to_string(),
+        image,
+        text,
+        confidence,
+        provider,
+        model,
+    })
+}
+
 fn required_string(object: &Map<String, JsonValue>, key: &str) -> Result<String, String> {
     object
         .get(key)
@@ -446,6 +630,79 @@ fn required_i64(object: &Map<String, JsonValue>, key: &str) -> Result<i64, Strin
         .get(key)
         .and_then(JsonValue::as_i64)
         .ok_or_else(|| format!("Document field `{key}` must be an integer"))
+}
+
+fn required_f64(object: &Map<String, JsonValue>, key: &str) -> Result<f64, String> {
+    object
+        .get(key)
+        .and_then(JsonValue::as_f64)
+        .ok_or_else(|| format!("Document field `{key}` must be a number"))
+}
+
+fn parse_png_dimensions(bytes: &[u8]) -> Result<(String, i64, i64), String> {
+    if bytes.len() < 24 {
+        return Err("malformed PNG: truncated IHDR".to_string());
+    }
+    if &bytes[12..16] != b"IHDR" {
+        return Err("malformed PNG: missing IHDR chunk".to_string());
+    }
+    let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as i64;
+    let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]) as i64;
+    if width <= 0 || height <= 0 {
+        return Err("malformed PNG: invalid dimensions".to_string());
+    }
+    Ok(("png".to_string(), width, height))
+}
+
+fn parse_jpeg_dimensions(bytes: &[u8]) -> Result<(String, i64, i64), String> {
+    let mut offset = 2usize;
+    while offset + 4 <= bytes.len() {
+        while offset < bytes.len() && bytes[offset] == 0xff {
+            offset += 1;
+        }
+        if offset >= bytes.len() {
+            break;
+        }
+        let marker = bytes[offset];
+        offset += 1;
+        if marker == 0xd9 || marker == 0xda {
+            break;
+        }
+        if offset + 2 > bytes.len() {
+            return Err("malformed JPEG: truncated segment length".to_string());
+        }
+        let segment_len = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+        if segment_len < 2 || offset + segment_len > bytes.len() {
+            return Err("malformed JPEG: invalid segment length".to_string());
+        }
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) {
+            if segment_len < 7 {
+                return Err("malformed JPEG: truncated SOF segment".to_string());
+            }
+            let height = u16::from_be_bytes([bytes[offset + 3], bytes[offset + 4]]) as i64;
+            let width = u16::from_be_bytes([bytes[offset + 5], bytes[offset + 6]]) as i64;
+            if width <= 0 || height <= 0 {
+                return Err("malformed JPEG: invalid dimensions".to_string());
+            }
+            return Ok(("jpeg".to_string(), width, height));
+        }
+        offset += segment_len;
+    }
+    Err("malformed JPEG: missing SOF dimensions".to_string())
 }
 
 fn count_pdf_pages(bytes: &[u8]) -> usize {
@@ -664,8 +921,8 @@ fn xml_attr(tag: &str, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_docx_metadata, parse_pdf_metadata, parse_spreadsheet_metadata, value_from_json,
-        DocumentValue,
+        ocr_result, parse_docx_metadata, parse_image_metadata, parse_pdf_metadata,
+        parse_spreadsheet_metadata, value_from_json, DocumentValue,
     };
     use serde_json::json;
 
@@ -809,6 +1066,51 @@ mod tests {
         assert!(err.contains("unsupported XLSX compression method 8"));
     }
 
+    #[test]
+    fn parses_png_image_metadata() {
+        let value = parse_image_metadata(test_document("image/png"), &png_bytes(640, 480)).unwrap();
+
+        assert_eq!(value.format, "png");
+        assert_eq!(value.width, 640);
+        assert_eq!(value.height, 480);
+        assert_eq!(value.document.mime_type, "image/png");
+    }
+
+    #[test]
+    fn parses_jpeg_image_metadata() {
+        let value =
+            parse_image_metadata(test_document("image/jpeg"), &jpeg_bytes(1024, 768)).unwrap();
+
+        assert_eq!(value.format, "jpeg");
+        assert_eq!(value.width, 1024);
+        assert_eq!(value.height, 768);
+    }
+
+    #[test]
+    fn rejects_malformed_image_metadata() {
+        let err = parse_image_metadata(test_document("image/png"), b"not an image").unwrap_err();
+        assert!(err.contains("unsupported or missing image header"));
+    }
+
+    #[test]
+    fn builds_untrusted_ocr_result() {
+        let image = parse_image_metadata(test_document("image/png"), &png_bytes(100, 50)).unwrap();
+        let value = ocr_result(
+            image,
+            "Invoice total".to_string(),
+            0.91,
+            "fake-ocr".to_string(),
+            "fixture-v1".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(value.text, "Invoice total");
+        assert_eq!(value.confidence, 0.91);
+        assert_eq!(value.source, "OCR:fake-ocr");
+        assert_eq!(value.privacy, "private");
+        assert_eq!(value.trust, "untrusted");
+    }
+
     fn test_document(mime_type: &str) -> DocumentValue {
         DocumentValue {
             id: "doc_1".to_string(),
@@ -848,6 +1150,34 @@ mod tests {
         out.extend(0u16.to_le_bytes());
         out.extend(name.as_bytes());
         out.extend(contents);
+        out
+    }
+
+    fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(b"\x89PNG\r\n\x1a\n");
+        out.extend(13u32.to_be_bytes());
+        out.extend(b"IHDR");
+        out.extend(width.to_be_bytes());
+        out.extend(height.to_be_bytes());
+        out.extend([8, 2, 0, 0, 0]);
+        out.extend(0u32.to_be_bytes());
+        out
+    }
+
+    fn jpeg_bytes(width: u16, height: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend([0xff, 0xd8]);
+        out.extend([0xff, 0xe0]);
+        out.extend(4u16.to_be_bytes());
+        out.extend([0, 0]);
+        out.extend([0xff, 0xc0]);
+        out.extend(17u16.to_be_bytes());
+        out.push(8);
+        out.extend(height.to_be_bytes());
+        out.extend(width.to_be_bytes());
+        out.extend([3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]);
+        out.extend([0xff, 0xd9]);
         out
     }
 }

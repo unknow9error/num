@@ -187,6 +187,8 @@ struct WrapperUsage {
     docx: bool,
     spreadsheet_sheet: bool,
     spreadsheet: bool,
+    image: bool,
+    ocr_result: bool,
 }
 
 fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
@@ -261,6 +263,26 @@ fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("  sheet_count: number;\n");
         out.push_str("  sheets: SpreadsheetSheet[];\n");
         out.push_str("  sheet_names: string[];\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.image {
+        out.push_str("export interface Image extends Document {\n");
+        out.push_str("  document: Document;\n");
+        out.push_str("  width: number;\n");
+        out.push_str("  height: number;\n");
+        out.push_str("  format: string;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.ocr_result {
+        out.push_str("export interface OcrResult {\n");
+        out.push_str("  image: Image;\n");
+        out.push_str("  text: string;\n");
+        out.push_str("  confidence: number;\n");
+        out.push_str("  provider: string;\n");
+        out.push_str("  model: string;\n");
+        out.push_str("  source: string;\n");
+        out.push_str("  privacy: string;\n");
+        out.push_str("  trust: string;\n");
         out.push_str("}\n\n");
     }
 }
@@ -521,6 +543,26 @@ fn render_python_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("    sheets: list[SpreadsheetSheet]\n");
         out.push_str("    sheet_names: list[str]\n\n");
     }
+    if wrappers.image {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class Image(Document):\n");
+        out.push_str("    document: Document\n");
+        out.push_str("    width: int\n");
+        out.push_str("    height: int\n");
+        out.push_str("    format: str\n\n");
+    }
+    if wrappers.ocr_result {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class OcrResult:\n");
+        out.push_str("    image: Image\n");
+        out.push_str("    text: str\n");
+        out.push_str("    confidence: float\n");
+        out.push_str("    provider: str\n");
+        out.push_str("    model: str\n");
+        out.push_str("    source: str\n");
+        out.push_str("    privacy: str\n");
+        out.push_str("    trust: str\n\n");
+    }
 }
 
 fn render_python_type_declarations(out: &mut String, declarations: &[&TypeDecl]) {
@@ -730,6 +772,15 @@ fn collect_wrappers_from_type(ty: &TypeRef, wrappers: &mut WrapperUsage) {
                     wrappers.spreadsheet_sheet = true;
                     wrappers.spreadsheet = true;
                 }
+                "Image" => {
+                    wrappers.document = true;
+                    wrappers.image = true;
+                }
+                "OcrResult" => {
+                    wrappers.document = true;
+                    wrappers.image = true;
+                    wrappers.ocr_result = true;
+                }
                 _ => {}
             }
             for arg in args {
@@ -762,6 +813,8 @@ fn type_expr_to_typescript(expr: &TypeExpr) -> String {
             "Docx" => "Docx".to_string(),
             "SpreadsheetSheet" => "SpreadsheetSheet".to_string(),
             "Spreadsheet" => "Spreadsheet".to_string(),
+            "Image" => "Image".to_string(),
+            "OcrResult" => "OcrResult".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -850,6 +903,8 @@ fn type_expr_to_python(expr: &TypeExpr) -> String {
             "Docx" => "Docx".to_string(),
             "SpreadsheetSheet" => "SpreadsheetSheet".to_string(),
             "Spreadsheet" => "Spreadsheet".to_string(),
+            "Image" => "Image".to_string(),
+            "OcrResult" => "OcrResult".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -1231,6 +1286,8 @@ connector documents {
     inspectPdf(document: Pdf) -> Pdf
     inspectDocx(document: Docx) -> Docx
     inspectSpreadsheet(document: Spreadsheet) -> Spreadsheet
+    inspectImage(document: Image) -> Image
+    runOcr(image: Image) -> OcrResult
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1239,7 +1296,7 @@ connector documents {
         let sdk = render_typescript_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 6);
+        assert_eq!(sdk.method_count, 8);
         assert!(sdk
             .contents
             .contains("export interface NumConnectorEgressContext"));
@@ -1261,6 +1318,11 @@ connector documents {
             .contents
             .contains("export interface Spreadsheet extends Document"));
         assert!(sdk.contents.contains("sheets: SpreadsheetSheet[];"));
+        assert!(sdk
+            .contents
+            .contains("export interface Image extends Document"));
+        assert!(sdk.contents.contains("export interface OcrResult"));
+        assert!(sdk.contents.contains("confidence: number;"));
         assert!(sdk.contents.contains("export type PaymentId = string;"));
         assert!(sdk.contents.contains("export interface RefundRequest"));
         assert!(sdk
@@ -1283,6 +1345,12 @@ connector documents {
         ));
         assert!(sdk.contents.contains(
             "inspectSpreadsheet(document: Spreadsheet, context?: NumConnectorEgressContext): Promise<Spreadsheet>;"
+        ));
+        assert!(sdk.contents.contains(
+            "inspectImage(document: Image, context?: NumConnectorEgressContext): Promise<Image>;"
+        ));
+        assert!(sdk.contents.contains(
+            "runOcr(image: Image, context?: NumConnectorEgressContext): Promise<OcrResult>;"
         ));
     }
 
@@ -1339,6 +1407,8 @@ connector documents {
     inspect_pdf(document: Pdf) -> Pdf
     inspect_docx(document: Docx) -> Docx
     inspect_spreadsheet(document: Spreadsheet) -> Spreadsheet
+    inspect_image(document: Image) -> Image
+    run_ocr(image: Image) -> OcrResult
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1347,7 +1417,7 @@ connector documents {
         let sdk = render_python_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 6);
+        assert_eq!(sdk.method_count, 8);
         assert!(sdk.contents.contains("class NumConnectorEgressContext"));
         assert!(sdk
             .contents
@@ -1364,6 +1434,9 @@ connector documents {
         assert!(sdk.contents.contains("class SpreadsheetSheet:"));
         assert!(sdk.contents.contains("class Spreadsheet(Document):"));
         assert!(sdk.contents.contains("    sheets: list[SpreadsheetSheet]"));
+        assert!(sdk.contents.contains("class Image(Document):"));
+        assert!(sdk.contents.contains("class OcrResult:"));
+        assert!(sdk.contents.contains("    confidence: float"));
         assert!(sdk.contents.contains("PaymentId: TypeAlias = str"));
         assert!(sdk.contents.contains("class RefundRequest:"));
         assert!(sdk.contents.contains(
@@ -1376,6 +1449,8 @@ connector documents {
         assert!(sdk.contents.contains("def inspect_pdf(self, document: Pdf, context: NumConnectorEgressContext | None = None) -> Pdf: ..."));
         assert!(sdk.contents.contains("def inspect_docx(self, document: Docx, context: NumConnectorEgressContext | None = None) -> Docx: ..."));
         assert!(sdk.contents.contains("def inspect_spreadsheet(self, document: Spreadsheet, context: NumConnectorEgressContext | None = None) -> Spreadsheet: ..."));
+        assert!(sdk.contents.contains("def inspect_image(self, document: Image, context: NumConnectorEgressContext | None = None) -> Image: ..."));
+        assert!(sdk.contents.contains("def run_ocr(self, image: Image, context: NumConnectorEgressContext | None = None) -> OcrResult: ..."));
     }
 
     #[test]

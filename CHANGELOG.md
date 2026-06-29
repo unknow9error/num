@@ -68,6 +68,9 @@
 - Added first-slice `Spreadsheet` and `SpreadsheetSheet` metadata wrappers with
   safe sheet-level XLSX metadata parsing, connector/persistence conversion, and
   a spreadsheet metadata example without formula execution or cell import.
+- Added first-slice `Image` and `OcrResult` metadata wrappers with safe PNG/JPEG
+  dimension parsing, deterministic OCR handoff values, connector/persistence
+  conversion, and an image/OCR metadata example without OCR provider execution.
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.

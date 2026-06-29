@@ -261,6 +261,23 @@ Useful command:
 num check examples/spreadsheet_metadata/src/main.num
 ```
 
+## `image_ocr_metadata`
+
+Path: `examples/image_ocr_metadata/src/main.num`
+
+Demonstrates:
+
+- `Image` metadata wrappers over `Document` metadata;
+- `image_parse_metadata(document, bytes)` for safe PNG/JPEG dimensions;
+- `OcrResult` as a fake OCR or connector handoff result;
+- preserving privacy/source labels while keeping OCR text untrusted.
+
+Useful command:
+
+```bash
+num check examples/image_ocr_metadata/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

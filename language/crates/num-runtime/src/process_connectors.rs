@@ -210,6 +210,8 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Docx(docx) => crate::document::docx_connector_json(docx),
         Value::SpreadsheetSheet(sheet) => crate::document::spreadsheet_sheet_connector_json(sheet),
         Value::Spreadsheet(spreadsheet) => crate::document::spreadsheet_connector_json(spreadsheet),
+        Value::Image(image) => crate::document::image_connector_json(image),
+        Value::OcrResult(result) => crate::document::ocr_result_connector_json(result),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -329,6 +331,16 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if object.contains_key("$spreadsheet") {
         return crate::document::spreadsheet_from_json(&JsonValue::Object(object.clone()))
             .map(Value::Spreadsheet);
+    }
+
+    if object.contains_key("$image") {
+        return crate::document::image_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::Image);
+    }
+
+    if object.contains_key("$ocr_result") {
+        return crate::document::ocr_result_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::OcrResult);
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -580,6 +592,24 @@ mod tests {
                 header_row: 1,
             }],
         };
+        let image = crate::document::ImageValue {
+            document: crate::document::DocumentValue {
+                mime_type: "image/png".to_string(),
+                name: "invoice.png".to_string(),
+                ..document.clone()
+            },
+            width: 640,
+            height: 480,
+            format: "png".to_string(),
+        };
+        let ocr = crate::document::ocr_result(
+            image.clone(),
+            "Invoice total".to_string(),
+            0.91,
+            "fake-ocr".to_string(),
+            "fixture-v1".to_string(),
+        )
+        .unwrap();
 
         assert_eq!(
             value_from_json(&value_to_json(&Value::Pdf(pdf.clone()))).unwrap(),
@@ -592,6 +622,14 @@ mod tests {
         assert_eq!(
             value_from_json(&value_to_json(&Value::Spreadsheet(spreadsheet.clone()))).unwrap(),
             Value::Spreadsheet(spreadsheet)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::Image(image.clone()))).unwrap(),
+            Value::Image(image)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::OcrResult(ocr.clone()))).unwrap(),
+            Value::OcrResult(ocr)
         );
     }
 
