@@ -1,0 +1,10 @@
+[package]
+name = "spreadsheet_metadata"
+version = "0.1.0"
+
+[language]
+version = "0.3.0"
+
+[module]
+name = "examples.spreadsheet_metadata"
+source = "src/main.num"

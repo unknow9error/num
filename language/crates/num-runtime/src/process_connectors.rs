@@ -208,6 +208,8 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Document(document) => crate::document::connector_json(document),
         Value::Pdf(pdf) => crate::document::pdf_connector_json(pdf),
         Value::Docx(docx) => crate::document::docx_connector_json(docx),
+        Value::SpreadsheetSheet(sheet) => crate::document::spreadsheet_sheet_connector_json(sheet),
+        Value::Spreadsheet(spreadsheet) => crate::document::spreadsheet_connector_json(spreadsheet),
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -317,6 +319,16 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if object.contains_key("$docx") {
         return crate::document::docx_from_json(&JsonValue::Object(object.clone()))
             .map(Value::Docx);
+    }
+
+    if object.contains_key("$spreadsheet_sheet") {
+        return crate::document::spreadsheet_sheet_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::SpreadsheetSheet);
+    }
+
+    if object.contains_key("$spreadsheet") {
+        return crate::document::spreadsheet_from_json(&JsonValue::Object(object.clone()))
+            .map(Value::Spreadsheet);
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -527,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_pdf_and_docx_values_to_json() {
+    fn converts_pdf_docx_and_spreadsheet_values_to_json() {
         let document = crate::document::DocumentValue {
             id: "doc_1".to_string(),
             name: "contract.pdf".to_string(),
@@ -553,6 +565,21 @@ mod tests {
             creator: "Ada".to_string(),
             paragraph_count: 3,
         };
+        let spreadsheet = crate::document::SpreadsheetValue {
+            document: crate::document::DocumentValue {
+                mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    .to_string(),
+                name: "workbook.xlsx".to_string(),
+                ..document.clone()
+            },
+            sheet_count: 1,
+            sheets: vec![crate::document::SpreadsheetSheetValue {
+                name: "Revenue".to_string(),
+                row_count: 3,
+                column_count: 4,
+                header_row: 1,
+            }],
+        };
 
         assert_eq!(
             value_from_json(&value_to_json(&Value::Pdf(pdf.clone()))).unwrap(),
@@ -561,6 +588,10 @@ mod tests {
         assert_eq!(
             value_from_json(&value_to_json(&Value::Docx(docx.clone()))).unwrap(),
             Value::Docx(docx)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::Spreadsheet(spreadsheet.clone()))).unwrap(),
+            Value::Spreadsheet(spreadsheet)
         );
     }
 

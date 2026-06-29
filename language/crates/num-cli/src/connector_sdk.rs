@@ -185,6 +185,8 @@ struct WrapperUsage {
     document: bool,
     pdf: bool,
     docx: bool,
+    spreadsheet_sheet: bool,
+    spreadsheet: bool,
 }
 
 fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
@@ -243,6 +245,22 @@ fn render_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("  title: string;\n");
         out.push_str("  creator: string;\n");
         out.push_str("  paragraph_count: number;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.spreadsheet_sheet {
+        out.push_str("export interface SpreadsheetSheet {\n");
+        out.push_str("  name: string;\n");
+        out.push_str("  row_count: number;\n");
+        out.push_str("  column_count: number;\n");
+        out.push_str("  header_row: number;\n");
+        out.push_str("}\n\n");
+    }
+    if wrappers.spreadsheet {
+        out.push_str("export interface Spreadsheet extends Document {\n");
+        out.push_str("  document: Document;\n");
+        out.push_str("  sheet_count: number;\n");
+        out.push_str("  sheets: SpreadsheetSheet[];\n");
+        out.push_str("  sheet_names: string[];\n");
         out.push_str("}\n\n");
     }
 }
@@ -487,6 +505,22 @@ fn render_python_runtime_wrappers(out: &mut String, wrappers: &WrapperUsage) {
         out.push_str("    creator: str\n");
         out.push_str("    paragraph_count: int\n\n");
     }
+    if wrappers.spreadsheet_sheet {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class SpreadsheetSheet:\n");
+        out.push_str("    name: str\n");
+        out.push_str("    row_count: int\n");
+        out.push_str("    column_count: int\n");
+        out.push_str("    header_row: int\n\n");
+    }
+    if wrappers.spreadsheet {
+        out.push_str("@dataclass(frozen=True)\n");
+        out.push_str("class Spreadsheet(Document):\n");
+        out.push_str("    document: Document\n");
+        out.push_str("    sheet_count: int\n");
+        out.push_str("    sheets: list[SpreadsheetSheet]\n");
+        out.push_str("    sheet_names: list[str]\n\n");
+    }
 }
 
 fn render_python_type_declarations(out: &mut String, declarations: &[&TypeDecl]) {
@@ -688,6 +722,14 @@ fn collect_wrappers_from_type(ty: &TypeRef, wrappers: &mut WrapperUsage) {
                     wrappers.document = true;
                     wrappers.docx = true;
                 }
+                "SpreadsheetSheet" => {
+                    wrappers.spreadsheet_sheet = true;
+                }
+                "Spreadsheet" => {
+                    wrappers.document = true;
+                    wrappers.spreadsheet_sheet = true;
+                    wrappers.spreadsheet = true;
+                }
                 _ => {}
             }
             for arg in args {
@@ -718,6 +760,8 @@ fn type_expr_to_typescript(expr: &TypeExpr) -> String {
             "Document" => "Document".to_string(),
             "Pdf" => "Pdf".to_string(),
             "Docx" => "Docx".to_string(),
+            "SpreadsheetSheet" => "SpreadsheetSheet".to_string(),
+            "Spreadsheet" => "Spreadsheet".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -804,6 +848,8 @@ fn type_expr_to_python(expr: &TypeExpr) -> String {
             "Document" => "Document".to_string(),
             "Pdf" => "Pdf".to_string(),
             "Docx" => "Docx".to_string(),
+            "SpreadsheetSheet" => "SpreadsheetSheet".to_string(),
+            "Spreadsheet" => "Spreadsheet".to_string(),
             "List" => {
                 let inner = args
                     .first()
@@ -1184,6 +1230,7 @@ connector documents {
     store(document: Document) -> Document
     inspectPdf(document: Pdf) -> Pdf
     inspectDocx(document: Docx) -> Docx
+    inspectSpreadsheet(document: Spreadsheet) -> Spreadsheet
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1192,7 +1239,7 @@ connector documents {
         let sdk = render_typescript_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 5);
+        assert_eq!(sdk.method_count, 6);
         assert!(sdk
             .contents
             .contains("export interface NumConnectorEgressContext"));
@@ -1209,6 +1256,11 @@ connector documents {
             .contents
             .contains("export interface Docx extends Document"));
         assert!(sdk.contents.contains("paragraph_count: number;"));
+        assert!(sdk.contents.contains("export interface SpreadsheetSheet"));
+        assert!(sdk
+            .contents
+            .contains("export interface Spreadsheet extends Document"));
+        assert!(sdk.contents.contains("sheets: SpreadsheetSheet[];"));
         assert!(sdk.contents.contains("export type PaymentId = string;"));
         assert!(sdk.contents.contains("export interface RefundRequest"));
         assert!(sdk
@@ -1228,6 +1280,9 @@ connector documents {
         ));
         assert!(sdk.contents.contains(
             "inspectDocx(document: Docx, context?: NumConnectorEgressContext): Promise<Docx>;"
+        ));
+        assert!(sdk.contents.contains(
+            "inspectSpreadsheet(document: Spreadsheet, context?: NumConnectorEgressContext): Promise<Spreadsheet>;"
         ));
     }
 
@@ -1283,6 +1338,7 @@ connector documents {
     store(document: Document) -> Document
     inspect_pdf(document: Pdf) -> Pdf
     inspect_docx(document: Docx) -> Docx
+    inspect_spreadsheet(document: Spreadsheet) -> Spreadsheet
 }
 "#;
         let compilation = compile("sdk.num", source);
@@ -1291,7 +1347,7 @@ connector documents {
         let sdk = render_python_sdk(&compilation.module);
 
         assert_eq!(sdk.connector_count, 3);
-        assert_eq!(sdk.method_count, 5);
+        assert_eq!(sdk.method_count, 6);
         assert!(sdk.contents.contains("class NumConnectorEgressContext"));
         assert!(sdk
             .contents
@@ -1305,6 +1361,9 @@ connector documents {
         assert!(sdk.contents.contains("    page_count: int"));
         assert!(sdk.contents.contains("class Docx(Document):"));
         assert!(sdk.contents.contains("    paragraph_count: int"));
+        assert!(sdk.contents.contains("class SpreadsheetSheet:"));
+        assert!(sdk.contents.contains("class Spreadsheet(Document):"));
+        assert!(sdk.contents.contains("    sheets: list[SpreadsheetSheet]"));
         assert!(sdk.contents.contains("PaymentId: TypeAlias = str"));
         assert!(sdk.contents.contains("class RefundRequest:"));
         assert!(sdk.contents.contains(
@@ -1316,6 +1375,7 @@ connector documents {
         assert!(sdk.contents.contains("def store(self, document: Document, context: NumConnectorEgressContext | None = None) -> Document: ..."));
         assert!(sdk.contents.contains("def inspect_pdf(self, document: Pdf, context: NumConnectorEgressContext | None = None) -> Pdf: ..."));
         assert!(sdk.contents.contains("def inspect_docx(self, document: Docx, context: NumConnectorEgressContext | None = None) -> Docx: ..."));
+        assert!(sdk.contents.contains("def inspect_spreadsheet(self, document: Spreadsheet, context: NumConnectorEgressContext | None = None) -> Spreadsheet: ..."));
     }
 
     #[test]

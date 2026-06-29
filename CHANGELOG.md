@@ -65,6 +65,9 @@
 - Added first-slice `Pdf` and `Docx` metadata wrappers with explicit byte
   parsers, structured malformed-file errors, runtime/connector/persistence
   conversion, and a PDF/DOCX metadata example without text extraction.
+- Added first-slice `Spreadsheet` and `SpreadsheetSheet` metadata wrappers with
+  safe sheet-level XLSX metadata parsing, connector/persistence conversion, and
+  a spreadsheet metadata example without formula execution or cell import.
 - Added deterministic `DateTime` and `Duration<Hour>` stdlib helpers for UTC ISO
   parsing/formatting, hour-duration parsing/formatting, arithmetic, and runtime
   comparisons.

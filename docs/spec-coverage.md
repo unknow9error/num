@@ -282,6 +282,9 @@ Implemented:
 - first-slice `Pdf` and `Docx` metadata wrappers with safe bounded metadata
   parsers, malformed-input errors, typed field access, and runtime/connector
   persistence conversion;
+- first-slice `Spreadsheet` and `SpreadsheetSheet` metadata wrappers with safe
+  sheet-level XLSX metadata parsing, malformed-input errors, typed field access,
+  and runtime/connector persistence conversion without formula execution;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

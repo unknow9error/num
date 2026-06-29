@@ -46,6 +46,30 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in metadata-only document value with id, name, MIME type, byte size, source, privacy, and trust fields.",
     },
     BuiltinSymbol {
+        name: "Pdf",
+        kind: BuiltinKind::Type,
+        signature: "Pdf",
+        documentation: "Built-in document subtype for PDF metadata.",
+    },
+    BuiltinSymbol {
+        name: "Docx",
+        kind: BuiltinKind::Type,
+        signature: "Docx",
+        documentation: "Built-in document subtype for DOCX metadata.",
+    },
+    BuiltinSymbol {
+        name: "SpreadsheetSheet",
+        kind: BuiltinKind::Type,
+        signature: "SpreadsheetSheet",
+        documentation: "Built-in metadata value for one spreadsheet sheet.",
+    },
+    BuiltinSymbol {
+        name: "Spreadsheet",
+        kind: BuiltinKind::Type,
+        signature: "Spreadsheet",
+        documentation: "Built-in document subtype for sheet-level spreadsheet metadata.",
+    },
+    BuiltinSymbol {
         name: "Distance",
         kind: BuiltinKind::Type,
         signature: "Distance<Unit>",
@@ -190,6 +214,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Builds a metadata-only Docx wrapper from already validated Document metadata.",
     },
     BuiltinSymbol {
+        name: "spreadsheet_sheet_metadata",
+        kind: BuiltinKind::Function,
+        signature: "spreadsheet_sheet_metadata(name: Text, row_count: Int, column_count: Int, header_row: Int) -> SpreadsheetSheet",
+        documentation: "Builds metadata for a single spreadsheet sheet without reading cell contents.",
+    },
+    BuiltinSymbol {
+        name: "spreadsheet_metadata",
+        kind: BuiltinKind::Function,
+        signature: "spreadsheet_metadata(document: Document, sheets_json: Text) -> Spreadsheet",
+        documentation: "Builds a metadata-only Spreadsheet wrapper from already validated sheet metadata JSON.",
+    },
+    BuiltinSymbol {
         name: "pdf_parse_metadata",
         kind: BuiltinKind::Function,
         signature: "pdf_parse_metadata(document: Document, bytes: Bytes) -> Pdf",
@@ -200,6 +236,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         kind: BuiltinKind::Function,
         signature: "docx_parse_metadata(document: Document, bytes: Bytes) -> Docx",
         documentation: "Parses safe DOCX metadata from stored ZIP test-fixture bytes and returns a Docx wrapper preserving the original Document metadata.",
+    },
+    BuiltinSymbol {
+        name: "spreadsheet_parse_metadata",
+        kind: BuiltinKind::Function,
+        signature: "spreadsheet_parse_metadata(document: Document, bytes: Bytes) -> Spreadsheet",
+        documentation: "Parses safe sheet-level XLSX metadata from stored ZIP test-fixture bytes without executing formulas.",
     },
     BuiltinSymbol {
         name: "datetime_parse_iso",

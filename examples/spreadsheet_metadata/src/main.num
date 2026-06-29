@@ -1,0 +1,21 @@
+module examples.spreadsheet_metadata
+
+workflow inspect_workbook(document: Document from Upload private untrusted, bytes: Bytes from Upload private untrusted) {
+    let workbook: Spreadsheet from Upload private untrusted = spreadsheet_parse_metadata(document, bytes)
+    audit("spreadsheet_metadata")
+    audit(workbook.name)
+    audit(workbook.sheet_count)
+    audit(workbook.sheet_names)
+    audit(workbook.privacy)
+    audit(workbook.trust)
+}
+
+workflow inspect_trusted_metadata(document: Document from Connector private trusted) {
+    let revenue: SpreadsheetSheet = spreadsheet_sheet_metadata("Revenue", 120, 8, 1)
+    let workbook: Spreadsheet from Connector private trusted = spreadsheet_metadata(document, "[{\"name\":\"Revenue\",\"row_count\":120,\"column_count\":8,\"header_row\":1},{\"name\":\"Costs\",\"row_count\":80,\"column_count\":5,\"header_row\":1}]")
+    audit("trusted_spreadsheet_metadata")
+    audit(revenue.name)
+    audit(workbook.sheet_count)
+    audit(workbook.sheets)
+    audit(workbook.source)
+}

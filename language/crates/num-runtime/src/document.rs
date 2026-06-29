@@ -25,6 +25,21 @@ pub struct DocxValue {
     pub paragraph_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadsheetSheetValue {
+    pub name: String,
+    pub row_count: i64,
+    pub column_count: i64,
+    pub header_row: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadsheetValue {
+    pub document: DocumentValue,
+    pub sheet_count: i64,
+    pub sheets: Vec<SpreadsheetSheetValue>,
+}
+
 impl std::fmt::Display for DocumentValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -51,6 +66,26 @@ impl std::fmt::Display for DocxValue {
             f,
             "<docx id=\"{}\" name=\"{}\" paragraphs={}>",
             self.document.id, self.document.name, self.paragraph_count
+        )
+    }
+}
+
+impl std::fmt::Display for SpreadsheetSheetValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<spreadsheet_sheet name=\"{}\" rows={} columns={} header_row={}>",
+            self.name, self.row_count, self.column_count, self.header_row
+        )
+    }
+}
+
+impl std::fmt::Display for SpreadsheetValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<spreadsheet id=\"{}\" name=\"{}\" sheets={}>",
+            self.document.id, self.document.name, self.sheet_count
         )
     }
 }
@@ -120,6 +155,58 @@ impl DocxValue {
     }
 }
 
+impl SpreadsheetSheetValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "name" => Some(crate::interpreter::Value::String(self.name.clone())),
+            "row_count" => Some(crate::interpreter::Value::Int(self.row_count)),
+            "column_count" => Some(crate::interpreter::Value::Int(self.column_count)),
+            "header_row" => Some(crate::interpreter::Value::Int(self.header_row)),
+            _ => None,
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "name": self.name,
+            "row_count": self.row_count,
+            "column_count": self.column_count,
+            "header_row": self.header_row,
+        })
+    }
+}
+
+impl SpreadsheetValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "document" => Some(crate::interpreter::Value::Document(self.document.clone())),
+            "sheet_count" => Some(crate::interpreter::Value::Int(self.sheet_count)),
+            "sheets" => Some(crate::interpreter::Value::List(
+                self.sheets
+                    .iter()
+                    .cloned()
+                    .map(crate::interpreter::Value::SpreadsheetSheet)
+                    .collect(),
+            )),
+            "sheet_names" => Some(crate::interpreter::Value::List(
+                self.sheets
+                    .iter()
+                    .map(|sheet| crate::interpreter::Value::String(sheet.name.clone()))
+                    .collect(),
+            )),
+            _ => self.document.field(field),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "document": self.document.to_json(),
+            "sheet_count": self.sheet_count,
+            "sheets": self.sheets.iter().map(SpreadsheetSheetValue::to_json).collect::<Vec<_>>(),
+        })
+    }
+}
+
 pub fn value_from_json(json: &JsonValue) -> Result<DocumentValue, String> {
     let object = json
         .as_object()
@@ -185,6 +272,56 @@ pub fn docx_from_json(json: &JsonValue) -> Result<DocxValue, String> {
     })
 }
 
+pub fn spreadsheet_sheet_from_json(json: &JsonValue) -> Result<SpreadsheetSheetValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$spreadsheet_sheet")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for SpreadsheetSheet".to_string())?;
+    Ok(SpreadsheetSheetValue {
+        name: required_string(object, "name")?,
+        row_count: required_i64(object, "row_count")?,
+        column_count: required_i64(object, "column_count")?,
+        header_row: required_i64(object, "header_row")?,
+    })
+}
+
+pub fn spreadsheet_from_json(json: &JsonValue) -> Result<SpreadsheetValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$spreadsheet")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for Spreadsheet".to_string())?;
+    let document = object
+        .get("document")
+        .ok_or_else(|| "Spreadsheet field `document` is required".to_string())
+        .and_then(value_from_json)?;
+    let sheets = object
+        .get("sheets")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| "Spreadsheet field `sheets` must be an array".to_string())?
+        .iter()
+        .map(spreadsheet_sheet_from_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    let sheet_count = object
+        .get("sheet_count")
+        .and_then(JsonValue::as_i64)
+        .unwrap_or(sheets.len() as i64);
+    Ok(SpreadsheetValue {
+        document,
+        sheet_count,
+        sheets,
+    })
+}
+
 pub fn connector_json(value: &DocumentValue) -> JsonValue {
     json!({ "$document": value.to_json() })
 }
@@ -195,6 +332,14 @@ pub fn pdf_connector_json(value: &PdfValue) -> JsonValue {
 
 pub fn docx_connector_json(value: &DocxValue) -> JsonValue {
     json!({ "$docx": value.to_json() })
+}
+
+pub fn spreadsheet_sheet_connector_json(value: &SpreadsheetSheetValue) -> JsonValue {
+    json!({ "$spreadsheet_sheet": value.to_json() })
+}
+
+pub fn spreadsheet_connector_json(value: &SpreadsheetValue) -> JsonValue {
+    json!({ "$spreadsheet": value.to_json() })
 }
 
 pub fn parse_pdf_metadata(document: DocumentValue, bytes: &[u8]) -> Result<PdfValue, String> {
@@ -215,7 +360,7 @@ pub fn parse_pdf_metadata(document: DocumentValue, bytes: &[u8]) -> Result<PdfVa
 }
 
 pub fn parse_docx_metadata(document: DocumentValue, bytes: &[u8]) -> Result<DocxValue, String> {
-    let entries = stored_zip_entries(bytes)?;
+    let entries = stored_zip_entries(bytes, "DOCX", "DOCX")?;
     let document_xml = entries
         .iter()
         .find(|(name, _)| name == "word/document.xml")
@@ -231,6 +376,51 @@ pub fn parse_docx_metadata(document: DocumentValue, bytes: &[u8]) -> Result<Docx
         title: extract_xml_text(&core_xml, "dc:title").unwrap_or_default(),
         creator: extract_xml_text(&core_xml, "dc:creator").unwrap_or_default(),
         paragraph_count: count_occurrences(document_xml.as_bytes(), b"<w:p") as i64,
+    })
+}
+
+pub fn parse_spreadsheet_metadata(
+    document: DocumentValue,
+    bytes: &[u8],
+) -> Result<SpreadsheetValue, String> {
+    let entries = stored_zip_entries(bytes, "spreadsheet", "XLSX")?;
+    let workbook_xml = entries
+        .iter()
+        .find(|(name, _)| name == "xl/workbook.xml")
+        .map(|(_, data)| String::from_utf8_lossy(data).to_string())
+        .ok_or_else(|| "malformed spreadsheet: missing xl/workbook.xml".to_string())?;
+    let sheet_names = extract_sheet_names(&workbook_xml);
+    if sheet_names.is_empty() {
+        return Err("malformed spreadsheet: workbook has no sheets".to_string());
+    }
+
+    let mut worksheet_entries = entries
+        .iter()
+        .filter(|(name, _)| name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml"))
+        .collect::<Vec<_>>();
+    worksheet_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    if worksheet_entries.is_empty() {
+        return Err("malformed spreadsheet: missing worksheet XML entries".to_string());
+    }
+
+    let mut sheets = Vec::new();
+    for (index, (_, data)) in worksheet_entries.iter().enumerate() {
+        let xml = String::from_utf8_lossy(data);
+        let fallback_name = format!("Sheet{}", index + 1);
+        let name = sheet_names.get(index).cloned().unwrap_or(fallback_name);
+        let (row_count, column_count) = worksheet_dimensions(&xml);
+        sheets.push(SpreadsheetSheetValue {
+            name,
+            row_count,
+            column_count,
+            header_row: detect_header_row(&xml),
+        });
+    }
+
+    Ok(SpreadsheetValue {
+        document,
+        sheet_count: sheets.len() as i64,
+        sheets,
     })
 }
 
@@ -287,60 +477,68 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
-fn stored_zip_entries(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+fn stored_zip_entries(
+    bytes: &[u8],
+    document_kind: &str,
+    compression_label: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut offset = 0usize;
     let mut entries = Vec::new();
     while offset + 30 <= bytes.len() {
         if &bytes[offset..offset + 4] != b"PK\x03\x04" {
             break;
         }
-        let method = le_u16(bytes, offset + 8)?;
-        let compressed_size = le_u32(bytes, offset + 18)? as usize;
-        let uncompressed_size = le_u32(bytes, offset + 22)? as usize;
-        let name_len = le_u16(bytes, offset + 26)? as usize;
-        let extra_len = le_u16(bytes, offset + 28)? as usize;
+        let method = le_u16(bytes, offset + 8, document_kind)?;
+        let compressed_size = le_u32(bytes, offset + 18, document_kind)? as usize;
+        let uncompressed_size = le_u32(bytes, offset + 22, document_kind)? as usize;
+        let name_len = le_u16(bytes, offset + 26, document_kind)? as usize;
+        let extra_len = le_u16(bytes, offset + 28, document_kind)? as usize;
         let name_start = offset + 30;
         let data_start = name_start
             .checked_add(name_len)
             .and_then(|value| value.checked_add(extra_len))
-            .ok_or_else(|| "malformed DOCX: ZIP entry offset overflow".to_string())?;
+            .ok_or_else(|| format!("malformed {document_kind}: ZIP entry offset overflow"))?;
         let data_end = data_start
             .checked_add(compressed_size)
-            .ok_or_else(|| "malformed DOCX: ZIP entry size overflow".to_string())?;
+            .ok_or_else(|| format!("malformed {document_kind}: ZIP entry size overflow"))?;
         if data_end > bytes.len() {
-            return Err("malformed DOCX: truncated ZIP entry".to_string());
+            return Err(format!("malformed {document_kind}: truncated ZIP entry"));
         }
         let name = std::str::from_utf8(&bytes[name_start..name_start + name_len])
-            .map_err(|err| format!("malformed DOCX: invalid ZIP entry name: {err}"))?
+            .map_err(|err| format!("malformed {document_kind}: invalid ZIP entry name: {err}"))?
             .to_string();
         if method != 0 {
             return Err(format!(
-                "unsupported DOCX compression method {method}; first slice supports stored test fixtures"
+                "unsupported {compression_label} compression method {method}; first slice supports stored test fixtures"
             ));
         }
         if compressed_size != uncompressed_size {
-            return Err("malformed DOCX: stored ZIP entry size mismatch".to_string());
+            return Err(format!(
+                "malformed {document_kind}: stored ZIP entry size mismatch"
+            ));
         }
         entries.push((name, bytes[data_start..data_end].to_vec()));
         offset = data_end;
     }
     if entries.is_empty() {
-        return Err("malformed DOCX: missing ZIP local file entries".to_string());
+        return Err(format!(
+            "malformed {document_kind}: missing ZIP local file entries"
+        ));
     }
     Ok(entries)
 }
 
-fn le_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+fn le_u16(bytes: &[u8], offset: usize, document_kind: &str) -> Result<u16, String> {
     let slice = bytes
         .get(offset..offset + 2)
-        .ok_or_else(|| "malformed DOCX: truncated ZIP header".to_string())?;
+        .ok_or_else(|| format!("malformed {document_kind}: truncated ZIP header"))?;
     Ok(u16::from_le_bytes([slice[0], slice[1]]))
 }
 
-fn le_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+fn le_u32(bytes: &[u8], offset: usize, document_kind: &str) -> Result<u32, String> {
     let slice = bytes
         .get(offset..offset + 4)
-        .ok_or_else(|| "malformed DOCX: truncated ZIP header".to_string())?;
+        .ok_or_else(|| format!("malformed {document_kind}: truncated ZIP header"))?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
@@ -352,9 +550,123 @@ fn extract_xml_text(xml: &str, tag: &str) -> Option<String> {
     Some(xml[start..end].to_string())
 }
 
+fn extract_sheet_names(workbook_xml: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = workbook_xml;
+    while let Some(index) = rest.find("<sheet") {
+        rest = &rest[index + "<sheet".len()..];
+        if let Some(end) = rest.find('>') {
+            let tag = &rest[..end];
+            if let Some(name) = xml_attr(tag, "name") {
+                names.push(name);
+            }
+            rest = &rest[end..];
+        } else {
+            break;
+        }
+    }
+    names
+}
+
+fn worksheet_dimensions(xml: &str) -> (i64, i64) {
+    if let Some(ref_value) = xml
+        .find("<dimension")
+        .and_then(|index| xml[index..].find('>').map(|end| &xml[index..index + end]))
+        .and_then(|tag| xml_attr(tag, "ref"))
+    {
+        if let Some((rows, columns)) = dimensions_from_ref(&ref_value) {
+            return (rows, columns);
+        }
+    }
+    (
+        count_occurrences(xml.as_bytes(), b"<row") as i64,
+        max_column_from_cells(xml),
+    )
+}
+
+fn dimensions_from_ref(value: &str) -> Option<(i64, i64)> {
+    let (_, end) = value.rsplit_once(':').unwrap_or(("", value));
+    let (column, row) = split_cell_ref(end)?;
+    Some((row, column))
+}
+
+fn max_column_from_cells(xml: &str) -> i64 {
+    let mut max_column = 0;
+    let mut rest = xml;
+    while let Some(index) = rest.find("<c ") {
+        rest = &rest[index + 3..];
+        if let Some(end) = rest.find('>') {
+            let tag = &rest[..end];
+            if let Some(cell_ref) = xml_attr(tag, "r") {
+                if let Some((column, _)) = split_cell_ref(&cell_ref) {
+                    max_column = max_column.max(column);
+                }
+            }
+            rest = &rest[end..];
+        } else {
+            break;
+        }
+    }
+    max_column
+}
+
+fn detect_header_row(xml: &str) -> i64 {
+    let Some(row_index) = xml.find("<row") else {
+        return 0;
+    };
+    let Some(row_end) = xml[row_index..].find("</row>") else {
+        return 0;
+    };
+    let row = &xml[row_index..row_index + row_end];
+    let Some(tag_end) = row.find('>') else {
+        return 0;
+    };
+    let row_tag = &row[..tag_end];
+    let row_number = xml_attr(row_tag, "r")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(1);
+    if row.contains(" t=\"s\"")
+        || row.contains(" t=\"str\"")
+        || row.contains(" t=\"inlineStr\"")
+        || row.contains("<is>")
+    {
+        row_number
+    } else {
+        0
+    }
+}
+
+fn split_cell_ref(value: &str) -> Option<(i64, i64)> {
+    let mut column = 0i64;
+    let mut row = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphabetic() {
+            column = column
+                .checked_mul(26)?
+                .checked_add((ch.to_ascii_uppercase() as u8 - b'A' + 1) as i64)?;
+        } else if ch.is_ascii_digit() {
+            row.push(ch);
+        }
+    }
+    if column == 0 || row.is_empty() {
+        return None;
+    }
+    Some((column, row.parse().ok()?))
+}
+
+fn xml_attr(tag: &str, name: &str) -> Option<String> {
+    let pattern = format!("{name}=\"");
+    let start = tag.find(&pattern)? + pattern.len();
+    let end = tag[start..].find('"')? + start;
+    Some(tag[start..end].to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_docx_metadata, parse_pdf_metadata, value_from_json, DocumentValue};
+    use super::{
+        parse_docx_metadata, parse_pdf_metadata, parse_spreadsheet_metadata, value_from_json,
+        DocumentValue,
+    };
     use serde_json::json;
 
     #[test]
@@ -448,6 +760,53 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("unsupported DOCX compression method 8"));
+    }
+
+    #[test]
+    fn parses_stored_spreadsheet_metadata() {
+        let bytes = stored_zip_fixture(&[
+            (
+                "xl/workbook.xml",
+                r#"<workbook><sheets><sheet name="Revenue" sheetId="1"/><sheet name="Costs" sheetId="2"/></sheets></workbook>"#,
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                r#"<worksheet><dimension ref="A1:C3"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Total</t></is></c></row><row r="2"><c r="A2"/><c r="C2"/></row></sheetData></worksheet>"#,
+            ),
+            (
+                "xl/worksheets/sheet2.xml",
+                r#"<worksheet><sheetData><row r="1"><c r="A1"/><c r="B1"/></row><row r="2"><c r="A2"/></row></sheetData></worksheet>"#,
+            ),
+        ]);
+
+        let value = parse_spreadsheet_metadata(
+            test_document("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            &bytes,
+        )
+        .unwrap();
+
+        assert_eq!(value.sheet_count, 2);
+        assert_eq!(value.sheets[0].name, "Revenue");
+        assert_eq!(value.sheets[0].row_count, 3);
+        assert_eq!(value.sheets[0].column_count, 3);
+        assert_eq!(value.sheets[0].header_row, 1);
+        assert_eq!(value.sheets[1].name, "Costs");
+        assert_eq!(value.sheets[1].row_count, 2);
+        assert_eq!(value.sheets[1].column_count, 2);
+        assert_eq!(value.sheets[1].header_row, 0);
+    }
+
+    #[test]
+    fn rejects_compressed_spreadsheet_metadata_in_first_slice() {
+        let bytes = zip_fixture_with_method("xl/workbook.xml", "<workbook/>", 8);
+
+        let err = parse_spreadsheet_metadata(
+            test_document("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            &bytes,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("unsupported XLSX compression method 8"));
     }
 
     fn test_document(mime_type: &str) -> DocumentValue {
