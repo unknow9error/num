@@ -3,7 +3,9 @@ use crate::connectors::{
     DemoConnectorExecutor,
 };
 use crate::cost::{CostEntry, CostLedger};
-use crate::document::{DocumentValue, DocxValue, PdfValue};
+use crate::document::{
+    DocumentValue, DocxValue, PdfValue, SpreadsheetSheetValue, SpreadsheetValue,
+};
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
 use crate::observability::{RuntimeTraceEvent, RuntimeTraceKind};
 use crate::rate_limit::{parse_rate_limit, RateLimitKey, RateLimitSubject, RateLimiter};
@@ -56,6 +58,8 @@ pub enum Value {
     Document(DocumentValue),
     Pdf(PdfValue),
     Docx(DocxValue),
+    SpreadsheetSheet(SpreadsheetSheetValue),
+    Spreadsheet(SpreadsheetValue),
     Money(i128, String),
     Brand(String, Box<Value>),
     Secret(Box<Value>),
@@ -92,6 +96,8 @@ impl std::fmt::Display for Value {
             ),
             Value::Pdf(pdf) => write!(f, "{pdf}"),
             Value::Docx(docx) => write!(f, "{docx}"),
+            Value::SpreadsheetSheet(sheet) => write!(f, "{sheet}"),
+            Value::Spreadsheet(spreadsheet) => write!(f, "{spreadsheet}"),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
@@ -307,6 +313,20 @@ fn value_to_idempotency_key(value: Value) -> String {
             value.title,
             value.creator,
             value.paragraph_count
+        ),
+        Value::SpreadsheetSheet(value) => format!(
+            "spreadsheet-sheet:{}:{}:{}:{}",
+            value.name, value.row_count, value.column_count, value.header_row
+        ),
+        Value::Spreadsheet(value) => format!(
+            "spreadsheet:{}:{}",
+            value.document.id,
+            value
+                .sheets
+                .iter()
+                .map(|sheet| value_to_idempotency_key(Value::SpreadsheetSheet(sheet.clone())))
+                .collect::<Vec<_>>()
+                .join("|")
         ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::Brand(name, value) => {
@@ -1294,6 +1314,12 @@ impl<'a> Runtime<'a> {
                     Value::Docx(docx) => docx
                         .field(field)
                         .ok_or_else(|| format!("Docx value has no field '{}'", field)),
+                    Value::SpreadsheetSheet(sheet) => sheet
+                        .field(field)
+                        .ok_or_else(|| format!("SpreadsheetSheet value has no field '{}'", field)),
+                    Value::Spreadsheet(spreadsheet) => spreadsheet
+                        .field(field)
+                        .ok_or_else(|| format!("Spreadsheet value has no field '{}'", field)),
                     Value::Uncertain(val, conf) => match field.as_str() {
                         "confidence" => Ok(Value::Float(conf)),
                         "value" => Ok(*val),
@@ -1526,10 +1552,14 @@ impl<'a> Runtime<'a> {
             | "xml_parse" | "xml_to_text" => {
                 return self.call_bytes_xml_helper(name, args);
             }
-            "document_metadata" | "pdf_metadata" | "docx_metadata" => {
+            "document_metadata"
+            | "pdf_metadata"
+            | "docx_metadata"
+            | "spreadsheet_sheet_metadata"
+            | "spreadsheet_metadata" => {
                 return self.call_document_helper(name, args);
             }
-            "pdf_parse_metadata" | "docx_parse_metadata" => {
+            "pdf_parse_metadata" | "docx_parse_metadata" | "spreadsheet_parse_metadata" => {
                 return self.call_document_format_helper(name, args);
             }
             "datetime_parse_iso"
@@ -2279,6 +2309,58 @@ impl<'a> Runtime<'a> {
                 paragraph_count,
             }));
         }
+        if name == "spreadsheet_sheet_metadata" {
+            if args.len() != 4 {
+                return Err(format!(
+                    "{name} expects name, row_count, column_count, and header_row"
+                ));
+            }
+            let mut args = args.into_iter();
+            let sheet_name = expect_text_arg(name, "name", args.next().unwrap_or(Value::Null))?;
+            let row_count = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int row_count, got {other}")),
+            };
+            let column_count = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int column_count, got {other}")),
+            };
+            let header_row = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int header_row, got {other}")),
+            };
+            return Ok(Value::SpreadsheetSheet(SpreadsheetSheetValue {
+                name: sheet_name,
+                row_count,
+                column_count,
+                header_row,
+            }));
+        }
+        if name == "spreadsheet_metadata" {
+            if args.len() != 2 {
+                return Err(format!("{name} expects a Document and sheets_json"));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let sheets_json =
+                expect_text_arg(name, "sheets_json", args.next().unwrap_or(Value::Null))?;
+            let sheets_value = serde_json::from_str::<serde_json::Value>(&sheets_json)
+                .map_err(|err| format!("{name} expects JSON sheet metadata: {err}"))?;
+            let sheets = sheets_value
+                .as_array()
+                .ok_or_else(|| format!("{name} expects sheets_json to be an array"))?
+                .iter()
+                .map(crate::document::spreadsheet_sheet_from_json)
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Value::Spreadsheet(SpreadsheetValue {
+                document,
+                sheet_count: sheets.len() as i64,
+                sheets,
+            }));
+        }
         if name != "document_metadata" {
             return Err(format!("unknown document helper `{name}`"));
         }
@@ -2332,6 +2414,11 @@ impl<'a> Runtime<'a> {
             "docx_parse_metadata" => crate::document::parse_docx_metadata(document, &bytes)
                 .map(Value::Docx)
                 .map_err(|reason| format!("{name} failed: {reason}")),
+            "spreadsheet_parse_metadata" => {
+                crate::document::parse_spreadsheet_metadata(document, &bytes)
+                    .map(Value::Spreadsheet)
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
             _ => Err(format!("unknown document format helper `{name}`")),
         }
     }
@@ -2936,6 +3023,27 @@ fn value_to_literal_str(val: &Value) -> String {
             docx.title.replace('"', "\\\""),
             docx.creator.replace('"', "\\\""),
             docx.paragraph_count
+        ),
+        Value::SpreadsheetSheet(sheet) => format!(
+            "spreadsheet_sheet_metadata(\"{}\", {}, {}, {})",
+            sheet.name.replace('"', "\\\""),
+            sheet.row_count,
+            sheet.column_count,
+            sheet.header_row
+        ),
+        Value::Spreadsheet(spreadsheet) => format!(
+            "spreadsheet_metadata({}, \"{}\")",
+            value_to_literal_str(&Value::Document(spreadsheet.document.clone())),
+            serde_json::Value::Array(
+                spreadsheet
+                    .sheets
+                    .iter()
+                    .map(SpreadsheetSheetValue::to_json)
+                    .collect()
+            )
+            .to_string()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
         ),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;

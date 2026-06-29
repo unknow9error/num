@@ -242,6 +242,25 @@ Useful command:
 num check examples/pdf_docx_metadata/src/main.num
 ```
 
+## `spreadsheet_metadata`
+
+Path: `examples/spreadsheet_metadata/src/main.num`
+
+Demonstrates:
+
+- `Spreadsheet` and `SpreadsheetSheet` metadata wrappers;
+- `spreadsheet_parse_metadata(document, bytes)` for safe sheet-level XLSX
+  metadata;
+- `spreadsheet_sheet_metadata(...)` and `spreadsheet_metadata(document,
+  sheets_json)` for trusted metadata fixtures;
+- preserving source/privacy/trust metadata from the original `Document`.
+
+Useful command:
+
+```bash
+num check examples/spreadsheet_metadata/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

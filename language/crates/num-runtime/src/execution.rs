@@ -339,6 +339,10 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Document(value) => json!({"kind": "Document", "value": value.to_json()}),
         Value::Pdf(value) => json!({"kind": "Pdf", "value": value.to_json()}),
         Value::Docx(value) => json!({"kind": "Docx", "value": value.to_json()}),
+        Value::SpreadsheetSheet(value) => {
+            json!({"kind": "SpreadsheetSheet", "value": value.to_json()})
+        }
+        Value::Spreadsheet(value) => json!({"kind": "Spreadsheet", "value": value.to_json()}),
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
@@ -438,6 +442,20 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                 .ok_or_else(|| storage_error("missing docx value"))?,
         )
         .map(Value::Docx)
+        .map_err(storage_error),
+        "SpreadsheetSheet" => crate::document::spreadsheet_sheet_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing spreadsheet sheet value"))?,
+        )
+        .map(Value::SpreadsheetSheet)
+        .map_err(storage_error),
+        "Spreadsheet" => crate::document::spreadsheet_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing spreadsheet value"))?,
+        )
+        .map(Value::Spreadsheet)
         .map_err(storage_error),
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,
@@ -884,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn file_idempotency_store_round_trips_pdf_and_docx_records() {
+    fn file_idempotency_store_round_trips_pdf_docx_and_spreadsheet_records() {
         let root = unique_test_dir("document-formats");
         let action = action_spec("parse_document", Some("document/parse"));
         let document = crate::document::DocumentValue {
@@ -913,11 +931,31 @@ mod tests {
                             id: "doc_2".to_string(),
                             name: "contract.docx".to_string(),
                             mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
-                            ..document
+                            ..document.clone()
                         },
                         title: "Contract".to_string(),
                         creator: "Ada".to_string(),
                         paragraph_count: 3,
+                    }),
+                ),
+                (
+                    "spreadsheet".to_string(),
+                    Value::Spreadsheet(crate::document::SpreadsheetValue {
+                        document: crate::document::DocumentValue {
+                            id: "doc_3".to_string(),
+                            name: "workbook.xlsx".to_string(),
+                            mime_type:
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    .to_string(),
+                            ..document
+                        },
+                        sheet_count: 1,
+                        sheets: vec![crate::document::SpreadsheetSheetValue {
+                            name: "Revenue".to_string(),
+                            row_count: 3,
+                            column_count: 4,
+                            header_row: 1,
+                        }],
                     }),
                 ),
             ]),

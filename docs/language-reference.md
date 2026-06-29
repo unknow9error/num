@@ -575,6 +575,51 @@ Intentionally unsupported in this slice:
   compressed ZIP parsing;
 - OCR and AI extraction, which belong to the later document extraction boundary.
 
+### Spreadsheet Metadata
+
+`Spreadsheet` is a document-specialized metadata wrapper for workbook-level
+inspection before cell-level import. It preserves the original `Document`
+metadata and adds sheet metadata:
+
+- `Spreadsheet.document: Document`
+- `Spreadsheet.sheet_count: Int`
+- `Spreadsheet.sheet_names: List<Text>`
+- `Spreadsheet.sheets: List<SpreadsheetSheet>`
+- `SpreadsheetSheet.name: Text`
+- `SpreadsheetSheet.row_count: Int`
+- `SpreadsheetSheet.column_count: Int`
+- `SpreadsheetSheet.header_row: Int`
+
+`header_row` is `0` when the first slice cannot detect a header row.
+`Spreadsheet` also exposes the base `Document` fields directly, such as
+`workbook.name`, `workbook.privacy`, and `workbook.source`.
+
+```num
+let workbook: Spreadsheet = spreadsheet_parse_metadata(document, bytes)
+let names: List<Text> = workbook.sheet_names
+
+let sheet: SpreadsheetSheet = spreadsheet_sheet_metadata("Revenue", 120, 8, 1)
+let trusted: Spreadsheet = spreadsheet_metadata(document, "[{\"name\":\"Revenue\",\"row_count\":120,\"column_count\":8,\"header_row\":1}]")
+```
+
+`spreadsheet_parse_metadata(document, bytes)` accepts a deliberately small
+first-slice XLSX fixture shape: ZIP local file entries stored without
+compression, with `xl/workbook.xml` and `xl/worksheets/sheet*.xml`. It reads
+only workbook and worksheet XML metadata, counts dimensions/rows/cells, and does
+not execute formulas. Compressed XLSX files are rejected with a structured
+runtime error until a real ZIP/Deflate parser boundary is introduced.
+`spreadsheet_metadata(document, sheets_json)` builds a trusted fixture or
+adapter value from a JSON array of sheet metadata objects; this avoids adding a
+new collection literal syntax in the metadata slice.
+
+Intentionally unsupported in this slice:
+
+- typed table inference and schema detection;
+- formula evaluation, recalculation, macros, external links, and pivot tables;
+- shared-string resolution beyond safe header-row hints;
+- cell-level import and large-file streaming, which belong to later document
+  extraction work.
+
 ### DateTime and Duration Helpers
 
 `DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:

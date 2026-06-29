@@ -157,6 +157,19 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             values.push(value.creator.clone());
             values.push(value.paragraph_count.to_string());
         }
+        Value::SpreadsheetSheet(value) => {
+            values.push(value.name.clone());
+            values.push(value.row_count.to_string());
+            values.push(value.column_count.to_string());
+            values.push(value.header_row.to_string());
+        }
+        Value::Spreadsheet(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.sheet_count.to_string());
+            for sheet in &value.sheets {
+                collect_scalar_values(&Value::SpreadsheetSheet(sheet.clone()), values);
+            }
+        }
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));

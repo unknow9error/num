@@ -421,6 +421,23 @@ mod tests {
         out
     }
 
+    fn test_xlsx_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(zip_local_entry(
+            "xl/workbook.xml",
+            br#"<workbook><sheets><sheet name="Revenue" sheetId="1"/><sheet name="Costs" sheetId="2"/></sheets></workbook>"#,
+        ));
+        out.extend(zip_local_entry(
+            "xl/worksheets/sheet1.xml",
+            br#"<worksheet><dimension ref="A1:C3"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Total</t></is></c></row><row r="2"><c r="A2"/><c r="C2"/></row></sheetData></worksheet>"#,
+        ));
+        out.extend(zip_local_entry(
+            "xl/worksheets/sheet2.xml",
+            br#"<worksheet><sheetData><row r="1"><c r="A1"/><c r="B1"/></row><row r="2"><c r="A2"/></row></sheetData></worksheet>"#,
+        ));
+        out
+    }
+
     fn zip_local_entry(name: &str, contents: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend(b"PK\x03\x04");
@@ -1581,6 +1598,67 @@ workflow main(document: Document, pdf_bytes: Bytes, docx_bytes: Bytes) {
                 "\"Ada\"".to_string(),
                 "2".to_string(),
                 "\"private\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_runtime_parses_spreadsheet_metadata() {
+        let source = r#"
+module test.spreadsheet_metadata
+
+workflow main(document: Document, bytes: Bytes) {
+    let spreadsheet: Spreadsheet = spreadsheet_parse_metadata(document, bytes)
+    let fixture_sheet: SpreadsheetSheet = spreadsheet_sheet_metadata("Manual", 4, 2, 1)
+    let fixture: Spreadsheet = spreadsheet_metadata(document, "[{\"name\":\"Manual\",\"row_count\":4,\"column_count\":2,\"header_row\":1}]")
+    audit(spreadsheet.sheet_count)
+    audit(spreadsheet.sheet_names)
+    audit(spreadsheet.sheets)
+    audit(spreadsheet.source)
+    audit(fixture.sheet_count)
+    audit(fixture_sheet.name)
+    audit(fixture_sheet.row_count)
+    audit(fixture_sheet.column_count)
+    audit(fixture_sheet.header_row)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "document".to_string(),
+            Value::Document(crate::document::DocumentValue {
+                id: "sheet_1".to_string(),
+                name: "workbook.xlsx".to_string(),
+                mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    .to_string(),
+                size_bytes: 4096,
+                source: "Upload".to_string(),
+                privacy: "private".to_string(),
+                trust: "untrusted".to_string(),
+            }),
+        );
+        args.insert("bytes".to_string(), Value::Bytes(test_xlsx_bytes()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "2".to_string(),
+                "[\"Revenue\", \"Costs\"]".to_string(),
+                "[<spreadsheet_sheet name=\"Revenue\" rows=3 columns=3 header_row=1>, <spreadsheet_sheet name=\"Costs\" rows=2 columns=2 header_row=0>]".to_string(),
+                "\"Upload\"".to_string(),
+                "1".to_string(),
+                "\"Manual\"".to_string(),
+                "4".to_string(),
+                "2".to_string(),
+                "1".to_string(),
             ]
         );
     }

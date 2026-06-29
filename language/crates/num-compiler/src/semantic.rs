@@ -2253,6 +2253,8 @@ fn builtin_type_names() -> HashSet<String> {
         "Document",
         "Pdf",
         "Docx",
+        "SpreadsheetSheet",
+        "Spreadsheet",
         "Image",
         "Unit",
         "Distance",
@@ -2300,6 +2302,8 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("Document", 0),
         ("Pdf", 0),
         ("Docx", 0),
+        ("SpreadsheetSheet", 0),
+        ("Spreadsheet", 0),
         ("Image", 0),
         ("Unit", 0),
         ("Distance", 1),
@@ -2672,8 +2676,11 @@ fn is_document_helper(name: &str) -> bool {
         "document_metadata"
             | "pdf_metadata"
             | "docx_metadata"
+            | "spreadsheet_sheet_metadata"
+            | "spreadsheet_metadata"
             | "pdf_parse_metadata"
             | "docx_parse_metadata"
+            | "spreadsheet_parse_metadata"
     )
 }
 
@@ -2682,7 +2689,11 @@ fn document_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
         "document_metadata" => &["Text", "Text", "Text", "Int", "Text", "Text", "Text"][..],
         "pdf_metadata" => &["Document", "Int"][..],
         "docx_metadata" => &["Document", "Text", "Text", "Int"][..],
-        "pdf_parse_metadata" | "docx_parse_metadata" => &["Document", "Bytes"][..],
+        "spreadsheet_sheet_metadata" => &["Text", "Int", "Int", "Int"][..],
+        "spreadsheet_metadata" => &["Document", "Text"][..],
+        "pdf_parse_metadata" | "docx_parse_metadata" | "spreadsheet_parse_metadata" => {
+            &["Document", "Bytes"][..]
+        }
         _ => return None,
     };
     Some(
@@ -2700,8 +2711,11 @@ fn document_helper_result_type(name: &str) -> Option<TypeRef> {
         "document_metadata" => "Document",
         "pdf_metadata" => "Pdf",
         "docx_metadata" => "Docx",
+        "spreadsheet_sheet_metadata" => "SpreadsheetSheet",
+        "spreadsheet_metadata" => "Spreadsheet",
         "pdf_parse_metadata" => "Pdf",
         "docx_parse_metadata" => "Docx",
+        "spreadsheet_parse_metadata" => "Spreadsheet",
         _ => return None,
     };
     Some(TypeRef {

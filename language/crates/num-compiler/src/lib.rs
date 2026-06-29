@@ -263,6 +263,41 @@ workflow main(document: Document) {
     }
 
     #[test]
+    fn accepts_spreadsheet_metadata_helpers() {
+        let source = r#"
+module tests.spreadsheet_metadata
+
+workflow main(document: Document, bytes: Bytes) {
+    let parsed: Spreadsheet = spreadsheet_parse_metadata(document, bytes)
+    let fixture_sheet: SpreadsheetSheet = spreadsheet_sheet_metadata("Revenue", 3, 4, 1)
+    let fixture: Spreadsheet = spreadsheet_metadata(document, "[{\"name\":\"Revenue\",\"row_count\":3,\"column_count\":4,\"header_row\":1}]")
+    let sheet_count: Int = parsed.sheet_count
+    let names: List<Text> = parsed.sheet_names
+    let sheets: List<SpreadsheetSheet> = fixture.sheets
+    let first_name: Text = fixture_sheet.name
+    let rows: Int = fixture_sheet.row_count
+    let columns: Int = fixture_sheet.column_count
+    let header: Int = fixture_sheet.header_row
+    let source: Text = parsed.source
+    audit(sheet_count)
+    audit(names)
+    audit(sheets)
+    audit(first_name)
+    audit(rows)
+    audit(columns)
+    audit(header)
+    audit(source)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
     fn rejects_bytes_and_xml_helper_type_mismatches() {
         let source = r#"
 module tests.bytes_xml
