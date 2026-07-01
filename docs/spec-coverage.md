@@ -466,6 +466,8 @@ Implemented expression typing:
 - guarded `Option<T>.value`;
 - sound `Option<T>` narrowing through supported `if` boolean guards using
   `&&` and `||`;
+- post-guard `Option<T>` narrowing when the checked branch terminates with
+  `return` or `reject(...)`;
 - `Some(...)` inference from payload type;
 - `Some(...)` and `None` constructors in typed `Option<T>` contexts;
 - `Result<T,E>.is_ok`;
@@ -474,6 +476,8 @@ Implemented expression typing:
 - guarded `Result<T,E>.error`;
 - sound `Result<T,E>` narrowing through supported `if` boolean guards using
   `&&` and `||`;
+- post-guard `Result<T,E>` narrowing when the checked branch terminates with
+  `return` or `reject(...)`;
 - `Ok(...)` and `Err(...)` constructors in typed `Result<T,E>` contexts;
 - `Result<T,E>?` unwrap with compatible enclosing `Result<_,E>` propagation;
 - branded alias constructor calls with base payload type checks, including
@@ -508,7 +512,8 @@ Not yet implemented:
 - generic constraints;
 - general destructuring patterns beyond structured union member fields;
 - broad type inference for complex expressions and generic partial types;
-- general nullable/result flow analysis outside supported `if` boolean guards.
+- general nullable/result flow analysis beyond supported `if` boolean guards
+  and terminal guard branches.
 
 ### Connector Schemas
 

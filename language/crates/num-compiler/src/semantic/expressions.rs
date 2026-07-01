@@ -240,7 +240,9 @@ impl<'a> Checker<'a> {
                     raw.span.clone(),
                 )
                 .with_reason("Option<T> may be empty and must be checked before unwrapping")
-                .with_help("guard the access with `if option.is_some { ... }`"),
+                .with_help(
+                    "guard the access with `if option.is_some { ... }` or return/reject from an `is_none` guard first",
+                ),
             );
         }
     }
@@ -276,7 +278,9 @@ impl<'a> Checker<'a> {
                 .with_reason(
                     "Result<T,E> may contain an error and must be checked before unwrapping",
                 )
-                .with_help("guard the access with `if result.is_ok { ... }`"),
+                .with_help(
+                    "guard the access with `if result.is_ok { ... }` or return/reject from an `is_err` guard first",
+                ),
             );
         } else if field == "error" && !self.result_value_is_checked(object, env, ResultCheck::Err) {
             self.diagnostics.push(
@@ -288,7 +292,9 @@ impl<'a> Checker<'a> {
                 .with_reason(
                     "Result<T,E> may contain a value and must be checked before reading the error",
                 )
-                .with_help("guard the access with `if result.is_err { ... }`"),
+                .with_help(
+                    "guard the access with `if result.is_err { ... }` or return/reject from an `is_ok` guard first",
+                ),
             );
         }
     }

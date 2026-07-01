@@ -65,9 +65,10 @@ diagnostic has:
 
 - `N2100` - AI call result is assigned to a non-`Uncertain<T>` type.
 - `N2300` - uncertain value is used without confidence handling.
-- `N2301` - `Option<T>.value` is used without an `is_some` guard.
+- `N2301` - `Option<T>.value` is used without an `is_some` guard or a prior
+  terminal `is_none` guard.
 - `N2302` - `Result<T,E>.value` or `.error` is used without an `is_ok` or
-  `is_err` guard.
+  `is_err` guard, or the corresponding prior terminal inverse guard.
 - `N2303` - `?` is used on an expression that is not `Result<T,E>`.
 - `N2304` - `?` is used where the enclosing callable does not return a
   compatible `Result<_,E>`.

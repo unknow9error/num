@@ -468,6 +468,70 @@ workflow main(phone: Option<PhoneNumber>) {
     }
 
     #[test]
+    fn accepts_option_value_after_is_none_early_return_guard() {
+        let source = r#"
+module tests.option
+
+fn dial(phone: Option<PhoneNumber>) -> Result<PhoneNumber, Text> {
+    if phone.is_none {
+        return Err("missing phone")
+    }
+    return Ok(phone.value)
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn accepts_option_value_after_is_none_reject_guard() {
+        let source = r#"
+module tests.option
+
+workflow main(phone: Option<PhoneNumber>) {
+    if phone.is_none {
+        reject("missing phone")
+    }
+    let actual: PhoneNumber = phone.value
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn rejects_option_value_after_non_terminal_is_none_guard() {
+        let source = r#"
+module tests.option
+
+workflow main(phone: Option<PhoneNumber>) {
+    if phone.is_none {
+        audit("missing phone")
+    }
+    let actual: PhoneNumber = phone.value
+}
+"#;
+
+        assert!(codes(source).contains(&"N2301"));
+    }
+
+    #[test]
+    fn rejects_option_value_after_mixed_and_early_return_guard() {
+        let source = r#"
+module tests.option
+
+fn dial(phone: Option<PhoneNumber>, blocked: Bool) -> Result<PhoneNumber, Text> {
+    if phone.is_none && blocked {
+        return Err("missing phone")
+    }
+    return Ok(phone.value)
+}
+"#;
+
+        assert!(codes(source).contains(&"N2301"));
+    }
+
+    #[test]
     fn rejects_unknown_option_field() {
         let source = r#"
 module tests.option
@@ -674,6 +738,54 @@ workflow main(found: Result<Text, Text>) {
 module tests.result
 
 workflow main(found: Result<Text, Text>) {
+    let value: Text = found.value
+}
+"#;
+
+        assert!(codes(source).contains(&"N2302"));
+    }
+
+    #[test]
+    fn accepts_result_value_after_is_err_early_return_guard() {
+        let source = r#"
+module tests.result
+
+fn load(found: Result<Text, Text>) -> Result<Text, Text> {
+    if found.is_err {
+        return Err(found.error)
+    }
+    return Ok(found.value)
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn accepts_result_error_after_is_ok_reject_guard() {
+        let source = r#"
+module tests.result
+
+workflow main(found: Result<Text, Text>) {
+    if found.is_ok {
+        reject("unexpected value")
+    }
+    let error: Text = found.error
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn rejects_result_value_after_non_terminal_is_err_guard() {
+        let source = r#"
+module tests.result
+
+workflow main(found: Result<Text, Text>) {
+    if found.is_err {
+        audit(found.error)
+    }
     let value: Text = found.value
 }
 "#;
