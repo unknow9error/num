@@ -348,6 +348,18 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
+        Value::ExchangeRate {
+            from,
+            to,
+            rate,
+            source,
+        } => json!({
+            "kind": "ExchangeRate",
+            "from": from,
+            "to": to,
+            "rate": rate.to_string(),
+            "source": source,
+        }),
         Value::Brand(name, inner) => {
             json!({"kind": "Brand", "name": name, "value": runtime_value_to_json(inner)})
         }
@@ -477,6 +489,13 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
             i128_field(value, "minor_units")?,
             string_field(value, "currency")?,
         )),
+        "ExchangeRate" => Ok(Value::ExchangeRate {
+            from: string_field(value, "from")?,
+            to: string_field(value, "to")?,
+            rate: crate::decimal::Decimal::parse(&string_field(value, "rate")?)
+                .map_err(storage_error)?,
+            source: string_field(value, "source")?,
+        }),
         "Brand" => Ok(Value::Brand(
             string_field(value, "name")?,
             Box::new(json_to_runtime_value(

@@ -216,6 +216,18 @@ pub fn value_to_json(value: &Value) -> JsonValue {
             "minor_units": minor_units,
             "currency": currency,
         }),
+        Value::ExchangeRate {
+            from,
+            to,
+            rate,
+            source,
+        } => json!({
+            "$exchange_rate": true,
+            "from": from,
+            "to": to,
+            "rate": rate.to_string(),
+            "source": source,
+        }),
         Value::Brand(name, value) => json!({
             "$brand": name,
             "value": value_to_json(value),
@@ -359,6 +371,32 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
         if object.len() == 2 {
             return Ok(Value::Money(i128::from(minor_units), currency.to_string()));
         }
+    }
+
+    if object.get("$exchange_rate").and_then(JsonValue::as_bool) == Some(true) {
+        let from = object
+            .get("from")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "exchange rate JSON missing `from`".to_string())?;
+        let to = object
+            .get("to")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "exchange rate JSON missing `to`".to_string())?;
+        let rate = object
+            .get("rate")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "exchange rate JSON missing string `rate`".to_string())
+            .and_then(crate::decimal::Decimal::parse)?;
+        let source = object
+            .get("source")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unspecified");
+        return Ok(Value::ExchangeRate {
+            from: from.to_string(),
+            to: to.to_string(),
+            rate,
+            source: source.to_string(),
+        });
     }
 
     if let Some(enum_name) = object.get("$enum").and_then(JsonValue::as_str) {

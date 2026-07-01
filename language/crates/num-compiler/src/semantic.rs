@@ -2248,6 +2248,7 @@ fn builtin_type_names() -> HashSet<String> {
         "Stream",
         "Brand",
         "Money",
+        "ExchangeRate",
         "Secret",
         "Uncertain",
         "Document",
@@ -2298,6 +2299,7 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("Stream", 1),
         ("Brand", 2),
         ("Money", 1),
+        ("ExchangeRate", 2),
         ("Secret", 1),
         ("Uncertain", 1),
         ("Document", 0),
@@ -2771,6 +2773,111 @@ fn datetime_duration_result_type(name: &str) -> Option<TypeRef> {
 
 fn is_decimal_helper(name: &str) -> bool {
     matches!(name, "decimal_parse" | "decimal_format")
+}
+
+fn is_money_helper(name: &str) -> bool {
+    matches!(name, "exchange_rate" | "convert_money")
+}
+
+fn money_helper_param_types(
+    name: &str,
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    checker: &Checker<'_>,
+) -> Option<Vec<TypeRef>> {
+    match name {
+        "exchange_rate" => Some(vec![
+            TypeRef {
+                raw: "Text".to_string(),
+            },
+            TypeRef {
+                raw: "Text".to_string(),
+            },
+            TypeRef {
+                raw: "Decimal".to_string(),
+            },
+            TypeRef {
+                raw: "Text".to_string(),
+            },
+        ]),
+        "convert_money" => {
+            let _amount_ty = checker.expr_type(args.first()?, env)?;
+            let rate_ty = checker.expr_type(args.get(1)?, env)?;
+            let rate_args = exchange_rate_type_args(&rate_ty)?;
+            Some(vec![
+                TypeRef {
+                    raw: format!("Money<{}>", rate_args.0),
+                },
+                rate_ty,
+            ])
+        }
+        _ => None,
+    }
+}
+
+fn money_helper_result_type(
+    name: &str,
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    checker: &Checker<'_>,
+) -> Option<TypeRef> {
+    match name {
+        "exchange_rate" => {
+            let (Some(Expr::String(from)), Some(Expr::String(to))) = (args.first(), args.get(1))
+            else {
+                return None;
+            };
+            if !is_currency_code(from) || !is_currency_code(to) {
+                return None;
+            }
+            Some(TypeRef {
+                raw: format!("ExchangeRate<{from},{to}>"),
+            })
+        }
+        "convert_money" => {
+            let rate_ty = checker.expr_type(args.get(1)?, env)?;
+            let (_, to) = exchange_rate_type_args(&rate_ty)?;
+            Some(TypeRef {
+                raw: format!("Money<{to}>"),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn exchange_rate_result_type_in_context(
+    expr: &Expr,
+    expected: Option<&TypeRef>,
+) -> Option<TypeRef> {
+    let Expr::Call { callee, .. } = expr else {
+        return None;
+    };
+    let path = callee.path()?;
+    let [name] = path.as_slice() else {
+        return None;
+    };
+    if *name != "exchange_rate" {
+        return None;
+    }
+    expected
+        .filter(|ty| exchange_rate_type_args(ty).is_some())
+        .cloned()
+}
+
+fn exchange_rate_type_args(ty: &TypeRef) -> Option<(String, String)> {
+    if !ty.raw.starts_with("ExchangeRate<") {
+        return None;
+    }
+    let args = generic_args(&ty.raw);
+    if args.len() != 2 {
+        return None;
+    }
+    Some((args[0].clone(), args[1].clone()))
+}
+
+fn is_currency_code(value: &str) -> bool {
+    crate::builtins::symbol(value)
+        .is_some_and(|symbol| symbol.kind == crate::builtins::BuiltinKind::Currency)
 }
 
 fn decimal_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {

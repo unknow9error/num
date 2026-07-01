@@ -190,6 +190,15 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));
         }
+        Value::ExchangeRate {
+            from,
+            to,
+            rate,
+            source,
+        } => {
+            values.push(format!("{from}:{to}:{rate}"));
+            values.push(source.clone());
+        }
         Value::Brand(_, inner) | Value::Uncertain(inner, _) | Value::Secret(inner) => {
             collect_scalar_values(inner, values)
         }

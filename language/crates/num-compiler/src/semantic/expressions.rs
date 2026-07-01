@@ -388,6 +388,13 @@ impl<'a> Checker<'a> {
                 if let Some(res) = self.collection_helper_result_type(callee, args, env) {
                     return Some(res);
                 }
+                if let Some(path) = callee.path() {
+                    if let [call_name] = path.as_slice() {
+                        if let Some(res) = money_helper_result_type(call_name, args, env, self) {
+                            return Some(res);
+                        }
+                    }
+                }
                 self.unbrand_result_type(callee, args, env)
                     .or_else(|| self.call_result_type(callee))
             }
@@ -454,6 +461,14 @@ impl<'a> Checker<'a> {
         }
         if is_collection_empty_constructor_expr(expr) {
             return collection_empty_result_type(expr, expected);
+        }
+        if exchange_rate_result_type_in_context(expr, expected).is_some() {
+            if let Some(inferred) = self.expr_type(expr, env) {
+                if exchange_rate_type_args(&inferred).is_some() {
+                    return Some(inferred);
+                }
+            }
+            return exchange_rate_result_type_in_context(expr, expected);
         }
         if self.is_enum_constructor_expr(expr) {
             return self.enum_constructor_result_type(expr, expected);
