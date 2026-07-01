@@ -28,6 +28,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in amount type parameterized by an ISO 4217-style currency code, for example `Money<KZT>`.",
     },
     BuiltinSymbol {
+        name: "ExchangeRate",
+        kind: BuiltinKind::Type,
+        signature: "ExchangeRate<FromCurrency, ToCurrency>",
+        documentation: "Built-in audited exchange-rate boundary for explicit Money currency conversion.",
+    },
+    BuiltinSymbol {
         name: "Uncertain",
         kind: BuiltinKind::Type,
         signature: "Uncertain<T>",
@@ -308,6 +314,18 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         kind: BuiltinKind::Function,
         signature: "decimal_format(value: Decimal) -> Text",
         documentation: "Formats an exact Decimal value as canonical text.",
+    },
+    BuiltinSymbol {
+        name: "exchange_rate",
+        kind: BuiltinKind::Function,
+        signature: "exchange_rate(from: Text, to: Text, rate: Decimal, source: Text) -> ExchangeRate<From, To>",
+        documentation: "Builds an explicit exchange-rate value in an ExchangeRate<From, To> assignment context.",
+    },
+    BuiltinSymbol {
+        name: "convert_money",
+        kind: BuiltinKind::Function,
+        signature: "convert_money(amount: Money<From>, rate: ExchangeRate<From, To>) -> Money<To>",
+        documentation: "Converts Money through an explicit audited exchange-rate boundary.",
     },
     BuiltinSymbol {
         name: "verify_trust",

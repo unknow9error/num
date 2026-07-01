@@ -260,6 +260,7 @@ with field access support. Special object forms are available for richer values:
 
 ```json
 { "minor_units": 15000, "currency": "KZT" }
+{ "$exchange_rate": true, "from": "USD", "to": "KZT", "rate": "450.25", "source": "NBK fixture" }
 { "$enum": "RiskLevel.Low" }
 { "$uncertain": { "$enum": "RiskLevel.Low" }, "confidence": 0.92 }
 ```

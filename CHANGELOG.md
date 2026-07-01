@@ -76,6 +76,9 @@
   comparisons.
 - Added exact `Decimal` parsing, formatting, runtime arithmetic, comparison, and
   same-type checker coverage without falling back to `Float`.
+- Added explicit `ExchangeRate<From, To>` values and `convert_money` helpers for
+  audited `Money<C>` currency conversion while preserving mixed-currency
+  arithmetic rejection.
 - Added project-defined sanitizer packs in `num.toml`, including manifest
   validation, runtime `sanitize(value, "pack")` resolution, pack composition,
   and a configured sanitizer example project.

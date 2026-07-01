@@ -1,0 +1,8 @@
+module examples.money_exchange_rate
+
+workflow convert_invoice(amount: Money<USD> from UserInput private trusted) {
+    let rate: ExchangeRate<USD, KZT> from Config internal trusted = exchange_rate("USD", "KZT", decimal_parse("450.25"), "NBK fixture")
+    let converted: Money<KZT> from DerivedData private trusted = convert_money(amount, rate)
+    audit(converted)
+    audit("NBK fixture")
+}

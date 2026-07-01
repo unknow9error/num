@@ -88,6 +88,33 @@ impl Decimal {
         Ok(Self::new(coefficient, scale))
     }
 
+    pub fn multiply_i128_round(&self, value: i128) -> Result<i128, String> {
+        let scaled = self
+            .coefficient
+            .checked_mul(value)
+            .ok_or_else(|| "decimal multiplication overflowed".to_string())?;
+        let divisor = pow10(self.scale)?;
+        let quotient = scaled / divisor;
+        let remainder = scaled % divisor;
+        let abs_remainder = remainder.abs();
+        let round_up = abs_remainder
+            .checked_mul(2)
+            .ok_or_else(|| "decimal rounding overflowed".to_string())?
+            >= divisor;
+        if !round_up {
+            return Ok(quotient);
+        }
+        if scaled >= 0 {
+            quotient
+                .checked_add(1)
+                .ok_or_else(|| "decimal rounded result overflowed".to_string())
+        } else {
+            quotient
+                .checked_sub(1)
+                .ok_or_else(|| "decimal rounded result overflowed".to_string())
+        }
+    }
+
     pub fn cmp(&self, other: &Self) -> Result<std::cmp::Ordering, String> {
         let (left, right, _) = self.align(other)?;
         Ok(left.cmp(&right))
@@ -177,6 +204,24 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "5.25"
+        );
+    }
+
+    #[test]
+    fn multiplies_integer_with_decimal_rounding() {
+        assert_eq!(
+            Decimal::parse("450.25")
+                .unwrap()
+                .multiply_i128_round(10000)
+                .unwrap(),
+            4502500
+        );
+        assert_eq!(
+            Decimal::parse("1.005")
+                .unwrap()
+                .multiply_i128_round(100)
+                .unwrap(),
+            101
         );
     }
 }

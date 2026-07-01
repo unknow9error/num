@@ -581,6 +581,18 @@ price + usd
 Cannot add Money<KZT> and Money<USD> without exchange rate.
 ```
 
+Текущий реализованный путь для конвертации требует явный курс с направлением и
+источником:
+
+```num
+let rate: ExchangeRate<USD, KZT> = exchange_rate("USD", "KZT", decimal_parse("450.25"), "NBK fixture")
+let converted: Money<KZT> = convert_money(usd, rate)
+```
+
+`ExchangeRate<From, To>` фиксирует исходную и целевую валюту на уровне типов,
+поэтому `convert_money(eur, rate)` для `ExchangeRate<USD, KZT>` отклоняется
+проверкой типов.
+
 ---
 
 ## 11. Типы происхождения данных

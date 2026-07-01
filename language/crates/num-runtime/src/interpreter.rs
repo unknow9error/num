@@ -64,6 +64,12 @@ pub enum Value {
     Image(ImageValue),
     OcrResult(OcrResultValue),
     Money(i128, String),
+    ExchangeRate {
+        from: String,
+        to: String,
+        rate: Decimal,
+        source: String,
+    },
     Brand(String, Box<Value>),
     Secret(Box<Value>),
     Uncertain(Box<Value>, f64),
@@ -104,6 +110,15 @@ impl std::fmt::Display for Value {
             Value::Image(image) => write!(f, "{image}"),
             Value::OcrResult(result) => write!(f, "{result}"),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
+            Value::ExchangeRate {
+                from,
+                to,
+                rate,
+                source,
+            } => write!(
+                f,
+                "<exchange-rate {from}->{to} rate={rate} source=\"{source}\">"
+            ),
             Value::Brand(_, value) => write!(f, "{value}"),
             Value::Secret(_) => write!(f, "{}", redaction::REDACTION_MARKER),
             Value::Uncertain(val, conf) => write!(f, "Uncertain({}, confidence: {:.2})", val, conf),
@@ -347,6 +362,12 @@ fn value_to_idempotency_key(value: Value) -> String {
             value.trust
         ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
+        Value::ExchangeRate {
+            from,
+            to,
+            rate,
+            source,
+        } => format!("exchange-rate:{from}:{to}:{rate}:{source}"),
         Value::Brand(name, value) => {
             format!("{name}:{}", value_to_idempotency_key(*value))
         }
@@ -1600,6 +1621,9 @@ impl<'a> Runtime<'a> {
             "decimal_parse" | "decimal_format" => {
                 return self.call_decimal_helper(name, args);
             }
+            "exchange_rate" | "convert_money" => {
+                return self.call_money_helper(name, args);
+            }
             "map_empty" | "map_contains" | "map_get" | "map_insert" | "map_remove"
             | "set_empty" | "set_contains" | "set_insert" | "set_remove" | "queue_empty"
             | "queue_enqueue" | "queue_front" | "queue_dequeue" | "queue_is_empty"
@@ -2580,6 +2604,80 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn call_money_helper(&self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        match name {
+            "exchange_rate" => {
+                if args.len() != 4 {
+                    return Err(format!(
+                        "{name} expects from, to, Decimal rate, and source, got {} argument(s)",
+                        args.len()
+                    ));
+                }
+                let mut args = args.into_iter();
+                let Value::String(from) = args.next().unwrap_or(Value::Null) else {
+                    return Err(format!("{name} expects Text from currency"));
+                };
+                let Value::String(to) = args.next().unwrap_or(Value::Null) else {
+                    return Err(format!("{name} expects Text to currency"));
+                };
+                let Value::Decimal(rate) = args.next().unwrap_or(Value::Null) else {
+                    return Err(format!("{name} expects Decimal rate"));
+                };
+                let Value::String(source) = args.next().unwrap_or(Value::Null) else {
+                    return Err(format!("{name} expects Text source"));
+                };
+                if from.trim().is_empty() || to.trim().is_empty() {
+                    return Err(format!("{name} currency codes cannot be empty"));
+                }
+                if rate
+                    .cmp(&Decimal::parse("0").expect("zero decimal literal is valid"))
+                    .map_err(|reason| format!("{name} failed: {reason}"))?
+                    != std::cmp::Ordering::Greater
+                {
+                    return Err(format!("{name} rate must be greater than zero"));
+                }
+                Ok(Value::ExchangeRate {
+                    from,
+                    to,
+                    rate,
+                    source,
+                })
+            }
+            "convert_money" => {
+                if args.len() != 2 {
+                    return Err(format!(
+                        "{name} expects Money and ExchangeRate, got {} argument(s)",
+                        args.len()
+                    ));
+                }
+                let mut args = args.into_iter();
+                let Value::Money(minor_units, currency) = args.next().unwrap_or(Value::Null) else {
+                    return Err(format!("{name} expects Money as the first argument"));
+                };
+                let Value::ExchangeRate {
+                    from,
+                    to,
+                    rate,
+                    source: _,
+                } = args.next().unwrap_or(Value::Null)
+                else {
+                    return Err(format!(
+                        "{name} expects ExchangeRate as the second argument"
+                    ));
+                };
+                if currency != from {
+                    return Err(format!(
+                        "{name} cannot convert Money<{currency}> with ExchangeRate<{from},{to}>"
+                    ));
+                }
+                rate.multiply_i128_round(minor_units)
+                    .map(|converted| Value::Money(converted, to))
+                    .map_err(|reason| format!("{name} failed: {reason}"))
+            }
+            _ => Err(format!("unknown money helper `{name}`")),
+        }
+    }
+
     fn is_declared_connector_call(&self, name: &str) -> bool {
         let Some((connector_name, method_name)) = name.split_once('.') else {
             return false;
@@ -3146,6 +3244,18 @@ fn value_to_literal_str(val: &Value) -> String {
             let major = (*amount as f64) / 100.0;
             format!("{} {}", major, currency)
         }
+        Value::ExchangeRate {
+            from,
+            to,
+            rate,
+            source,
+        } => format!(
+            "exchange_rate(\"{}\", \"{}\", decimal_parse(\"{}\"), \"{}\")",
+            from.replace('"', "\\\""),
+            to.replace('"', "\\\""),
+            rate,
+            source.replace('"', "\\\"")
+        ),
         Value::Quantity(amount, unit) => {
             format!("{} {}", amount, unit)
         }

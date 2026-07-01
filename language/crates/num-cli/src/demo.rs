@@ -45,6 +45,9 @@ pub fn workflow_args(workflow_name: &str) -> HashMap<String, Value> {
         "export_public_report" => {
             args.insert("request".to_string(), value_for_type("ExportRequest"));
         }
+        "convert_invoice" => {
+            args.insert("amount".to_string(), Value::Money(10000, "USD".to_string()));
+        }
         _ => {}
     }
     args

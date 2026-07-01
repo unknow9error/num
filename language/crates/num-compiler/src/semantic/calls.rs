@@ -171,6 +171,10 @@ impl<'a> Checker<'a> {
                 self.decimal_helper_call(raw, call_name, &call.args, env);
                 continue;
             }
+            if is_money_helper(call_name) {
+                self.money_helper_call(raw, call_name, &call.args, env);
+                continue;
+            }
             if is_collection_helper(call_name) {
                 self.collection_helper_call(raw, call_name, &call.args, env);
                 continue;
@@ -671,6 +675,69 @@ impl<'a> Checker<'a> {
         }
     }
 
+    fn money_helper_call(
+        &mut self,
+        raw: &RawExpr,
+        call_name: &str,
+        args: &[Expr],
+        env: &HashMap<String, Binding>,
+    ) {
+        let expected = money_helper_param_types(call_name, args, env, self);
+        let Some(expected) = expected else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!("money helper `{call_name}` received unsupported arguments"),
+                    raw.span.clone(),
+                )
+                .with_reason("Money conversion requires an explicit ExchangeRate<From, To> boundary")
+                .with_help("assign exchange_rate(...) to ExchangeRate<From, To>, then pass Money<From> to convert_money"),
+            );
+            return;
+        };
+
+        if args.len() != expected.len() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N2705",
+                    format!(
+                        "money helper `{call_name}` expects {} argument(s), got {}",
+                        expected.len(),
+                        args.len()
+                    ),
+                    raw.span.clone(),
+                )
+                .with_reason("Money helpers use fixed, explicit exchange-rate signatures")
+                .with_help(
+                    "use exchange_rate(from, to, rate, source) or convert_money(amount, rate)",
+                ),
+            );
+            return;
+        }
+
+        for (index, (arg, expected_ty)) in args.iter().zip(expected.iter()).enumerate() {
+            let Some(actual_ty) = self.expr_type_in_context(arg, env, Some(expected_ty)) else {
+                continue;
+            };
+            if !self.types_compatible(expected_ty, &actual_ty) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2706",
+                        format!(
+                            "money helper `{call_name}` argument {} has type `{}`, expected `{}`",
+                            index + 1,
+                            actual_ty.raw,
+                            expected_ty.raw
+                        ),
+                        raw.span.clone(),
+                    )
+                    .with_reason("Money conversion must match the source currency carried by the ExchangeRate type")
+                    .with_help("use an ExchangeRate<From, To> whose From currency matches the Money<From> amount"),
+                );
+            }
+        }
+    }
+
     pub(super) fn method_call(
         &mut self,
         raw: &RawExpr,
@@ -811,6 +878,8 @@ fn is_builtin_runtime_function(name: &str) -> bool {
             | "datetime_parse_iso"
             | "decimal_format"
             | "decimal_parse"
+            | "exchange_rate"
+            | "convert_money"
             | "duration_format_hours"
             | "duration_parse_hours"
             | "map_contains"

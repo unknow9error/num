@@ -54,6 +54,7 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
             .ok_or_else(|| "expected string for Decimal".to_string())
             .and_then(|value| crate::decimal::Decimal::parse(value).map(Value::Decimal)),
         _ if raw.starts_with("Money<") => money_from_json(raw, json),
+        _ if raw.starts_with("ExchangeRate<") => exchange_rate_from_json(raw, json),
         _ if raw.starts_with("Brand<") => brand_from_json(module, raw, json),
         _ if raw.starts_with("Secret<") => secret_from_json(module, raw, json),
         _ if raw.starts_with("Map<") => map_from_json(module, raw, json),
@@ -304,6 +305,46 @@ fn money_from_json(raw: &str, json: &JsonValue) -> Result<Value, String> {
         ));
     }
     Ok(Value::Money(i128::from(minor_units), currency))
+}
+
+fn exchange_rate_from_json(raw: &str, json: &JsonValue) -> Result<Value, String> {
+    let args = generic_args_for(raw, "ExchangeRate")?;
+    if args.len() != 2 {
+        return Err(format!("invalid ExchangeRate type '{raw}'"));
+    }
+    let object = json
+        .as_object()
+        .ok_or_else(|| format!("expected object for {raw}"))?;
+    let from = object
+        .get("from")
+        .and_then(JsonValue::as_str)
+        .unwrap_or(&args[0]);
+    let to = object
+        .get("to")
+        .and_then(JsonValue::as_str)
+        .unwrap_or(&args[1]);
+    if from != args[0] || to != args[1] {
+        return Err(format!(
+            "currency mismatch for {raw}: expected {}->{}, got {from}->{to}",
+            args[0], args[1]
+        ));
+    }
+    let rate = object
+        .get("rate")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| format!("expected string 'rate' for {raw}"))
+        .and_then(crate::decimal::Decimal::parse)?;
+    let source = object
+        .get("source")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("unspecified")
+        .to_string();
+    Ok(Value::ExchangeRate {
+        from: from.to_string(),
+        to: to.to_string(),
+        rate,
+        source,
+    })
 }
 
 fn quantity_from_json(raw: &str, json: &JsonValue) -> Result<Value, String> {

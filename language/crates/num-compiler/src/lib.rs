@@ -2947,6 +2947,54 @@ workflow main(price: Money<KZT>, usd: Money<USD>) {
     }
 
     #[test]
+    fn accepts_money_conversion_with_explicit_exchange_rate() {
+        let source = r#"
+module tests.expressions
+
+workflow main(usd: Money<USD>) {
+    let rate: ExchangeRate<USD, KZT> = exchange_rate("USD", "KZT", decimal_parse("450.25"), "test fixture")
+    let converted: Money<KZT> = convert_money(usd, rate)
+    audit(converted)
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_money_conversion_when_rate_source_currency_differs() {
+        let source = r#"
+module tests.expressions
+
+workflow main(eur: Money<EUR>) {
+    let rate: ExchangeRate<USD, KZT> = exchange_rate("USD", "KZT", decimal_parse("450.25"), "test fixture")
+    let converted: Money<KZT> = convert_money(eur, rate)
+    audit(converted)
+}
+"#;
+
+        assert!(codes(source).contains(&"N2706"));
+    }
+
+    #[test]
+    fn rejects_exchange_rate_literal_currency_mismatch() {
+        let source = r#"
+module tests.expressions
+
+workflow main() {
+    let rate: ExchangeRate<EUR, KZT> = exchange_rate("USD", "KZT", decimal_parse("450.25"), "test fixture")
+    audit(rate)
+}
+"#;
+
+        assert!(codes(source).contains(&"N1300"));
+    }
+
+    #[test]
     fn accepts_assignment_to_mutable_binding() {
         let source = r#"
 module tests.assignments

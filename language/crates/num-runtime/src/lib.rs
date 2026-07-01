@@ -1863,6 +1863,36 @@ workflow main(raw_amount: Text, raw_fee: Text) {
     }
 
     #[test]
+    fn test_runtime_converts_money_with_explicit_exchange_rate() {
+        let source = r#"
+module test.money
+
+workflow main(amount: Money<USD>) {
+    let rate: ExchangeRate<USD, KZT> = exchange_rate("USD", "KZT", decimal_parse("450.25"), "NBK fixture")
+    let converted: Money<KZT> = convert_money(amount, rate)
+    audit(converted)
+    audit("NBK fixture")
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert("amount".to_string(), Value::Money(10000, "USD".to_string()));
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &["45025.00 KZT".to_string(), "\"NBK fixture\"".to_string()]
+        );
+    }
+
+    #[test]
     fn test_runtime_rejects_invalid_decimal_input() {
         let source = r#"
 module test.decimal
