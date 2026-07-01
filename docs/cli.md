@@ -1068,14 +1068,19 @@ The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
   `next_cursor`, `nextPageToken`, `next_url`, or `hasNextPage`;
 - operation callbacks and response links are preserved as generated comments
   that name the unsupported metadata and source operation;
-- scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, and `List<T>`.
+- simple `allOf` object schemas merge their representable properties
+  deterministically, including local component `$ref` members. Conflicting
+  merged fields fall back to `Json` with a review comment;
+- scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, `List<T>`, and
+  nullable fields map to `Option<T>`.
 
-Executable authentication bindings, `allOf`/`oneOf` composition, executable
-paginated clients, executable callbacks/links, generated runtime clients, and
-automatically correct production policies are not implemented yet. Pagination
-comments are review metadata only: edit generated connector wrappers, policies,
-and runtime code before relying on them in production. Unsupported security
-schemes are emitted as comments rather than silently dropped.
+Executable authentication bindings, `oneOf`/broad composition beyond simple
+object `allOf` merges, executable paginated clients, executable
+callbacks/links, generated runtime clients, and automatically correct
+production policies are not implemented yet. Pagination comments are review
+metadata only: edit generated connector wrappers, policies, and runtime code
+before relying on them in production. Unsupported security schemes are emitted
+as comments rather than silently dropped.
 
 ### `import sql`
 

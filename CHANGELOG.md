@@ -11,6 +11,8 @@
   for service-route data-flow rules.
 - Added a safe LSP module rename for `module ...` declarations and matching
   `use ...` imports across sibling `.num` files.
+- Added simple OpenAPI `allOf` object-schema merging for generated component
+  types, including conflict comments for unsupported field merges.
 
 ## 0.4.0 - 2026-07-01
 
