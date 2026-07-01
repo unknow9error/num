@@ -3,7 +3,7 @@ name = "image_ocr_metadata"
 version = "0.1.0"
 
 [language]
-version = "0.3.0"
+version = "0.4.0"
 
 [module]
 name = "examples.image_ocr_metadata"

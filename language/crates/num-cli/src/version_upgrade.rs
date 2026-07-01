@@ -761,7 +761,7 @@ version = "0.1.0"
     #[test]
     fn rejects_version_downgrade() {
         let source = r#"[language]
-version = "0.4.0"
+version = "0.5.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -1009,7 +1009,7 @@ version = "0.3.0"
         assert!(report.dependencies[0].report.project.is_none());
         assert!(root_source.contains("version = \"0.4.0\""));
         assert!(shared_source.contains(&format!("version = \"{CURRENT_LANGUAGE_VERSION}\"")));
-        assert!(!shared_source.contains("version = \"0.4.0\""));
+        assert!(shared_source.contains("[project]\nname = \"shared\"\nversion = \"0.3.0\""));
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();

@@ -222,14 +222,14 @@ version = "0.1.0"
     fn rejects_future_language_version() {
         let manifest = manifest(
             r#"
-version = "0.4.0"
+version = "0.5.0"
 compatibility = "minor"
 "#,
         );
 
         assert!(validate_manifest(&manifest)
             .unwrap_err()
-            .contains("requires language 0.4.0"));
+            .contains("requires language 0.5.0"));
     }
 
     #[test]
@@ -250,7 +250,7 @@ manifest_schema = 2
     fn reports_incompatible_manifest_as_structured_json() {
         let manifest = manifest(
             r#"
-version = "0.4.0"
+version = "0.5.0"
 compatibility = "minor"
 "#,
         );
@@ -262,7 +262,7 @@ compatibility = "minor"
         assert!(report.to_json()["reason"]
             .as_str()
             .unwrap()
-            .contains("requires language 0.4.0"));
+            .contains("requires language 0.5.0"));
         assert!(report.render_text().contains("Compatibility FAILED"));
     }
 }
