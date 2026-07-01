@@ -542,10 +542,17 @@ or the computed package hash when metadata has not been written yet, so
 lockfiles pin the resolved package content as well as its name and version. Git
 inline tables can include `rev`, `tag`, `branch`, or `ref`; `num lock` checks
 out git dependencies into a project-local `.num-git` cache and pins the
-resolved commit SHA in the package entry source label. Registry dependencies
-without a configured local registry root remain metadata-only entries. Remote
-registry downloads and production git authentication/cache policy are not
-implemented yet.
+resolved commit SHA in the package entry source label. Git dependency URLs are
+passed to `git clone` as written and support the schemes configured in the host
+Git installation, including local paths, `file://`, `https://`, and SSH URLs.
+`num lock` runs git non-interactively with terminal prompts disabled, so CI and
+deploys must provide credentials through existing Git credential helpers,
+tokens, or SSH agents. Credentials are never written to `num.lock` or deploy
+metadata. Existing `.num-git` checkouts are reused without network access only
+for explicit `rev` pins already present in the cache; `tag`, `branch`, and
+`ref` selectors fetch from `origin` before checkout because they can move.
+Registry dependencies without a configured local registry root remain
+metadata-only entries. Remote registry downloads are not implemented yet.
 
 `num lock --migrate` plans safe lockfile schema migrations without rewriting by
 default. Current migrations add a missing top-level `version = 1` header for

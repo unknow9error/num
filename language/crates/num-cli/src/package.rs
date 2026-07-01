@@ -175,6 +175,10 @@ impl PackageGitDependency {
             .or(self.branch.as_deref())
             .or(self.reference.as_deref())
     }
+
+    fn pinned_rev(&self) -> Option<&str> {
+        self.rev.as_deref()
+    }
 }
 
 impl PackageManifest {
@@ -891,6 +895,11 @@ fn git_dependency_checkout_root(
 
 fn checkout_git_dependency(git: &PackageGitDependency, checkout_root: &Path) -> Result<(), String> {
     if checkout_root.join(".git").is_dir() {
+        if let Some(rev) = git.pinned_rev() {
+            if checkout_git_selector(checkout_root, rev).is_ok() {
+                return Ok(());
+            }
+        }
         run_git(
             ["fetch", "--quiet", "--tags", "origin"],
             Some(checkout_root),
@@ -952,6 +961,7 @@ fn run_git<const N: usize>(
 ) -> Result<std::process::Output, String> {
     let mut command = Command::new("git");
     command.args(args);
+    apply_git_dependency_env(&mut command);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -962,10 +972,19 @@ fn run_git<const N: usize>(
         Ok(output)
     } else {
         Err(format!(
-            "git command failed\nstdout:\n{}\nstderr:\n{}",
+            "git command failed\nstdout:\n{}\nstderr:\n{}\nGit dependency policy: non-interactive authentication is enforced; use preconfigured Git credentials or SSH agent access. Existing .num-git checkouts are reused offline only for explicit rev pins that are already present in the cache.",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         ))
+    }
+}
+
+fn apply_git_dependency_env(command: &mut Command) {
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("GIT_ASKPASS", "true");
+    command.env("SSH_ASKPASS", "true");
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        command.env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
     }
 }
 
@@ -2225,6 +2244,59 @@ shared = {{ git = "{}", version = "0.3.0", rev = "{}" }}
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(shared).unwrap();
+    }
+
+    #[test]
+    fn lockfile_reuses_cached_git_rev_without_fetching_origin() {
+        let root = temp_package_dir("git_lock_cache_root");
+        let shared = root.with_file_name(format!(
+            "{}_shared_git",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&shared).unwrap();
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+        init_git_repo(&shared);
+        let rev = git_head_rev(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ git = "{}", version = "0.3.0", rev = "{}" }}
+"#,
+                path_to_toml_string(shared.display().to_string()),
+                rev
+            ),
+        );
+
+        write_lockfile(&root).unwrap();
+        fs::remove_dir_all(&shared).unwrap();
+
+        let path = write_lockfile(&root).unwrap();
+        let lockfile = fs::read_to_string(path).unwrap();
+
+        assert!(lockfile.contains(&format!("source = \"git:{}#rev:{rev}\"", shared.display())));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_dependency_failures_include_non_interactive_auth_policy() {
+        let err = run_git(["clone", "--quiet", "/definitely/missing/num.git"], None).unwrap_err();
+
+        assert!(err.contains("non-interactive authentication is enforced"));
+        assert!(err.contains(".num-git checkouts are reused offline only for explicit rev pins"));
     }
 
     #[test]

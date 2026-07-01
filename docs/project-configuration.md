@@ -119,6 +119,12 @@ Supported dependency forms:
   reference.
 - git package references may also include `rev`, `tag`, `branch`, or `ref`;
   `num lock` preserves that selector in the deterministic source label.
+  Git URLs are handed to the installed `git` binary as written, so local paths,
+  `file://`, `https://`, and SSH URLs follow host Git configuration. Locking
+  disables interactive terminal prompts; CI and deploy environments must
+  provide credentials through configured Git credential helpers, tokens, or SSH
+  agents. `num.lock` and deploy metadata record selectors and resolved commit
+  SHAs, never credentials.
 
 `num lock [project-dir|file]` writes a deterministic `num.lock` beside the
 manifest. `num lock --check` validates the lockfile schema, and
@@ -130,8 +136,11 @@ and sorted dependency edges. Local-registry package entries also include a
 `content_hash` pin from `.num-package.json` metadata, or from the computed
 package hash when metadata has not been written yet. Git dependencies are
 checked out into a project-local `.num-git` cache during locking, and their
-lock entries pin the resolved commit SHA. Registry dependencies without a
-configured local registry root remain metadata-only entries.
+lock entries pin the resolved commit SHA. Existing `.num-git` checkouts are
+reused offline only when an explicit `rev` pin is already present in the cache;
+`tag`, `branch`, and `ref` selectors fetch from `origin` before checkout
+because those selectors can move. Registry dependencies without a configured
+local registry root remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
 `.num` files are loaded from the dependency package's own `[project].source`

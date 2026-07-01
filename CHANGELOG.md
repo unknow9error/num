@@ -79,6 +79,9 @@
 - Added explicit `ExchangeRate<From, To>` values and `convert_money` helpers for
   audited `Money<C>` currency conversion while preserving mixed-currency
   arithmetic rejection.
+- Added an explicit git dependency auth/cache policy for `num lock`, including
+  non-interactive git execution, offline reuse for cached `rev` pins, and
+  documentation that credentials stay out of lockfiles and deploy metadata.
 - Added project-defined sanitizer packs in `num.toml`, including manifest
   validation, runtime `sanitize(value, "pack")` resolution, pack composition,
   and a configured sanitizer example project.
