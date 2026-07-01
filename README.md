@@ -39,7 +39,7 @@ workflow process_refund(request: RefundRequest) budget 100 KZT rate limit 60 per
 
 ## Status
 
-This repository implements the v0.3.0 production slice of the larger Num
+This repository implements the v0.4.0 production slice of the larger Num
 language specification. It includes a working compiler, CLI, runtime foundation,
 language server, VS Code extension, package/deploy tooling, and example
 projects.

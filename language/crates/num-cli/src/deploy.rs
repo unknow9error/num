@@ -2847,7 +2847,7 @@ workflow main() {
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -2996,7 +2996,7 @@ credentials_ref = "secret://docker/ghcr"
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -3055,7 +3055,7 @@ entry = "src/main.num"
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -3217,7 +3217,7 @@ service BillingApi {
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -3355,7 +3355,7 @@ service BillingApi {
         fs::write(
             root.join("num.toml"),
             r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 

@@ -960,7 +960,7 @@ mod tests {
             root.join("num.toml"),
             format!(
                 r#"[language]
-version = "0.3.0"
+version = "0.4.0"
 compatibility = "minor"
 manifest_schema = 1
 
@@ -1217,7 +1217,7 @@ entry = "src/lib.num"
         assert_eq!(report.packages[0].name, "shared");
         assert_eq!(report.packages[0].versions[0].version, "1.2.3");
         assert_eq!(report.packages[0].versions[1].version, "1.2.10");
-        assert_eq!(report.packages[0].versions[0].language, "0.3.0");
+        assert_eq!(report.packages[0].versions[0].language, "0.4.0");
         assert_eq!(report.packages[0].versions[0].manifest_schema, 1);
         assert!(report.packages[0].versions[0]
             .content_hash

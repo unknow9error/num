@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-07-01
+
 ### Minor
 
 - Added a manifest-configured JavaScript callable-module boundary for local
