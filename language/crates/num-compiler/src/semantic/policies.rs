@@ -1,5 +1,17 @@
 use crate::ast::{PolicyDecl, PolicyEffect, PolicyRule, Privacy, Trust};
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct PolicyContext<'a> {
+    pub tenant: Option<&'a str>,
+    pub route: Option<RouteContext<'a>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RouteContext<'a> {
+    pub method: &'a str,
+    pub path: &'a str,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct PolicySet<'a> {
     rules: Vec<&'a PolicyRule>,
@@ -34,17 +46,27 @@ impl<'a> PolicySet<'a> {
         target: &str,
         tenant: Option<&str>,
     ) -> bool {
-        let mut allowed = false;
-        for rule in &self.rules {
-            if !rule_matches(rule, privacy, trust, source, target, tenant) {
-                continue;
-            }
-            match rule.effect {
-                PolicyEffect::Allow => allowed = true,
-                PolicyEffect::Deny => return false,
-            }
-        }
-        allowed
+        self.is_data_flow_allowed_in_context(
+            privacy,
+            trust,
+            source,
+            target,
+            PolicyContext {
+                tenant,
+                route: None,
+            },
+        )
+    }
+
+    pub(super) fn is_data_flow_allowed_in_context(
+        &self,
+        privacy: Option<Privacy>,
+        trust: Option<Trust>,
+        source: Option<&str>,
+        target: &str,
+        context: PolicyContext<'_>,
+    ) -> bool {
+        self.matching_rules_allow(privacy, trust, source, &[target.to_string()], context)
     }
 
     #[allow(dead_code)]
@@ -66,11 +88,42 @@ impl<'a> PolicySet<'a> {
         targets: &[String],
         tenant: Option<&str>,
     ) -> bool {
+        self.is_data_flow_allowed_to_any_in_context(
+            privacy,
+            trust,
+            source,
+            targets,
+            PolicyContext {
+                tenant,
+                route: None,
+            },
+        )
+    }
+
+    pub(super) fn is_data_flow_allowed_to_any_in_context(
+        &self,
+        privacy: Option<Privacy>,
+        trust: Option<Trust>,
+        source: Option<&str>,
+        targets: &[String],
+        context: PolicyContext<'_>,
+    ) -> bool {
+        self.matching_rules_allow(privacy, trust, source, targets, context)
+    }
+
+    fn matching_rules_allow(
+        &self,
+        privacy: Option<Privacy>,
+        trust: Option<Trust>,
+        source: Option<&str>,
+        targets: &[String],
+        context: PolicyContext<'_>,
+    ) -> bool {
         let mut allowed = false;
         for rule in &self.rules {
             if !targets
                 .iter()
-                .any(|target| rule_matches(rule, privacy, trust, source, target, tenant))
+                .any(|target| rule_matches(rule, privacy, trust, source, target, context))
             {
                 continue;
             }
@@ -89,13 +142,21 @@ fn rule_matches(
     trust: Option<Trust>,
     source: Option<&str>,
     target: &str,
-    tenant: Option<&str>,
+    context: PolicyContext<'_>,
 ) -> bool {
     if rule.target.as_deref() != Some(target) {
         return false;
     }
     if let Some(rule_tenant) = rule.tenant.as_deref() {
-        if tenant != Some(rule_tenant) {
+        if context.tenant != Some(rule_tenant) {
+            return false;
+        }
+    }
+    if let Some(rule_route) = &rule.route {
+        let Some(route) = context.route else {
+            return false;
+        };
+        if !route.method.eq_ignore_ascii_case(&rule_route.method) || route.path != rule_route.path {
             return false;
         }
     }
@@ -113,9 +174,9 @@ fn rule_matches(
 
 #[cfg(test)]
 mod tests {
-    use super::PolicySet;
+    use super::{PolicyContext, PolicySet, RouteContext};
     use crate::{
-        ast::{PolicyDecl, PolicyEffect, PolicyRule, Privacy, Trust},
+        ast::{PolicyDecl, PolicyEffect, PolicyRouteCondition, PolicyRule, Privacy, Trust},
         span::Span,
     };
 
@@ -256,6 +317,55 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn route_condition_requires_matching_route_context() {
+        let policy = policy(
+            "RouteScoped",
+            &[allow_for_route(
+                Some(Privacy::Private),
+                Some("HttpBody"),
+                "ExternalApi",
+                "POST",
+                "/documents",
+            )],
+        );
+        let mut policies = PolicySet::new();
+        policies.extend_policy(&policy);
+
+        assert!(policies.is_data_flow_allowed_in_context(
+            Some(Privacy::Private),
+            None,
+            Some("HttpBody"),
+            "ExternalApi",
+            PolicyContext {
+                tenant: None,
+                route: Some(RouteContext {
+                    method: "post",
+                    path: "/documents"
+                }),
+            }
+        ));
+        assert!(!policies.is_data_flow_allowed_in_context(
+            Some(Privacy::Private),
+            None,
+            Some("HttpBody"),
+            "ExternalApi",
+            PolicyContext {
+                tenant: None,
+                route: Some(RouteContext {
+                    method: "POST",
+                    path: "/refunds"
+                }),
+            }
+        ));
+        assert!(!policies.is_data_flow_allowed(
+            Some(Privacy::Private),
+            None,
+            Some("HttpBody"),
+            "ExternalApi"
+        ));
+    }
+
     fn policy(name: &str, rules: &[PolicyRule]) -> PolicyDecl {
         PolicyDecl {
             name: name.to_string(),
@@ -293,6 +403,21 @@ mod tests {
         )
     }
 
+    fn allow_for_route(
+        privacy: Option<Privacy>,
+        source: Option<&str>,
+        target: &str,
+        method: &str,
+        path: &str,
+    ) -> PolicyRule {
+        let mut rule = rule(PolicyEffect::Allow, privacy, None, source, target, None);
+        rule.route = Some(PolicyRouteCondition {
+            method: method.to_string(),
+            path: path.to_string(),
+        });
+        rule
+    }
+
     fn deny(privacy: Option<Privacy>, source: Option<&str>, target: &str) -> PolicyRule {
         rule(PolicyEffect::Deny, privacy, None, source, target, None)
     }
@@ -312,6 +437,7 @@ mod tests {
             source: source.map(str::to_string),
             target: Some(target.to_string()),
             tenant: tenant.map(str::to_string),
+            route: None,
             raw: String::new(),
             span: Span::synthetic("policy-test"),
         }

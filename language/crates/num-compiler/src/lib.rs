@@ -850,6 +850,79 @@ workflow main(email: Email from UserInput private) {
     }
 
     #[test]
+    fn accepts_private_data_with_matching_route_condition() {
+        let source = r#"
+module tests.privacy
+
+type DocumentUpload {
+    id: Text
+}
+
+policy RouteScopedSharing {
+    allow private HttpBody -> external.audit when route POST "/documents"
+}
+
+service DocumentApi {
+    route POST "/documents" {
+        input document: DocumentUpload from HttpBody private
+        external.audit.record(document)
+    }
+}
+"#;
+
+        assert!(!codes(source).contains(&"N2400"));
+    }
+
+    #[test]
+    fn rejects_private_data_when_route_condition_does_not_match() {
+        let source = r#"
+module tests.privacy
+
+type DocumentUpload {
+    id: Text
+}
+
+policy RouteScopedSharing {
+    allow private HttpBody -> external.audit when route POST "/documents"
+}
+
+service DocumentApi {
+    route POST "/refunds" {
+        input document: DocumentUpload from HttpBody private
+        external.audit.record(document)
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2400"));
+    }
+
+    #[test]
+    fn route_condition_deny_takes_precedence_over_matching_allow() {
+        let source = r#"
+module tests.privacy
+
+type DocumentUpload {
+    id: Text
+}
+
+policy RouteScopedSharing {
+    allow private HttpBody -> external.audit
+    deny private HttpBody -> external.audit when route POST "/documents"
+}
+
+service DocumentApi {
+    route POST "/documents" {
+        input document: DocumentUpload from HttpBody private
+        external.audit.record(document)
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2400"));
+    }
+
+    #[test]
     fn accepts_private_data_with_namespace_specific_policy_target() {
         let source = r#"
 module tests.privacy
