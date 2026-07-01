@@ -13,6 +13,8 @@
   `use ...` imports across sibling `.num` files.
 - Added simple OpenAPI `allOf` object-schema merging for generated component
   types, including conflict comments for unsupported field merges.
+- Preserved simple SQL `CREATE INDEX` and `CREATE UNIQUE INDEX` metadata as
+  generated table comments during schema import.
 
 ## 0.4.0 - 2026-07-01
 
