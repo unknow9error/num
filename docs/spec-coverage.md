@@ -253,6 +253,8 @@ Implemented:
 - VS Code snippets;
 - LSP diagnostics, completions, hover, and go-to-definition over sibling `.num`
   modules and open editor buffers;
+- LSP safe rename for `module ...` declarations and matching `use ...` imports
+  across sibling `.num` files, with duplicate target-module rejection;
 - VS Code commands for check, format, restart LSP, and new project;
 - VS Code configuration for CLI path and LSP tracing;
 - release packaging for CLI and VS Code extension.

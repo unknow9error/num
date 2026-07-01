@@ -16,6 +16,8 @@ Implemented in v0.3.0:
 - completions across sibling `.num` modules and open editor buffers;
 - hover support across sibling `.num` modules and open editor buffers;
 - go-to-definition across sibling `.num` modules and open editor buffers;
+- safe rename for module declarations and matching `use` imports across sibling
+  `.num` files;
 - document symbols;
 - formatting through the `num fmt` command;
 - status bar updates;
@@ -94,7 +96,7 @@ Not implemented yet:
 
 - extension-managed installation of the CLI outside release installers;
 - multi-root project graph awareness;
-- advanced refactors;
+- advanced refactors beyond module/import rename;
 - IDE debugger integration; scripted CLI debugging is available through
   `num debug`;
 - test explorer integration.

@@ -262,6 +262,7 @@ pub fn run_server() -> Result<(), String> {
                         },
                         "hoverProvider": true,
                         "definitionProvider": true,
+                        "renameProvider": true,
                         "documentFormattingProvider": true,
                         "documentSymbolProvider": true
                     }
@@ -382,6 +383,33 @@ pub fn run_server() -> Result<(), String> {
                                     "null".to_string()
                                 };
                                 send_response(id, &def_res);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                send_response(id, "null");
+            }
+            "textDocument/rename" => {
+                if let Some(params) = request.get("params") {
+                    if let Some(doc) = params.get("textDocument") {
+                        if let Some(uri) = doc.get("uri").and_then(|v| v.as_str()) {
+                            if let (Some(pos), Some(new_name)) = (
+                                params.get("position"),
+                                params.get("newName").and_then(|v| v.as_str()),
+                            ) {
+                                let line = pos.get("line").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                                    as usize;
+                                let character =
+                                    pos.get("character").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                                        as usize;
+
+                                let rename_res = if let Some(text) = documents.get(uri) {
+                                    handle_rename(uri, text, line, character, new_name, &documents)
+                                } else {
+                                    "null".to_string()
+                                };
+                                send_response(id, &rename_res);
                                 continue;
                             }
                         }
@@ -916,6 +944,205 @@ fn handle_definition(
     }
 
     "null".to_string()
+}
+
+fn handle_rename(
+    uri: &str,
+    text: &str,
+    line: usize,
+    character: usize,
+    new_name: &str,
+    documents: &HashMap<String, String>,
+) -> String {
+    if !is_valid_module_path(new_name) {
+        return "null".to_string();
+    }
+
+    let path = uri_to_path(uri);
+    let offset = lsp_pos_to_byte_offset(text, line, character);
+    let Some((old_name, _range)) = module_declaration_at_offset(text, offset) else {
+        return "null".to_string();
+    };
+    if old_name == new_name {
+        return "{\"changes\":{}}".to_string();
+    }
+
+    let files = lsp_program_files(&path, text, documents);
+    if module_path_exists(&files, new_name) {
+        return "null".to_string();
+    }
+
+    let mut changes = Vec::new();
+    for file in files {
+        let mut edits = Vec::new();
+        for range in module_reference_ranges(&file.source, &old_name) {
+            edits.push(format!(
+                "{{\"range\":{},\"newText\":\"{}\"}}",
+                range.range.to_lsp_json(),
+                json_escape(new_name)
+            ));
+        }
+        if !edits.is_empty() {
+            changes.push(format!(
+                "\"{}\": [{}]",
+                json_escape(&path_to_uri(&file.name)),
+                edits.join(",")
+            ));
+        }
+    }
+
+    changes.sort();
+    format!("{{\"changes\":{{{}}}}}", changes.join(","))
+}
+
+fn module_path_exists(files: &[SourceFile], module_name: &str) -> bool {
+    files
+        .iter()
+        .any(|file| compile(&file.name, &file.source).module.name.as_deref() == Some(module_name))
+}
+
+fn module_declaration_at_offset(source: &str, offset: usize) -> Option<(String, TextRange)> {
+    module_reference_ranges(source, "")
+        .into_iter()
+        .find_map(|range| {
+            if range.kind == ModuleReferenceKind::Declaration
+                && offset >= range.start_offset
+                && offset <= range.end_offset
+            {
+                Some((range.text.clone(), range.as_text_range()))
+            } else {
+                None
+            }
+        })
+}
+
+fn module_reference_ranges(source: &str, module_name: &str) -> Vec<ModuleReferenceRange> {
+    let mut ranges = Vec::new();
+    let mut line_start = 0usize;
+    for (line_index, line_text) in source.lines().enumerate() {
+        if let Some(range) = module_path_range_in_line(
+            line_text,
+            line_start,
+            line_index,
+            "module",
+            module_name,
+            ModuleReferenceKind::Declaration,
+        ) {
+            ranges.push(range);
+        }
+        if let Some(range) = module_path_range_in_line(
+            line_text,
+            line_start,
+            line_index,
+            "use",
+            module_name,
+            ModuleReferenceKind::Import,
+        ) {
+            ranges.push(range);
+        }
+        line_start += line_text.len() + 1;
+    }
+    ranges
+}
+
+fn module_path_range_in_line(
+    line_text: &str,
+    line_start: usize,
+    line_index: usize,
+    keyword: &str,
+    expected_module: &str,
+    kind: ModuleReferenceKind,
+) -> Option<ModuleReferenceRange> {
+    let trimmed = line_text.trim_start();
+    let leading = line_text.len() - trimmed.len();
+    let rest = trimmed.strip_prefix(keyword)?;
+    if !rest.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+    let module_text = rest.trim_start();
+    let whitespace_after_keyword = rest.len() - module_text.len();
+    let module_len = module_text
+        .find(char::is_whitespace)
+        .unwrap_or(module_text.len());
+    if module_len == 0 {
+        return None;
+    }
+    let module_text = &module_text[..module_len];
+    if !expected_module.is_empty() && module_text != expected_module {
+        return None;
+    }
+    let start_col = leading + keyword.len() + whitespace_after_keyword;
+    let end_col = start_col + module_text.len();
+    Some(ModuleReferenceRange {
+        kind,
+        text: module_text.to_string(),
+        start_offset: line_start + start_col,
+        end_offset: line_start + end_col,
+        range: TextRange {
+            start_line: line_index,
+            start_character: byte_offset_to_utf16_character(line_text, start_col),
+            end_line: line_index,
+            end_character: byte_offset_to_utf16_character(line_text, end_col),
+        },
+    })
+}
+
+fn is_valid_module_path(value: &str) -> bool {
+    let mut parts = value.split('.');
+    parts.clone().next().is_some()
+        && parts.all(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+                && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+}
+
+fn path_to_uri(path: &str) -> String {
+    if path.starts_with("file://") {
+        path.to_string()
+    } else {
+        format!("file://{path}")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModuleReferenceKind {
+    Declaration,
+    Import,
+}
+
+#[derive(Debug, Clone)]
+struct ModuleReferenceRange {
+    kind: ModuleReferenceKind,
+    text: String,
+    start_offset: usize,
+    end_offset: usize,
+    range: TextRange,
+}
+
+impl ModuleReferenceRange {
+    fn as_text_range(&self) -> TextRange {
+        self.range.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TextRange {
+    start_line: usize,
+    start_character: usize,
+    end_line: usize,
+    end_character: usize,
+}
+
+impl TextRange {
+    fn to_lsp_json(&self) -> String {
+        format!(
+            "{{\"start\":{{\"line\":{},\"character\":{}}},\"end\":{{\"line\":{},\"character\":{}}}}}",
+            self.start_line, self.start_character, self.end_line, self.end_character
+        )
+    }
 }
 
 fn format_privacy(privacy: Option<num_compiler::ast::Privacy>) -> &'static str {
@@ -1454,6 +1681,84 @@ workflow main(request: RefundRequest) {
 
         assert!(result.contains("domain.num"));
         assert!(result.contains("\"line\":5"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rename_module_updates_declaration_and_imports_across_workspace() {
+        let dir = temp_lsp_dir("rename_module");
+        let domain_path = dir.join("domain.num");
+        let main_path = dir.join("main.num");
+        let domain_source = r#"
+module app.domain
+
+type RefundRequest {
+    reason: Text
+}
+"#;
+        let main_source = r#"
+module app.main
+use app.domain
+
+workflow main(request: RefundRequest) {
+    audit(request.reason)
+}
+"#;
+        fs::write(&domain_path, domain_source).unwrap();
+        fs::write(&main_path, main_source).unwrap();
+
+        let result = handle_rename(
+            &format!("file://{}", domain_path.display()),
+            domain_source,
+            1,
+            12,
+            "app.billing",
+            &HashMap::new(),
+        );
+
+        assert!(result.contains(&format!("file://{}", domain_path.display())));
+        assert!(result.contains(&format!("file://{}", main_path.display())));
+        assert_eq!(result.matches("\"newText\":\"app.billing\"").count(), 2);
+        assert!(result.contains("\"line\":1"));
+        assert!(result.contains("\"line\":2"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rename_module_rejects_existing_target_module() {
+        let dir = temp_lsp_dir("rename_conflict");
+        let domain_path = dir.join("domain.num");
+        let billing_path = dir.join("billing.num");
+        let domain_source = r#"
+module app.domain
+
+type RefundRequest {
+    reason: Text
+}
+"#;
+        fs::write(&domain_path, domain_source).unwrap();
+        fs::write(
+            &billing_path,
+            r#"
+module app.billing
+
+type BillingRecord {
+    id: Text
+}
+"#,
+        )
+        .unwrap();
+
+        let result = handle_rename(
+            &format!("file://{}", domain_path.display()),
+            domain_source,
+            1,
+            12,
+            "app.billing",
+            &HashMap::new(),
+        );
+
+        assert_eq!(result, "null");
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -9,6 +9,8 @@
   conservative.
 - Added a first route-scoped policy condition, `when route <METHOD> "<PATH>"`,
   for service-route data-flow rules.
+- Added a safe LSP module rename for `module ...` declarations and matching
+  `use ...` imports across sibling `.num` files.
 
 ## 0.4.0 - 2026-07-01
 
