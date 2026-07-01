@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -64,7 +64,7 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
     render_permission_scaffold(&mut out, &connector_name, &operations);
 
     for (name, schema) in component_schemas(document) {
-        render_type(&mut out, name, schema);
+        render_type(&mut out, document, name, schema);
         out.push('\n');
     }
 
@@ -198,27 +198,105 @@ fn component_schemas(document: &Value) -> Vec<(&str, &Value)> {
     schemas
 }
 
-fn render_type(out: &mut String, name: &str, schema: &Value) {
+fn render_type(out: &mut String, document: &Value, name: &str, schema: &Value) {
     out.push_str("type ");
     out.push_str(&to_type_name(name));
     out.push_str(" {\n");
 
-    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+    let rendered = render_openapi_type_fields(document, schema);
+    for comment in rendered.comments {
+        out.push_str("    // ");
+        out.push_str(&comment);
+        out.push('\n');
+    }
+
+    if rendered.fields.is_empty() {
         out.push_str("    value: Json\n");
         out.push_str("}\n");
         return;
-    };
+    }
 
-    let mut fields = properties.iter().collect::<Vec<_>>();
-    fields.sort_by(|left, right| left.0.cmp(right.0));
-    for (field, schema) in fields {
+    for (field, ty) in rendered.fields {
         out.push_str("    ");
-        out.push_str(&to_identifier(field));
+        out.push_str(&field);
         out.push_str(": ");
-        out.push_str(&schema_type(schema));
+        out.push_str(&ty);
         out.push('\n');
     }
     out.push_str("}\n");
+}
+
+#[derive(Debug, Default)]
+struct OpenApiTypeRender {
+    fields: BTreeMap<String, String>,
+    comments: Vec<String>,
+    conflict_fields: BTreeSet<String>,
+}
+
+fn render_openapi_type_fields(document: &Value, schema: &Value) -> OpenApiTypeRender {
+    let mut rendered = OpenApiTypeRender::default();
+    collect_openapi_object_fields(document, schema, &mut rendered);
+    rendered
+}
+
+fn collect_openapi_object_fields(
+    document: &Value,
+    schema: &Value,
+    rendered: &mut OpenApiTypeRender,
+) -> bool {
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        let Some(resolved) = resolve_local_ref(document, reference) else {
+            rendered.comments.push(format!(
+                "OpenAPI allOf reference `{}` could not be resolved; review schema manually.",
+                sanitize_comment_text(reference)
+            ));
+            return false;
+        };
+        return collect_openapi_object_fields(document, resolved, rendered);
+    }
+
+    let mut merged_any = false;
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (field, field_schema) in properties {
+            merge_openapi_object_field(rendered, field, field_schema);
+        }
+        merged_any = true;
+    }
+
+    if let Some(items) = schema.get("allOf").and_then(Value::as_array) {
+        for item in items {
+            if !collect_openapi_object_fields(document, item, rendered) {
+                rendered.comments.push(
+                    "OpenAPI allOf member could not be merged; review schema manually.".to_string(),
+                );
+            }
+        }
+        merged_any = true;
+    }
+
+    merged_any
+}
+
+fn merge_openapi_object_field(rendered: &mut OpenApiTypeRender, field: &str, field_schema: &Value) {
+    let field_name = to_identifier(field);
+    let ty = schema_type(field_schema);
+    match rendered.fields.get(&field_name) {
+        Some(existing) if existing == &ty => {}
+        Some(_) => {
+            rendered
+                .fields
+                .insert(field_name.clone(), "Json".to_string());
+            if rendered.conflict_fields.insert(field_name.clone()) {
+                rendered.comments.push(format!(
+                    "OpenAPI allOf conflict on field `{}`; generated as Json for review.",
+                    sanitize_comment_text(&field_name)
+                ));
+            }
+        }
+        None => {
+            rendered.fields.insert(field_name, ty);
+        }
+    }
 }
 
 fn operations(document: &Value) -> Vec<Operation> {
@@ -990,6 +1068,15 @@ fn operation_result(operation: &Value) -> String {
 }
 
 fn schema_type(schema: &Value) -> String {
+    let ty = schema_type_inner(schema);
+    if schema_is_nullable(schema) && !ty.starts_with("Option<") {
+        format!("Option<{ty}>")
+    } else {
+        ty
+    }
+}
+
+fn schema_type_inner(schema: &Value) -> String {
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
         return reference
             .rsplit('/')
@@ -998,11 +1085,23 @@ fn schema_type(schema: &Value) -> String {
             .unwrap_or_else(|| "Json".to_string());
     }
 
+    if let Some(types) = schema.get("type").and_then(Value::as_array) {
+        if types.iter().any(|ty| ty.as_str() == Some("array")) {
+            let inner = schema
+                .get("items")
+                .map(schema_type)
+                .unwrap_or_else(|| "Json".to_string());
+            return format!("List<{inner}>");
+        }
+        return types
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|ty| *ty != "null")
+            .map(schema_scalar_type_name)
+            .unwrap_or_else(|| "Json".to_string());
+    }
+
     match schema.get("type").and_then(Value::as_str) {
-        Some("string") => "Text".to_string(),
-        Some("integer") => "Int".to_string(),
-        Some("number") => "Float".to_string(),
-        Some("boolean") => "Bool".to_string(),
         Some("array") => {
             let inner = schema
                 .get("items")
@@ -1010,9 +1109,28 @@ fn schema_type(schema: &Value) -> String {
                 .unwrap_or_else(|| "Json".to_string());
             format!("List<{inner}>")
         }
-        Some("object") => "Json".to_string(),
+        Some(name) => schema_scalar_type_name(name),
+        None => "Json".to_string(),
+    }
+}
+
+fn schema_scalar_type_name(name: &str) -> String {
+    match name {
+        "string" => "Text".to_string(),
+        "integer" => "Int".to_string(),
+        "number" => "Float".to_string(),
+        "boolean" => "Bool".to_string(),
+        "object" => "Json".to_string(),
         _ => "Json".to_string(),
     }
+}
+
+fn schema_is_nullable(schema: &Value) -> bool {
+    schema.get("nullable").and_then(Value::as_bool) == Some(true)
+        || schema
+            .get("type")
+            .and_then(Value::as_array)
+            .is_some_and(|types| types.iter().any(|ty| ty.as_str() == Some("null")))
 }
 
 fn fallback_operation_name(method: &str, path: &str) -> String {
@@ -1231,6 +1349,93 @@ paths:
         assert!(rendered.contains("payment_id: Text"));
         assert!(rendered.contains("connector billingApi"));
         assert!(rendered.contains("create_refund(body: RefundRequest) -> RefundResponse"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn merges_simple_allof_object_schemas() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Customer API", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "BaseCustomer": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" }
+        }
+      },
+      "Customer": {
+        "allOf": [
+          { "$ref": "#/components/schemas/BaseCustomer" },
+          {
+            "type": "object",
+            "required": ["email"],
+            "properties": {
+              "email": { "type": "string" },
+              "nickname": { "type": "string", "nullable": true }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "paths": {}
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.customer"));
+
+        assert!(rendered.contains(
+            "type Customer {\n    email: Text\n    id: Text\n    nickname: Option<Text>\n}"
+        ));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_allof_conflicts_as_review_comments() {
+        let document: Value = serde_json::from_str(
+            r##"
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Customer API", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "Customer": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer" },
+              "email": { "type": "string" }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "paths": {}
+}
+"##,
+        )
+        .unwrap();
+
+        let rendered = render_openapi_connector(&document, Some("generated.customer"));
+
+        assert!(rendered
+            .contains("// OpenAPI allOf conflict on field `id`; generated as Json for review."));
+        assert!(rendered.contains("type Customer {\n    // OpenAPI allOf conflict on field `id`; generated as Json for review.\n    email: Text\n    id: Json\n}"));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());
     }
 
