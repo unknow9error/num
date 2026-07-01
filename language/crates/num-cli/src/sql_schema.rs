@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -9,7 +10,8 @@ pub fn import_sql_schema(path: &Path, module_name: Option<&str>) -> Result<Strin
 
 pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
     let module_name = module_name.unwrap_or("generated.database");
-    let tables = parse_tables(source);
+    let mut tables = parse_tables(source);
+    attach_indexes(&mut tables, parse_indexes(source));
     let mut out = String::new();
 
     out.push_str("module ");
@@ -79,6 +81,7 @@ struct Table {
     name: String,
     columns: Vec<Column>,
     foreign_keys: Vec<ForeignKey>,
+    indexes: Vec<SqlIndex>,
 }
 
 impl Table {
@@ -151,6 +154,37 @@ impl ForeignKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SqlIndex {
+    name: String,
+    table: String,
+    columns: Vec<String>,
+    unique: bool,
+}
+
+impl SqlIndex {
+    fn comment(&self) -> String {
+        let columns = self
+            .columns
+            .iter()
+            .map(|column| {
+                format!(
+                    "`{}.{}`",
+                    sanitize_comment_text(&self.table),
+                    sanitize_comment_text(column)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let uniqueness = if self.unique { "unique" } else { "non-unique" };
+
+        format!(
+            "SQL {uniqueness} index `{}` covers {columns}; index metadata only, runtime query planning is not generated yet",
+            sanitize_comment_text(&self.name)
+        )
+    }
+}
+
 fn parse_tables(source: &str) -> Vec<Table> {
     let mut tables = Vec::new();
     let mut rest = strip_sql_comments(source);
@@ -181,12 +215,148 @@ fn parse_tables(source: &str) -> Vec<Table> {
             name,
             columns,
             foreign_keys,
+            indexes: Vec::new(),
         });
         rest = after_open[close + 1..].to_string();
     }
 
     tables.sort_by(|left, right| left.name.cmp(&right.name));
     tables
+}
+
+fn attach_indexes(tables: &mut [Table], indexes: Vec<SqlIndex>) {
+    let mut by_table = BTreeMap::<String, Vec<SqlIndex>>::new();
+    for index in indexes {
+        by_table
+            .entry(index.table.to_ascii_lowercase())
+            .or_default()
+            .push(index);
+    }
+
+    for table in tables {
+        if let Some(mut indexes) = by_table.remove(&table.name.to_ascii_lowercase()) {
+            indexes.sort_by(|left, right| {
+                left.name
+                    .cmp(&right.name)
+                    .then(left.columns.cmp(&right.columns))
+                    .then(left.unique.cmp(&right.unique))
+            });
+            table.indexes = indexes;
+        }
+    }
+}
+
+fn parse_indexes(source: &str) -> Vec<SqlIndex> {
+    let mut indexes = Vec::new();
+    let mut rest = strip_sql_comments(source);
+
+    while let Some(start) = find_create_index(&rest) {
+        let statement_start = &rest[start..];
+        let end = find_statement_end(statement_start).unwrap_or(statement_start.len());
+        let statement = &statement_start[..end];
+        if let Some(index) = parse_index_statement(statement) {
+            indexes.push(index);
+        }
+        rest = statement_start
+            .get(end.saturating_add(1)..)
+            .unwrap_or_default()
+            .to_string();
+    }
+
+    indexes.sort_by(|left, right| {
+        left.table
+            .cmp(&right.table)
+            .then(left.name.cmp(&right.name))
+            .then(left.columns.cmp(&right.columns))
+    });
+    indexes
+}
+
+fn find_create_index(source: &str) -> Option<usize> {
+    let lower = source.to_ascii_lowercase();
+    [
+        lower.find("create index"),
+        lower.find("create unique index"),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+}
+
+fn parse_index_statement(statement: &str) -> Option<SqlIndex> {
+    let mut rest = statement.trim_start();
+    rest = strip_keyword(rest, "create")?;
+    let (unique, after_unique) = if let Some(rest) = strip_keyword(rest, "unique") {
+        (true, rest)
+    } else {
+        (false, rest)
+    };
+    rest = strip_keyword(after_unique, "index")?;
+    if let Some(after_if_not_exists) = strip_keyword(rest, "if")
+        .and_then(|rest| strip_keyword(rest, "not"))
+        .and_then(|rest| strip_keyword(rest, "exists"))
+    {
+        rest = after_if_not_exists;
+    }
+
+    let (name, after_name) = take_sql_word(rest)?;
+    rest = strip_keyword(after_name, "on")?;
+    let (table, after_table) = take_sql_word(rest)?;
+    let table = clean_sql_ident(table.rsplit('.').next()?)?;
+    let after_table = after_table.trim_start();
+    let after_open = after_table.strip_prefix('(')?;
+    let close = find_matching_paren(after_open)?;
+    let columns = split_sql_items(&after_open[..close])
+        .into_iter()
+        .filter_map(|column| parse_index_column(&column))
+        .collect::<Vec<_>>();
+
+    (!columns.is_empty()).then_some(SqlIndex {
+        name: clean_sql_ident(name)?,
+        table,
+        columns,
+        unique,
+    })
+}
+
+fn parse_index_column(column: &str) -> Option<String> {
+    let raw = column.trim();
+    if raw.contains('(') || raw.contains(')') {
+        return None;
+    }
+    let first = raw.split_whitespace().next()?;
+    clean_sql_ident(first)
+}
+
+fn strip_keyword<'a>(source: &'a str, keyword: &str) -> Option<&'a str> {
+    let source = source.trim_start();
+    let rest = source.strip_prefix(keyword).or_else(|| {
+        source
+            .get(..keyword.len())
+            .filter(|head| head.eq_ignore_ascii_case(keyword))
+            .and_then(|_| source.get(keyword.len()..))
+    })?;
+    if rest
+        .chars()
+        .next()
+        .is_none_or(|ch| ch.is_whitespace() || matches!(ch, '(' | ';'))
+    {
+        Some(rest.trim_start())
+    } else {
+        None
+    }
+}
+
+fn take_sql_word(source: &str) -> Option<(&str, &str)> {
+    let source = source.trim_start();
+    let mut end = 0usize;
+    for (index, ch) in source.char_indices() {
+        if ch.is_whitespace() || ch == '(' || ch == ';' {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    (end > 0).then_some((&source[..end], &source[end..]))
 }
 
 fn parse_columns(items: &[String]) -> Vec<Column> {
@@ -461,6 +631,28 @@ fn find_matching_paren(source: &str) -> Option<usize> {
     None
 }
 
+fn find_statement_end(source: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut quote = '\0';
+    for (index, ch) in source.char_indices() {
+        if in_string {
+            if ch == quote {
+                in_string = false;
+            }
+            continue;
+        }
+        if matches!(ch, '\'' | '"') {
+            in_string = true;
+            quote = ch;
+            continue;
+        }
+        if ch == ';' {
+            return Some(index);
+        }
+    }
+    None
+}
+
 fn split_sql_items(body: &str) -> Vec<String> {
     let mut items = Vec::new();
     let mut current = String::new();
@@ -594,6 +786,11 @@ fn render_table_type(out: &mut String, table: &Table) {
     out.push_str("type ");
     out.push_str(&to_type_name(&table.name));
     out.push_str(" {\n");
+    for index in &table.indexes {
+        out.push_str("    // ");
+        out.push_str(&index.comment());
+        out.push('\n');
+    }
     for column in &table.columns {
         out.push_str("    ");
         out.push_str(&to_identifier(&column.name));
@@ -631,6 +828,55 @@ CREATE TABLE refunds (
         assert!(rendered.contains("list_refunds() -> List<Refunds>"));
         assert!(rendered.contains("find_refunds_by_id(id: Uuid) -> Option<Refunds>"));
         assert!(rendered.contains("insert_refunds(row: Refunds) -> Refunds"));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_sql_index_metadata_comments() {
+        let source = r#"
+CREATE TABLE refunds (
+    id UUID PRIMARY KEY,
+    payment_id UUID NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_refunds_payment_id ON refunds (payment_id);
+CREATE UNIQUE INDEX idx_refunds_status_created_at ON refunds (status, created_at);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+        let rendered_again = render_sql_schema(source, Some("generated.db"));
+
+        assert_eq!(rendered, rendered_again);
+        assert!(rendered.contains(
+            "// SQL non-unique index `idx_refunds_payment_id` covers `refunds.payment_id`; index metadata only, runtime query planning is not generated yet"
+        ));
+        assert!(rendered.contains(
+            "// SQL unique index `idx_refunds_status_created_at` covers `refunds.status`, `refunds.created_at`; index metadata only, runtime query planning is not generated yet"
+        ));
+        assert!(rendered.contains("type Refunds"));
+        assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_if_not_exists_and_sorted_index_metadata_comments() {
+        let source = r#"
+CREATE INDEX idx_refunds_payment_id ON public.refunds (payment_id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_refunds_external_id ON refunds (external_id);
+
+CREATE TABLE refunds (
+    id UUID PRIMARY KEY,
+    payment_id UUID NOT NULL,
+    external_id TEXT NOT NULL
+);
+"#;
+
+        let rendered = render_sql_schema(source, Some("generated.db"));
+
+        assert!(rendered.contains(
+            "type Refunds {\n    // SQL unique index `idx_refunds_external_id` covers `refunds.external_id`; index metadata only, runtime query planning is not generated yet\n    // SQL non-unique index `idx_refunds_payment_id` covers `refunds.payment_id`; index metadata only, runtime query planning is not generated yet"
+        ));
         assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
     }
 

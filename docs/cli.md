@@ -1101,6 +1101,8 @@ The importer currently handles a focused SQL subset:
   including named constraints;
 - inline `REFERENCES` columns and table-level `FOREIGN KEY (...) REFERENCES`
   constraints as generated relation hint comments;
+- `CREATE INDEX` and `CREATE UNIQUE INDEX` statements with simple column lists
+  as generated table metadata comments;
 - generated `database` connector methods: `list_<table>`,
   `find_<table>_by_<primary_key>`, composite
   `find_<table>_by_<key1>_and_<key2>`, and `insert_<table>`.
@@ -1110,11 +1112,13 @@ The runtime crate includes an in-memory executor for these generated
 production database access.
 
 Composite finder method names preserve SQL primary-key column order and join
-identifier-normalized column names with `_and_`. Indexes, executable relation
-loading, migrations, SQL dialect-specific features such as `ALTER TABLE ... ADD
-CONSTRAINT`, and generated runtime clients are not implemented yet. Unsupported
-foreign-key forms are documented as outside the current import subset rather than
-represented as runnable relations.
+identifier-normalized column names with `_and_`. Index metadata comments are not
+query-planner hints. Expression indexes, partial indexes, operator classes,
+included columns, executable relation loading, migrations, SQL dialect-specific
+features such as `ALTER TABLE ... ADD CONSTRAINT`, and generated runtime clients
+are not implemented yet. Unsupported foreign-key and index forms are documented
+as outside the current import subset rather than represented as runnable
+relations.
 
 ### `completions`
 
