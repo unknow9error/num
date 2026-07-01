@@ -179,6 +179,7 @@ impl<'a> Parser<'a> {
             let source = source_from_rule(&raw);
             let target = target_from_rule(&raw);
             let tenant = tenant_from_rule(&raw);
+            let route = route_from_rule(&raw);
             rules.push(PolicyRule {
                 effect,
                 privacy,
@@ -186,6 +187,7 @@ impl<'a> Parser<'a> {
                 source,
                 target,
                 tenant,
+                route,
                 raw,
                 span: rule_span,
             });
@@ -1619,6 +1621,23 @@ fn tenant_from_rule(text: &str) -> Option<String> {
         .windows(3)
         .find(|window| window[0] == "for" && window[1] == "tenant")
         .map(|window| window[2].to_string())
+}
+
+fn route_from_rule(text: &str) -> Option<PolicyRouteCondition> {
+    let parts: Vec<_> = text.split_whitespace().collect();
+    parts
+        .windows(4)
+        .find(|window| window[0] == "when" && window[1] == "route")
+        .map(|window| PolicyRouteCondition {
+            method: window[2].to_ascii_uppercase(),
+            path: trim_quotes(window[3]).to_string(),
+        })
+}
+
+fn trim_quotes(text: &str) -> &str {
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .unwrap_or(text)
 }
 
 fn compact_member_access(text: &str) -> String {

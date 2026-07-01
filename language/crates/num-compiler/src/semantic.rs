@@ -15,7 +15,7 @@ mod result_constructors;
 mod result_flow;
 mod trust_flow;
 use option_constructors::{is_option_constructor_expr, is_option_constructor_name};
-use policies::PolicySet;
+use policies::{PolicyContext, PolicySet, RouteContext};
 use result_constructors::{is_result_constructor_expr, is_result_constructor_name};
 use trust_flow::merge_labels;
 
@@ -30,7 +30,9 @@ pub fn check_service_route_for_tenant(
     path: &str,
     tenant: &str,
 ) -> Vec<Diagnostic> {
-    let mut checker = Checker::new(module, 0).with_policy_tenant(tenant);
+    let mut checker = Checker::new(module, 0)
+        .with_policy_tenant(tenant)
+        .with_policy_route(method, path);
     let Some(service) = module.declarations.iter().find_map(|decl| match decl {
         Declaration::Service(service) if service.name == service_name => Some(service),
         _ => None,
@@ -121,6 +123,7 @@ struct Checker<'a> {
     connector_methods: HashMap<String, HashMap<String, &'a ConnectorMethod>>,
     method_signatures: HashMap<String, HashMap<String, CallableSignature<'a>>>,
     policy_tenant: Option<String>,
+    policy_route: Option<(String, String)>,
 }
 
 impl<'a> Checker<'a> {
@@ -277,11 +280,17 @@ impl<'a> Checker<'a> {
             connector_methods,
             method_signatures,
             policy_tenant: None,
+            policy_route: None,
         }
     }
 
     fn with_policy_tenant(mut self, tenant: &str) -> Self {
         self.policy_tenant = Some(tenant.to_string());
+        self
+    }
+
+    fn with_policy_route(mut self, method: &str, path: &str) -> Self {
+        self.policy_route = Some((method.to_ascii_uppercase(), path.to_string()));
         self
     }
 
@@ -516,6 +525,8 @@ impl<'a> Checker<'a> {
             })
             .unwrap_or_default();
 
+        let previous_route = self.policy_route.clone();
+        self.policy_route = Some((route.method.to_ascii_uppercase(), route.path.clone()));
         self.body(
             &route.body,
             &params,
@@ -524,6 +535,7 @@ impl<'a> Checker<'a> {
             &route.span,
             None,
         );
+        self.policy_route = previous_route;
     }
 
     fn callable(&mut self, callable: &CallableDecl) {
@@ -1746,12 +1758,12 @@ impl<'a> Checker<'a> {
                     continue;
                 }
 
-                if !self.policies.is_data_flow_allowed_to_any_for_tenant(
+                if !self.policies.is_data_flow_allowed_to_any_in_context(
                     privacy,
                     trust,
                     source,
                     &targets,
-                    self.policy_tenant.as_deref(),
+                    self.policy_context(),
                 ) {
                     self.diagnostics.push(
                     Diagnostic::error(
@@ -1771,6 +1783,19 @@ impl<'a> Checker<'a> {
                 );
                 }
             }
+        }
+    }
+
+    fn policy_context(&self) -> PolicyContext<'_> {
+        PolicyContext {
+            tenant: self.policy_tenant.as_deref(),
+            route: self
+                .policy_route
+                .as_ref()
+                .map(|(method, path)| RouteContext {
+                    method: method.as_str(),
+                    path: path.as_str(),
+                }),
         }
     }
 

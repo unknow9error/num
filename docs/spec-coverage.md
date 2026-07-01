@@ -582,12 +582,15 @@ declassifies its result to public `DerivedData` without treating untrusted input
 as trusted. Policy rules can also be scoped with
 `for tenant <tenant-id>`; those rules only match when policy evaluation receives
 the same tenant context. Rules can include trust-level constraints such as
-`trusted` or `verified`.
+`trusted` or `verified`. Service-route checks also support the first explicit
+condition form, `when route <METHOD> "<PATH>"`, which only matches the named
+route body.
 
 Not yet implemented:
 
 - a complete policy language;
-- richer policy conditions beyond stored privacy/provenance/trust labels.
+- richer policy conditions beyond stored privacy/provenance/trust labels,
+  tenant scopes, and route conditions.
 
 ### Workflow and Saga Semantics
 

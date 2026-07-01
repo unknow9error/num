@@ -92,8 +92,15 @@ pub struct PolicyRule {
     pub source: Option<String>,
     pub target: Option<String>,
     pub tenant: Option<String>,
+    pub route: Option<PolicyRouteCondition>,
     pub raw: String,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyRouteCondition {
+    pub method: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone)]

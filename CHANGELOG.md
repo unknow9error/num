@@ -7,6 +7,8 @@
 - Extended `Option<T>` and `Result<T,E>` flow narrowing across simple
   early-return and `reject(...)` guards, while keeping fallthrough branches
   conservative.
+- Added a first route-scoped policy condition, `when route <METHOD> "<PATH>"`,
+  for service-route data-flow rules.
 
 ## 0.4.0 - 2026-07-01
 

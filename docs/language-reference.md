@@ -107,6 +107,7 @@ policy DataSharing {
     allow private UserInput -> mailer.send
     allow private BillingRecord -> ExternalApi for tenant tenant_a
     allow private verified UserInput -> ExternalApi
+    allow private HttpBody -> external.audit when route POST "/documents"
 }
 ```
 
@@ -119,6 +120,8 @@ allow <privacy> <trust> <source> -> <target>
 deny <privacy> <trust> <source> -> <target>
 allow <privacy> <source> -> <target> for tenant <tenant-id>
 deny <privacy> <source> -> <target> for tenant <tenant-id>
+allow <privacy> <source> -> <target> when route <METHOD> "<PATH>"
+deny <privacy> <source> -> <target> when route <METHOD> "<PATH>"
 ```
 
 The semantic checker composes rules from all policy blocks for external flows.
@@ -132,7 +135,8 @@ values carrying that source label. Trust constraints such as `trusted` or
 `verified` require the value to carry that trust label. Tenant scopes are
 represented in the policy model and only match when evaluation has the same
 tenant context; the current static checker does not treat tenant-scoped rules
-as global allows.
+as global allows. Route conditions match only while checking the corresponding
+service route body; outside that route context, the rule does not apply.
 
 ## Types
 
