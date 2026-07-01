@@ -8,10 +8,58 @@ pub fn import_sql_schema(path: &Path, module_name: Option<&str>) -> Result<Strin
     Ok(render_sql_schema(&source, module_name))
 }
 
+pub fn sql_migration_plan_from_files(
+    old_path: &Path,
+    new_path: &Path,
+) -> Result<SqlMigrationPlan, String> {
+    let old_source = fs::read_to_string(old_path)
+        .map_err(|err| format!("failed to read {}: {err}", old_path.display()))?;
+    let new_source = fs::read_to_string(new_path)
+        .map_err(|err| format!("failed to read {}: {err}", new_path.display()))?;
+    Ok(plan_sql_migration(&old_source, &new_source))
+}
+
+pub fn plan_sql_migration(old_source: &str, new_source: &str) -> SqlMigrationPlan {
+    let old_tables = parsed_schema_tables(old_source);
+    let new_tables = parsed_schema_tables(new_source);
+    let mut changes = Vec::new();
+
+    for (key, old_table) in &old_tables {
+        let Some(new_table) = new_tables.get(key) else {
+            changes.push(SqlMigrationChange::removed_table(&old_table.name));
+            continue;
+        };
+
+        compare_table_columns(old_table, new_table, &mut changes);
+        let old_primary_key = primary_key_names(old_table);
+        let new_primary_key = primary_key_names(new_table);
+        if old_primary_key != new_primary_key {
+            changes.push(SqlMigrationChange::primary_key_changed(
+                &old_table.name,
+                old_primary_key,
+                new_primary_key,
+            ));
+        }
+    }
+
+    for (key, new_table) in &new_tables {
+        if !old_tables.contains_key(key) {
+            changes.push(SqlMigrationChange::added_table(&new_table.name));
+        }
+    }
+
+    changes.sort_by(|left, right| {
+        left.table
+            .cmp(&right.table)
+            .then(left.column.cmp(&right.column))
+            .then(left.kind.cmp(&right.kind))
+    });
+    SqlMigrationPlan { changes }
+}
+
 pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
     let module_name = module_name.unwrap_or("generated.database");
-    let mut tables = parse_tables(source);
-    attach_indexes(&mut tables, parse_indexes(source));
+    let tables = parse_schema(source);
     let mut out = String::new();
 
     out.push_str("module ");
@@ -74,6 +122,275 @@ pub fn render_sql_schema(source: &str, module_name: Option<&str>) -> String {
     out.push_str("}\n");
 
     out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SqlMigrationPlan {
+    changes: Vec<SqlMigrationChange>,
+}
+
+impl SqlMigrationPlan {
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str("SQL migration plan\n");
+        out.push_str(&format!(
+            "Summary: {} additive, {} breaking, {} review\n",
+            self.changes
+                .iter()
+                .filter(|change| change.severity == "additive")
+                .count(),
+            self.changes
+                .iter()
+                .filter(|change| change.severity == "breaking")
+                .count(),
+            self.changes
+                .iter()
+                .filter(|change| change.severity == "review")
+                .count()
+        ));
+        if self.changes.is_empty() {
+            out.push_str("No supported table, column, or primary-key changes detected.\n");
+        } else {
+            for change in &self.changes {
+                out.push_str("- ");
+                out.push_str(&change.render_text());
+                out.push('\n');
+            }
+        }
+        out.push_str("Planning only: no database migration SQL is generated or executed.\n");
+        out
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": "num.sql_migration_plan.v1",
+            "changes": self.changes.iter().map(SqlMigrationChange::to_json).collect::<Vec<_>>()
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SqlMigrationChange {
+    kind: String,
+    severity: String,
+    table: String,
+    column: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+}
+
+impl SqlMigrationChange {
+    fn added_table(table: &str) -> Self {
+        Self {
+            kind: "table_added".to_string(),
+            severity: "additive".to_string(),
+            table: table.to_string(),
+            column: None,
+            from: None,
+            to: None,
+        }
+    }
+
+    fn removed_table(table: &str) -> Self {
+        Self {
+            kind: "table_removed".to_string(),
+            severity: "breaking".to_string(),
+            table: table.to_string(),
+            column: None,
+            from: None,
+            to: None,
+        }
+    }
+
+    fn added_column(table: &str, column: &Column) -> Self {
+        Self {
+            kind: "column_added".to_string(),
+            severity: if column.nullable {
+                "additive".to_string()
+            } else {
+                "breaking".to_string()
+            },
+            table: table.to_string(),
+            column: Some(column.name.clone()),
+            from: None,
+            to: Some(column_signature(column)),
+        }
+    }
+
+    fn removed_column(table: &str, column: &Column) -> Self {
+        Self {
+            kind: "column_removed".to_string(),
+            severity: "breaking".to_string(),
+            table: table.to_string(),
+            column: Some(column.name.clone()),
+            from: Some(column_signature(column)),
+            to: None,
+        }
+    }
+
+    fn changed_column(table: &str, old_column: &Column, new_column: &Column) -> Self {
+        Self {
+            kind: "column_changed".to_string(),
+            severity: "review".to_string(),
+            table: table.to_string(),
+            column: Some(old_column.name.clone()),
+            from: Some(column_signature(old_column)),
+            to: Some(column_signature(new_column)),
+        }
+    }
+
+    fn primary_key_changed(table: &str, from: Vec<String>, to: Vec<String>) -> Self {
+        Self {
+            kind: "primary_key_changed".to_string(),
+            severity: "breaking".to_string(),
+            table: table.to_string(),
+            column: None,
+            from: Some(render_column_list(&from)),
+            to: Some(render_column_list(&to)),
+        }
+    }
+
+    fn render_text(&self) -> String {
+        let subject = match &self.column {
+            Some(column) => format!(
+                "`{}.{}`",
+                sanitize_comment_text(&self.table),
+                sanitize_comment_text(column)
+            ),
+            None => format!("`{}`", sanitize_comment_text(&self.table)),
+        };
+        match self.kind.as_str() {
+            "table_added" => format!("additive table added: {subject}"),
+            "table_removed" => format!("breaking table removed: {subject}"),
+            "column_added" => format!(
+                "{} column added: {subject} as {}",
+                self.severity,
+                self.to.as_deref().unwrap_or("unknown")
+            ),
+            "column_removed" => format!(
+                "breaking column removed: {subject} was {}",
+                self.from.as_deref().unwrap_or("unknown")
+            ),
+            "column_changed" => format!(
+                "review column changed: {subject} from {} to {}",
+                self.from.as_deref().unwrap_or("unknown"),
+                self.to.as_deref().unwrap_or("unknown")
+            ),
+            "primary_key_changed" => format!(
+                "breaking primary key changed on {subject}: {} -> {}",
+                self.from.as_deref().unwrap_or("(none)"),
+                self.to.as_deref().unwrap_or("(none)")
+            ),
+            _ => format!("{} change on {subject}", self.severity),
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "kind": self.kind,
+            "severity": self.severity,
+            "table": self.table,
+        });
+        if let Some(object) = value.as_object_mut() {
+            if let Some(column) = &self.column {
+                object.insert("column".to_string(), serde_json::json!(column));
+            }
+            if let Some(from) = &self.from {
+                object.insert("from".to_string(), serde_json::json!(from));
+            }
+            if let Some(to) = &self.to {
+                object.insert("to".to_string(), serde_json::json!(to));
+            }
+        }
+        value
+    }
+}
+
+fn parse_schema(source: &str) -> Vec<Table> {
+    let mut tables = parse_tables(source);
+    attach_indexes(&mut tables, parse_indexes(source));
+    tables
+}
+
+fn parsed_schema_tables(source: &str) -> BTreeMap<String, Table> {
+    parse_schema(source)
+        .into_iter()
+        .map(|table| (table.name.to_ascii_lowercase(), table))
+        .collect()
+}
+
+fn compare_table_columns(
+    old_table: &Table,
+    new_table: &Table,
+    changes: &mut Vec<SqlMigrationChange>,
+) {
+    let old_columns = table_columns(old_table);
+    let new_columns = table_columns(new_table);
+
+    for (key, old_column) in &old_columns {
+        let Some(new_column) = new_columns.get(key) else {
+            changes.push(SqlMigrationChange::removed_column(
+                &old_table.name,
+                old_column,
+            ));
+            continue;
+        };
+        if column_signature(old_column) != column_signature(new_column) {
+            changes.push(SqlMigrationChange::changed_column(
+                &old_table.name,
+                old_column,
+                new_column,
+            ));
+        }
+    }
+
+    for (key, new_column) in &new_columns {
+        if !old_columns.contains_key(key) {
+            changes.push(SqlMigrationChange::added_column(
+                &new_table.name,
+                new_column,
+            ));
+        }
+    }
+}
+
+fn table_columns(table: &Table) -> BTreeMap<String, Column> {
+    table
+        .columns
+        .iter()
+        .cloned()
+        .map(|column| (column.name.to_ascii_lowercase(), column))
+        .collect()
+}
+
+fn primary_key_names(table: &Table) -> Vec<String> {
+    table
+        .columns
+        .iter()
+        .filter(|column| column.primary_key)
+        .map(|column| column.name.clone())
+        .collect()
+}
+
+fn column_signature(column: &Column) -> String {
+    let nullability = if column.nullable {
+        "nullable"
+    } else {
+        "required"
+    };
+    format!("{} {nullability}", column.ty)
+}
+
+fn render_column_list(columns: &[String]) -> String {
+    if columns.is_empty() {
+        "(none)".to_string()
+    } else {
+        columns
+            .iter()
+            .map(|column| format!("`{}`", sanitize_comment_text(column)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -878,6 +1195,45 @@ CREATE TABLE refunds (
             "type Refunds {\n    // SQL unique index `idx_refunds_external_id` covers `refunds.external_id`; index metadata only, runtime query planning is not generated yet\n    // SQL non-unique index `idx_refunds_payment_id` covers `refunds.payment_id`; index metadata only, runtime query planning is not generated yet"
         ));
         assert!(num_compiler::check("generated_sql.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_sql_migration_plan_for_additive_changes() {
+        let old_source = include_str!("../tests/fixtures/sql_migration/additive_old.sql");
+        let new_source = include_str!("../tests/fixtures/sql_migration/additive_new.sql");
+
+        let plan = plan_sql_migration(old_source, new_source);
+        let text = plan.render_text();
+        let json = plan.to_json();
+
+        assert!(text.contains("Summary: 2 additive, 0 breaking, 0 review"));
+        assert!(text.contains("additive column added: `refunds.note` as Option<Text> nullable"));
+        assert!(text.contains("additive table added: `refund_events`"));
+        assert_eq!(json["schema_version"], "num.sql_migration_plan.v1");
+        assert_eq!(json["changes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn renders_sql_migration_plan_for_breaking_and_review_changes() {
+        let old_source = include_str!("../tests/fixtures/sql_migration/breaking_old.sql");
+        let new_source = include_str!("../tests/fixtures/sql_migration/breaking_new.sql");
+
+        let plan = plan_sql_migration(old_source, new_source);
+        let text = plan.render_text();
+        let json = plan.to_json();
+
+        assert!(text.contains("Summary: 0 additive, 4 breaking, 1 review"));
+        assert!(text.contains("breaking table removed: `audit_logs`"));
+        assert!(text.contains("breaking column added: `refunds.tenant_id` as Uuid required"));
+        assert!(text.contains("breaking column removed: `refunds.note` was Option<Text> nullable"));
+        assert!(text.contains(
+            "review column changed: `refunds.amount` from Decimal required to Int required"
+        ));
+        assert!(
+            text.contains("breaking primary key changed on `refunds`: `id` -> `tenant_id`, `id`")
+        );
+        assert_eq!(json["changes"][0]["kind"], "table_removed");
+        assert_eq!(json["changes"][0]["severity"], "breaking");
     }
 
     #[test]

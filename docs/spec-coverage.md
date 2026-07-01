@@ -544,6 +544,9 @@ Implemented:
   types, single-column and composite table-level primary keys, basic
   foreign-key relation hint comments, simple index metadata comments, and basic
   database connector methods.
+- SQL schema migration-plan reports for the focused import subset, comparing
+  two schema snapshots for added/removed tables, added/removed/changed columns,
+  and primary-key changes in deterministic text or JSON form.
 - runtime in-memory database connector executor for generated `database`
   connector methods: `list_<table>`, `find_<table>_by_<primary_key>`,
   composite `find_<table>_by_<key1>_and_<key2>`, and `insert_<table>`.
@@ -569,7 +572,7 @@ Not yet implemented:
   simple object `allOf` merges, executable paginated clients, executable
   callbacks/links, and generated runtime clients.
 - full SQL/database import coverage such as executable foreign-key relation
-  loading, expression/partial/dialect-specific indexes, migrations,
+  loading, expression/partial/dialect-specific indexes, executable migrations,
   dialect-specific features, and generated runtime clients.
 
 ### Policies
