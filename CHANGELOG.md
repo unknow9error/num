@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-07-01
+
 ### Patch
 
 - Extended `Option<T>` and `Result<T,E>` flow narrowing across simple
