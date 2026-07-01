@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Patch
+
+- Added `num import sql --plan` to compare two supported SQL schema snapshots
+  and print deterministic text or JSON migration-plan reports.
+
 ## 0.4.1 - 2026-07-01
 
 ### Patch

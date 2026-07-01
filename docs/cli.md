@@ -1089,6 +1089,8 @@ schema file.
 
 ```bash
 num import sql schema.sql generated.db > src/database.num
+num import sql --plan old.sql new.sql
+num import sql --plan old.sql new.sql --json
 ```
 
 The importer currently handles a focused SQL subset:
@@ -1111,14 +1113,22 @@ The runtime crate includes an in-memory executor for these generated
 `database.*` method names. It is intended for contract tests and demos, not for
 production database access.
 
+`num import sql --plan <old.sql> <new.sql>` compares two schema snapshots using
+the same focused SQL subset and prints a deterministic review report. The text
+form includes additive, breaking, and review counts; `--json` emits
+`schema_version = "num.sql_migration_plan.v1"` with a stable `changes` array.
+The first slice detects added/removed tables, added/removed/changed columns, and
+primary-key changes where the importer can represent the table.
+
 Composite finder method names preserve SQL primary-key column order and join
 identifier-normalized column names with `_and_`. Index metadata comments are not
 query-planner hints. Expression indexes, partial indexes, operator classes,
 included columns, executable relation loading, migrations, SQL dialect-specific
 features such as `ALTER TABLE ... ADD CONSTRAINT`, and generated runtime clients
-are not implemented yet. Unsupported foreign-key and index forms are documented
-as outside the current import subset rather than represented as runnable
-relations.
+are not implemented yet. Migration-plan reports are planning output only; they
+do not generate or execute database migration SQL. Unsupported foreign-key and
+index forms are documented as outside the current import subset rather than
+represented as runnable relations.
 
 ### `completions`
 

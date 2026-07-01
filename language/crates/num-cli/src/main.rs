@@ -752,9 +752,16 @@ fn run() -> Result<(), String> {
                 Ok(())
             }
             Some("sql") => {
-                let path = args.next().map(PathBuf::from).ok_or_else(|| {
-                    "usage: num import sql <schema.sql> [module.name]".to_string()
-                })?;
+                let Some(first) = args.next() else {
+                    return Err(
+                        "usage: num import sql <schema.sql> [module.name]\n       num import sql --plan <old.sql> <new.sql> [--json]"
+                            .to_string(),
+                    );
+                };
+                if first == "--plan" {
+                    return print_sql_migration_plan(args);
+                }
+                let path = PathBuf::from(first);
                 let module_name = args.next();
                 print!(
                     "{}",
@@ -1503,6 +1510,39 @@ fn workflow_run_json(
     })
 }
 
+fn print_sql_migration_plan(args: impl Iterator<Item = String>) -> Result<(), String> {
+    let (old_path, new_path, format_json) = parse_sql_migration_plan_options(args)?;
+    let plan = sql_schema::sql_migration_plan_from_files(&old_path, &new_path)?;
+    if format_json {
+        let json = serde_json::to_string_pretty(&plan.to_json())
+            .map_err(|err| format!("failed to render SQL migration plan JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        print!("{}", plan.render_text());
+    }
+    Ok(())
+}
+
+fn parse_sql_migration_plan_options(
+    args: impl Iterator<Item = String>,
+) -> Result<(PathBuf, PathBuf, bool), String> {
+    let mut paths = Vec::new();
+    let mut format_json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => format_json = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unexpected SQL migration-plan argument '{other}'"));
+            }
+            _ => paths.push(PathBuf::from(arg)),
+        }
+    }
+    if paths.len() != 2 {
+        return Err("usage: num import sql --plan <old.sql> <new.sql> [--json]".to_string());
+    }
+    Ok((paths.remove(0), paths.remove(0), format_json))
+}
+
 fn print_diagnostics(diagnostics: &[num_compiler::diagnostic::Diagnostic]) {
     for diagnostic in diagnostics {
         eprint!("{diagnostic}");
@@ -1581,7 +1621,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num import sql --plan <old.sql> <new.sql>    Compare SQL schema files and report a migration plan\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -2146,6 +2186,24 @@ service Api {
 
         assert_eq!(path, PathBuf::from("CHANGELOG.md"));
         assert!(format_json);
+    }
+
+    #[test]
+    fn sql_migration_plan_options_parse_paths_and_json_flag() {
+        let (old_path, new_path, format_json) = parse_sql_migration_plan_options(
+            [
+                "old.sql".to_string(),
+                "new.sql".to_string(),
+                "--json".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(old_path, PathBuf::from("old.sql"));
+        assert_eq!(new_path, PathBuf::from("new.sql"));
+        assert!(format_json);
+        assert!(parse_sql_migration_plan_options(["old.sql".to_string()].into_iter()).is_err());
     }
 
     #[test]
