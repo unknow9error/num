@@ -786,6 +786,13 @@ impl<'a> Checker<'a> {
                         expected_return,
                         test_kind,
                     );
+                    let then_terminates = self.all_paths_terminate(&stmt.then_body, env);
+                    let else_terminates = self.all_paths_terminate(&stmt.else_body, env);
+                    if then_terminates && !else_terminates {
+                        self.apply_else_condition_checks(&stmt.condition, env);
+                    } else if else_terminates && !then_terminates {
+                        self.apply_condition_checks(&stmt.condition, env);
+                    }
                 }
                 Stmt::Match(stmt) => {
                     self.match_stmt(stmt, env, granted, expected_return, test_kind)
@@ -816,17 +823,22 @@ impl<'a> Checker<'a> {
     }
 
     fn all_paths_return(&self, body: &[Stmt], env: &HashMap<String, Binding>) -> bool {
-        body.iter().any(|stmt| self.stmt_always_returns(stmt, env))
+        self.all_paths_terminate(body, env)
     }
 
-    fn stmt_always_returns(&self, stmt: &Stmt, env: &HashMap<String, Binding>) -> bool {
+    fn all_paths_terminate(&self, body: &[Stmt], env: &HashMap<String, Binding>) -> bool {
+        body.iter()
+            .any(|stmt| self.stmt_always_terminates(stmt, env))
+    }
+
+    fn stmt_always_terminates(&self, stmt: &Stmt, env: &HashMap<String, Binding>) -> bool {
         match stmt {
             Stmt::Return(_) => true,
             Stmt::If(stmt) => {
                 !stmt.then_body.is_empty()
                     && !stmt.else_body.is_empty()
-                    && self.all_paths_return(&stmt.then_body, env)
-                    && self.all_paths_return(&stmt.else_body, env)
+                    && self.all_paths_terminate(&stmt.then_body, env)
+                    && self.all_paths_terminate(&stmt.else_body, env)
             }
             Stmt::Match(stmt) => {
                 !stmt.arms.is_empty()
@@ -834,10 +846,11 @@ impl<'a> Checker<'a> {
                     && stmt
                         .arms
                         .iter()
-                        .all(|arm| self.all_paths_return(&arm.body, env))
+                        .all(|arm| self.all_paths_terminate(&arm.body, env))
             }
-            Stmt::Transaction(stmt) => self.all_paths_return(&stmt.body, env),
-            Stmt::Scope(stmt) => self.all_paths_return(&stmt.body, env),
+            Stmt::Transaction(stmt) => self.all_paths_terminate(&stmt.body, env),
+            Stmt::Scope(stmt) => self.all_paths_terminate(&stmt.body, env),
+            Stmt::Expr(expr) => is_reject_call(&expr.text),
             Stmt::Let(_)
             | Stmt::Assign(_)
             | Stmt::Assert(_)
@@ -846,8 +859,33 @@ impl<'a> Checker<'a> {
             | Stmt::ExpectAudit(_)
             | Stmt::MockAi(_)
             | Stmt::MockConnector(_)
-            | Stmt::Require(_)
-            | Stmt::Expr(_) => false,
+            | Stmt::Require(_) => false,
+        }
+    }
+
+    fn apply_condition_checks(&self, condition: &RawExpr, env: &mut HashMap<String, Binding>) {
+        for name in self.checked_option_bindings(condition, env) {
+            if let Some(binding) = env.get_mut(&name) {
+                binding.option_checked = true;
+            }
+        }
+        for (name, check) in self.checked_result_bindings(condition, env) {
+            if let Some(binding) = env.get_mut(&name) {
+                binding.result_checked = Some(check);
+            }
+        }
+    }
+
+    fn apply_else_condition_checks(&self, condition: &RawExpr, env: &mut HashMap<String, Binding>) {
+        for name in self.else_checked_option_bindings(condition, env) {
+            if let Some(binding) = env.get_mut(&name) {
+                binding.option_checked = true;
+            }
+        }
+        for (name, check) in self.else_checked_result_bindings(condition, env) {
+            if let Some(binding) = env.get_mut(&name) {
+                binding.result_checked = Some(check);
+            }
         }
     }
 
@@ -2159,6 +2197,13 @@ fn expr_label(expr: &Expr) -> String {
 
 fn is_ai_call(text: &str) -> bool {
     compact_member_access(text).contains("ai.")
+}
+
+fn is_reject_call(text: &str) -> bool {
+    let Ok(Expr::Call { callee, .. }) = expr::parse(text) else {
+        return false;
+    };
+    callee.path().is_some_and(|path| path == ["reject"])
 }
 
 fn contains_audit(body: &[Stmt]) -> bool {

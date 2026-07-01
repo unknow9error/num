@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Patch
+
+- Extended `Option<T>` and `Result<T,E>` flow narrowing across simple
+  early-return and `reject(...)` guards, while keeping fallthrough branches
+  conservative.
+
 ## 0.4.0 - 2026-07-01
 
 ### Minor
