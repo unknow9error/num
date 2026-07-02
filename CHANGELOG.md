@@ -7,6 +7,9 @@
 - Added a provider-neutral external secret backend adapter boundary, manifest
   metadata for secret backend references, deploy-plan validation of provider
   credential environment names, and a deterministic stub backend for tests.
+- Added a first Vault external secret backend adapter with token-auth metadata,
+  KV v2 response mapping, missing/denied/unavailable/invalid-response errors,
+  mocked tests, and an `http://` fixture/dev transport boundary.
 
 ## 0.4.2 - 2026-07-02
 

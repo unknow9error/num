@@ -351,6 +351,12 @@ fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> 
                     message: error.message(),
                 };
             }
+            RuntimeError::SecretInvalidResponse { .. } => {
+                return RouteErrorClass::Internal {
+                    code: "secret_invalid_response",
+                    message: error.message(),
+                };
+            }
             RuntimeError::SanitizationFailed { .. } => {
                 return RouteErrorClass::Validation {
                     code: "sanitization_failed",

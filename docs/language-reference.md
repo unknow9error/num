@@ -1568,11 +1568,14 @@ The runtime exposes a `SecretStore` contract plus memory and file-backed stores
 for local execution. It also defines a provider-neutral external secret backend
 adapter boundary using `secret://<backend>/<name>` references, with distinct
 missing, denied, and unavailable error kinds and a deterministic stub backend
-for tests. Secret values use redacted debug output, and runtime reporting
-boundaries use the stable `<redacted>` marker for `Secret<T>` values in
-trace/debug JSON, structured connector errors, process connector JSON
-conversion, and service error responses. Real Vault, KMS, or cloud
-secret-store provider clients are not implemented yet.
+for tests. The first Vault adapter slice supports token-auth configuration,
+KV v2 response extraction, invalid-response classification, mocked tests, and a
+fixture/dev `http://` transport boundary; production HTTPS transport,
+additional Vault auth methods, KMS, and cloud secret providers remain future
+provider-client work. Secret values use redacted debug output, and runtime
+reporting boundaries use the stable `<redacted>` marker for `Secret<T>` values
+in trace/debug JSON, structured connector errors, process connector JSON
+conversion, and service error responses.
 
 ## Current Expression Limitations
 

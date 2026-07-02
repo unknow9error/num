@@ -63,6 +63,11 @@ pub struct PackageRuntime {
 pub struct PackageSecretBackend {
     pub id: String,
     pub provider: String,
+    pub address: Option<String>,
+    pub mount: Option<String>,
+    pub path_prefix: Option<String>,
+    pub auth_method: String,
+    pub token_env: Option<String>,
     pub credential_env: Vec<String>,
     pub optional: bool,
 }
@@ -1203,6 +1208,7 @@ fn upsert_secret_backend(
         backends.push(PackageSecretBackend {
             id: id.to_string(),
             provider: "external".to_string(),
+            auth_method: "token".to_string(),
             ..PackageSecretBackend::default()
         });
         backends.len() - 1
@@ -1213,6 +1219,20 @@ fn upsert_secret_backend(
             if let Some(provider) = parse_toml_string(value) {
                 backend.provider = provider;
             }
+        }
+        "address" => backend.address = parse_toml_string(value),
+        "mount" => backend.mount = parse_toml_string(value),
+        "path_prefix" | "path" => backend.path_prefix = parse_toml_string(value),
+        "auth_method" => {
+            if let Some(auth_method) = parse_toml_string(value) {
+                backend.auth_method = auth_method;
+            }
+        }
+        "token_env" => {
+            backend.token_env = parse_toml_string(value).and_then(|value| {
+                let value = value.trim().to_string();
+                (!value.is_empty()).then_some(value)
+            })
         }
         "credential_env" | "credentials_env" => {
             backend.credential_env = normalize_env_names(parse_toml_string_array(value));
@@ -1902,7 +1922,12 @@ version = "0.1.0"
 
 [secrets.vault]
 provider = "vault"
-credential_env = ["VAULT_TOKEN", " VAULT_ADDR ", "VAULT_TOKEN"]
+address = "https://vault.internal:8200"
+mount = "secret"
+path_prefix = "apps/billing"
+auth_method = "token"
+token_env = " VAULT_TOKEN "
+credential_env = ["VAULT_ADDR", "VAULT_TOKEN", "VAULT_ADDR"]
 
 [secrets.kms]
 provider = "kms"
@@ -1918,6 +1943,20 @@ optional = true
         assert!(manifest.secrets[0].optional);
         assert_eq!(manifest.secrets[1].id, "vault");
         assert_eq!(manifest.secrets[1].provider, "vault");
+        assert_eq!(
+            manifest.secrets[1].address,
+            Some("https://vault.internal:8200".to_string())
+        );
+        assert_eq!(manifest.secrets[1].mount, Some("secret".to_string()));
+        assert_eq!(
+            manifest.secrets[1].path_prefix,
+            Some("apps/billing".to_string())
+        );
+        assert_eq!(manifest.secrets[1].auth_method, "token");
+        assert_eq!(
+            manifest.secrets[1].token_env,
+            Some("VAULT_TOKEN".to_string())
+        );
         assert_eq!(
             manifest.secrets[1].credential_env,
             vec!["VAULT_ADDR".to_string(), "VAULT_TOKEN".to_string()]
