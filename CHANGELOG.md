@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Patch
+
+- Added a provider-neutral external secret backend adapter boundary, manifest
+  metadata for secret backend references, deploy-plan validation of provider
+  credential environment names, and a deterministic stub backend for tests.
+
 ## 0.4.2 - 2026-07-02
 
 ### Patch

@@ -79,6 +79,7 @@ Owns runtime contracts and the demo interpreter:
 - redacted `SecretValue`;
 - runtime errors;
 - `AuditSink`, `StateStore`, and `SecretStore` traits;
+- provider-neutral external secret backend adapter boundary;
 - workflow event and queue contracts;
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;
@@ -90,7 +91,8 @@ Owns runtime contracts and the demo interpreter:
 - file-backed `StateStore`;
 - file-backed workflow state listing and dashboard-oriented summary reports;
 - append-only file-backed `AuditSink`;
-- memory and file-backed secret stores;
+- memory and file-backed secret stores plus a deterministic external secret
+  stub backend for tests;
 - memory and file-backed workflow event queues;
 - file-backed worker leases, retry attempts, and dead-letter event handling;
 - batch workflow event worker for draining queued lifecycle events into
