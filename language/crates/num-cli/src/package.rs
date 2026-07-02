@@ -17,6 +17,7 @@ pub struct PackageManifest {
     pub project: ProjectPackage,
     pub registry: PackageRegistry,
     pub runtime: PackageRuntime,
+    pub secrets: Vec<PackageSecretBackend>,
     pub environment: PackageEnvironment,
     pub deployment: PackageDeployment,
     pub security: PackageSecurity,
@@ -56,6 +57,14 @@ pub struct PackageRegistry {
 pub struct PackageRuntime {
     pub workflow_store: String,
     pub audit_store: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageSecretBackend {
+    pub id: String,
+    pub provider: String,
+    pub credential_env: Vec<String>,
+    pub optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -214,6 +223,7 @@ impl PackageManifest {
         let mut registry_path = None;
         let mut workflow_store = None;
         let mut audit_store = None;
+        let mut secret_backends = Vec::new();
         let mut environment_required = Vec::new();
         let mut environment_optional = Vec::new();
         let mut deployment_target = None;
@@ -274,6 +284,10 @@ impl PackageManifest {
                     "audit_store" => audit_store = parse_toml_string(value),
                     _ => {}
                 },
+                section if section.starts_with("secrets.") => {
+                    let id = section.strip_prefix("secrets.").unwrap_or_default().trim();
+                    upsert_secret_backend(&mut secret_backends, id, &key, value);
+                }
                 "environment" => match key.as_str() {
                     "required" => environment_required.extend(parse_toml_string_array(value)),
                     "optional" => environment_optional.extend(parse_toml_string_array(value)),
@@ -322,6 +336,7 @@ impl PackageManifest {
 
         connectors.sort_by(|left, right| left.method.cmp(&right.method));
         javascript.sort_by(|left, right| left.method.cmp(&right.method));
+        secret_backends.sort_by(|left, right| left.id.cmp(&right.id));
         sanitizer_packs.sort_by(|left, right| left.name.cmp(&right.name));
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -352,6 +367,7 @@ impl PackageManifest {
                 workflow_store: workflow_store.unwrap_or_else(|| "memory".to_string()),
                 audit_store: audit_store.unwrap_or_else(|| "stdout".to_string()),
             },
+            secrets: secret_backends,
             environment: PackageEnvironment {
                 required: normalize_env_names(environment_required),
                 optional: normalize_env_names(environment_optional),
@@ -1172,6 +1188,44 @@ fn upsert_sanitizer_pack(
     }
 }
 
+fn upsert_secret_backend(
+    backends: &mut Vec<PackageSecretBackend>,
+    id: &str,
+    key: &str,
+    value: &str,
+) {
+    let id = id.trim();
+    if id.is_empty() {
+        return;
+    }
+    let index = backends.iter().position(|backend| backend.id == id);
+    let index = index.unwrap_or_else(|| {
+        backends.push(PackageSecretBackend {
+            id: id.to_string(),
+            provider: "external".to_string(),
+            ..PackageSecretBackend::default()
+        });
+        backends.len() - 1
+    });
+    let backend = &mut backends[index];
+    match key {
+        "provider" => {
+            if let Some(provider) = parse_toml_string(value) {
+                backend.provider = provider;
+            }
+        }
+        "credential_env" | "credentials_env" => {
+            backend.credential_env = normalize_env_names(parse_toml_string_array(value));
+        }
+        "optional" => {
+            if let Some(optional) = parse_toml_bool(value) {
+                backend.optional = optional;
+            }
+        }
+        _ => {}
+    }
+}
+
 fn pack_policy(pack: &PackageSanitizerPack) -> Result<TextSanitizationPolicy, String> {
     let mut policy = TextSanitizationPolicy::default();
     if let Some(trim) = pack.trim {
@@ -1833,6 +1887,42 @@ optional = ["NUM_LOG_LEVEL"]
             manifest.environment.optional,
             vec!["NUM_LOG_LEVEL".to_string()]
         );
+    }
+
+    #[test]
+    fn manifest_reads_external_secret_backend_metadata_without_values() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[secrets.vault]
+provider = "vault"
+credential_env = ["VAULT_TOKEN", " VAULT_ADDR ", "VAULT_TOKEN"]
+
+[secrets.kms]
+provider = "kms"
+credential_env = ["KMS_KEYRING"]
+optional = true
+"#,
+        );
+
+        assert_eq!(manifest.secrets.len(), 2);
+        assert_eq!(manifest.secrets[0].id, "kms");
+        assert_eq!(manifest.secrets[0].provider, "kms");
+        assert_eq!(manifest.secrets[0].credential_env, vec!["KMS_KEYRING"]);
+        assert!(manifest.secrets[0].optional);
+        assert_eq!(manifest.secrets[1].id, "vault");
+        assert_eq!(manifest.secrets[1].provider, "vault");
+        assert_eq!(
+            manifest.secrets[1].credential_env,
+            vec!["VAULT_ADDR".to_string(), "VAULT_TOKEN".to_string()]
+        );
+        assert!(!format!("{manifest:?}").contains("secret-value"));
     }
 
     #[test]

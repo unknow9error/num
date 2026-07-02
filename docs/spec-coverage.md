@@ -332,6 +332,10 @@ Implemented:
   preventing duplicate lifecycle audit output and invalid terminal transition
   reapplication for already processed queue events;
 - memory and file-backed secret stores with redacted secret value debug output;
+- provider-neutral external secret backend adapter boundary with
+  `secret://<backend>/<name>` references, distinct missing/denied/unavailable
+  errors, deterministic test stub backend, and deploy-plan credential env-name
+  validation without secret values;
 - runtime redaction of `Secret<T>` values and secret-like connector failures in
   trace/debug JSON, structured runtime errors, process connector JSON
   conversion, and service error responses;
@@ -684,7 +688,8 @@ Major full-spec areas not implemented in v0.4.2:
 - actor model;
 - clustered/networked queue coordination beyond the local file-backed worker
   lease and heartbeat model;
-- external secrets manager integration such as Vault/KMS/cloud secret stores;
+- real external secrets manager provider clients such as Vault/KMS/cloud secret
+  stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative

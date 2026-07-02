@@ -191,6 +191,39 @@ path = "../num-registry"
 `path` points to a local filesystem registry root. If omitted, commands use the
 `NUM_REGISTRY_PATH` environment variable when registry dependencies are present.
 
+### `[secrets.<backend>]`
+
+Projects can declare external secret-store backends without placing secret
+values in `num.toml`. A backend id is referenced by `secret://<backend>/<name>`
+at runtime boundaries that accept external secret references.
+
+```toml
+[secrets.vault]
+provider = "vault"
+credential_env = ["VAULT_ADDR", "VAULT_TOKEN"]
+
+[secrets.kms]
+provider = "kms"
+credential_env = ["KMS_KEYRING"]
+optional = true
+```
+
+Supported fields:
+
+- `provider` - provider family label such as `vault`, `kms`, or
+  `cloud-secrets`. This is metadata for adapter selection; the current runtime
+  does not ship those provider clients.
+- `credential_env` - environment variable names required by the external
+  provider adapter. `num deploy` records names and presence only; it never reads
+  or serializes credential values.
+- `optional` - marks the backend as advisory in deploy checks when credential
+  environment names are missing.
+
+`num deploy` and `num deploy --check` include a `secrets` section in their JSON
+plans. Missing credential environment variables for non-optional backends block
+deploy checks; optional missing backends remain visible as
+`optional-missing`.
+
 ### `[sanitizer_packs.<name>]`
 
 Projects can define named text sanitizer packs in the manifest and use them at
@@ -475,6 +508,9 @@ Implemented:
   deployment bundles for compatible `[deployment].target` values;
 - Kubernetes dry-run handoff output with namespace/image/port validation and
   secret-like environment reference warnings before real apply support;
+- external secret backend manifest metadata and deploy-check validation for
+  provider credential environment variable names, without reading or emitting
+  secret values;
 - explicit container image publish handoff metadata and
   `deploy/image-publish.json` artifacts for configured registry/image targets,
   with credential values kept out of plain config;

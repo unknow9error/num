@@ -339,6 +339,18 @@ fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> 
                     message: error.message(),
                 };
             }
+            RuntimeError::SecretDenied { .. } => {
+                return RouteErrorClass::Permission {
+                    code: "secret_denied",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::SecretUnavailable { .. } => {
+                return RouteErrorClass::Internal {
+                    code: "secret_unavailable",
+                    message: error.message(),
+                };
+            }
             RuntimeError::SanitizationFailed { .. } => {
                 return RouteErrorClass::Validation {
                     code: "sanitization_failed",

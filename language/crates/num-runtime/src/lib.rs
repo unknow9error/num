@@ -236,6 +236,13 @@ pub enum RuntimeError {
     SecretNotFound {
         name: String,
     },
+    SecretDenied {
+        name: String,
+    },
+    SecretUnavailable {
+        backend: String,
+        reason: String,
+    },
     Storage(String),
 }
 
@@ -251,6 +258,8 @@ impl RuntimeError {
             RuntimeError::SanitizationFailed { .. } => "sanitization_failed",
             RuntimeError::TenantIsolationViolation { .. } => "tenant_isolation_violation",
             RuntimeError::SecretNotFound { .. } => "secret_not_found",
+            RuntimeError::SecretDenied { .. } => "secret_denied",
+            RuntimeError::SecretUnavailable { .. } => "secret_unavailable",
             RuntimeError::Storage(_) => "storage",
         }
     }
@@ -287,6 +296,11 @@ impl RuntimeError {
                 format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
             }
             RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
+            RuntimeError::SecretDenied { name } => format!("Secret '{name}' denied by backend"),
+            RuntimeError::SecretUnavailable { backend, reason } => format!(
+                "Secret backend '{backend}' unavailable: {}",
+                redaction::redact_text(reason)
+            ),
             RuntimeError::Storage(message) => {
                 format!("Storage error: {}", redaction::redact_text(message))
             }
@@ -357,6 +371,17 @@ impl RuntimeError {
                 "kind": self.kind(),
                 "message": self.message(),
                 "name": name,
+            }),
+            RuntimeError::SecretDenied { name } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "name": name,
+            }),
+            RuntimeError::SecretUnavailable { backend, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "backend": backend,
+                "reason": redaction::redact_text(reason),
             }),
             RuntimeError::Storage(_) => base,
         }

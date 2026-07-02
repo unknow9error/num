@@ -21,6 +21,7 @@ pub struct DeploymentPlan {
     pub source: String,
     pub entry: String,
     pub runtime: RuntimeDeployment,
+    pub secrets: Vec<SecretBackendDeployment>,
     pub environment: DeploymentEnvironment,
     pub security: SecurityDeployment,
     pub modules: usize,
@@ -47,6 +48,15 @@ pub struct CompatibilityDeployment {
 pub struct RuntimeDeployment {
     pub workflow_store: String,
     pub audit_store: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SecretBackendDeployment {
+    pub id: String,
+    pub provider: String,
+    pub credential_env: Vec<EnvironmentVariableDeployment>,
+    pub optional: bool,
+    pub status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +243,7 @@ pub fn build_deployment_plan(
             workflow_store: manifest.runtime.workflow_store.clone(),
             audit_store: manifest.runtime.audit_store.clone(),
         },
+        secrets: secret_backends_from_manifest(manifest),
         environment: DeploymentEnvironment::from_manifest(manifest),
         security: SecurityDeployment {
             policy_mode: manifest.security.policy_mode.clone(),
@@ -327,6 +338,7 @@ impl DeploymentPlan {
                 "workflow_store": self.runtime.workflow_store,
                 "audit_store": self.runtime.audit_store,
             },
+            "secrets": self.secrets.iter().map(SecretBackendDeployment::to_json).collect::<Vec<_>>(),
             "environment": self.environment.to_json(),
             "security": {
                 "policy_mode": self.security.policy_mode,
@@ -742,6 +754,17 @@ fn bare_metal_external_service_warnings(manifest: &PackageManifest) -> Vec<Strin
         warnings.push(format!(
             "bare-metal audit_store `{}` may require an external service; document and provision it outside this bundle",
             sanitize_warning_value(&manifest.runtime.audit_store)
+        ));
+    }
+    if !manifest.secrets.is_empty() {
+        let backends = manifest
+            .secrets
+            .iter()
+            .map(|backend| format!("{}:{}", backend.id, backend.provider))
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "bare-metal secret backends [{backends}] are adapter references only; provision provider clients, credentials, and access policies outside this bundle"
         ));
     }
     let secret_like_vars = manifest
@@ -1176,11 +1199,16 @@ pub fn build_deploy_check_report(
     let target_blocking = !plan.target_profile.validation.errors.is_empty()
         || (plan.image_publish.enabled && !plan.image_publish.validation.errors.is_empty());
     let environment_blocking = !plan.environment.missing_required.is_empty();
+    let secret_backend_blocking = plan
+        .secrets
+        .iter()
+        .any(|backend| backend.status == "missing-required");
     let blocking = compile_blocking
         || policy_blocking
         || security_blocking
         || target_blocking
-        || environment_blocking;
+        || environment_blocking
+        || secret_backend_blocking;
 
     let missing_cost_metadata = plan
         .actions
@@ -1252,6 +1280,10 @@ pub fn build_deploy_check_report(
                 "optional": plan.environment.optional.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
                 "missing_required": plan.environment.missing_required,
             },
+            "secrets": {
+                "status": if secret_backend_blocking { "blocking" } else { "ready" },
+                "backends": plan.secrets.iter().map(SecretBackendDeployment::to_json).collect::<Vec<_>>(),
+            },
             "image_publish": plan.image_publish.to_json(),
         },
         "diagnostics": compile_diagnostics.iter().map(diagnostic_to_json).collect::<Vec<_>>(),
@@ -1299,6 +1331,47 @@ impl ProcessConnectorDeployment {
             "timeout_ms": self.timeout_ms,
         })
     }
+}
+
+impl SecretBackendDeployment {
+    fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "provider": self.provider,
+            "credential_env": self.credential_env.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+            "optional": self.optional,
+            "status": self.status,
+        })
+    }
+}
+
+fn secret_backends_from_manifest(manifest: &PackageManifest) -> Vec<SecretBackendDeployment> {
+    manifest
+        .secrets
+        .iter()
+        .map(|backend| {
+            let credential_env = backend
+                .credential_env
+                .iter()
+                .map(|name| EnvironmentVariableDeployment::from_name(name))
+                .collect::<Vec<_>>();
+            let missing = credential_env.iter().any(|variable| !variable.present);
+            let status = if missing && backend.optional {
+                "optional-missing"
+            } else if missing {
+                "missing-required"
+            } else {
+                "ready"
+            };
+            SecretBackendDeployment {
+                id: backend.id.clone(),
+                provider: backend.provider.clone(),
+                credential_env,
+                optional: backend.optional,
+                status: status.to_string(),
+            }
+        })
+        .collect()
 }
 
 impl ImagePublishDeployment {
@@ -2767,6 +2840,48 @@ optional = ["NUM_TEST_DEPLOY_OPTIONAL"]
             .contains("missing required env `NUM_TEST_DEPLOY_MISSING`"));
 
         env::remove_var("NUM_TEST_DEPLOY_PRESENT");
+    }
+
+    #[test]
+    fn deployment_plan_reports_external_secret_backend_validation() {
+        env::remove_var("NUM_TEST_DEPLOY_VAULT_TOKEN");
+        env::remove_var("NUM_TEST_DEPLOY_OPTIONAL_KMS");
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[secrets.vault]
+provider = "vault"
+credential_env = ["NUM_TEST_DEPLOY_VAULT_TOKEN"]
+
+[secrets.kms]
+provider = "kms"
+credential_env = ["NUM_TEST_DEPLOY_OPTIONAL_KMS"]
+optional = true
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let report = build_deploy_check_report(&plan, &compilation.diagnostics, &[], false);
+
+        assert_eq!(plan.secrets.len(), 2);
+        assert_eq!(plan.secrets[0].id, "kms");
+        assert_eq!(plan.secrets[0].status, "optional-missing");
+        assert_eq!(plan.secrets[1].id, "vault");
+        assert_eq!(plan.secrets[1].status, "missing-required");
+        assert_eq!(
+            plan.to_json()["secrets"][1]["credential_env"][0]["present"],
+            false
+        );
+        assert_eq!(report["status"], "blocked");
+        assert_eq!(report["gates"]["secrets"]["status"], "blocking");
+        assert!(!report.to_string().contains("secret-value"));
     }
 
     #[test]
