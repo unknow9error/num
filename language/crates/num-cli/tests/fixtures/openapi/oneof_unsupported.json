@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Payments API", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "CardPayment": {
+        "type": "object",
+        "properties": {
+          "card_last4": { "type": "string" }
+        }
+      },
+      "MixedPayment": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/CardPayment" },
+          { "type": "string" }
+        ]
+      }
+    }
+  },
+  "paths": {}
+}

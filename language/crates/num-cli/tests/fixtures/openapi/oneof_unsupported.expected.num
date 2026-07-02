@@ -1,0 +1,13 @@
+module generated.payments
+
+type CardPayment {
+    card_last4: Text
+}
+
+type MixedPayment {
+    // OpenAPI oneOf for `MixedPayment` includes an inline or primitive member; generated as Json for review.
+    value: Json
+}
+
+connector paymentsApi {
+}

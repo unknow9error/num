@@ -1,0 +1,29 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Payments API", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "CardPayment": {
+        "type": "object",
+        "properties": {
+          "card_last4": { "type": "string" },
+          "authorization_id": { "type": "string" }
+        }
+      },
+      "BankAccount": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "routing_number": { "type": "string" }
+        }
+      },
+      "PaymentMethod": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/CardPayment" },
+          { "$ref": "#/components/schemas/BankAccount" }
+        ]
+      }
+    }
+  },
+  "paths": {}
+}

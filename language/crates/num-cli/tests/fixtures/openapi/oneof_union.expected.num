@@ -1,0 +1,16 @@
+module generated.payments
+
+type BankAccount {
+    account_id: Text
+    routing_number: Text
+}
+
+type CardPayment {
+    authorization_id: Text
+    card_last4: Text
+}
+
+type PaymentMethod = BankAccount | CardPayment
+
+connector paymentsApi {
+}
