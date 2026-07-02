@@ -243,6 +243,10 @@ pub enum RuntimeError {
         backend: String,
         reason: String,
     },
+    SecretInvalidResponse {
+        backend: String,
+        reason: String,
+    },
     Storage(String),
 }
 
@@ -260,6 +264,7 @@ impl RuntimeError {
             RuntimeError::SecretNotFound { .. } => "secret_not_found",
             RuntimeError::SecretDenied { .. } => "secret_denied",
             RuntimeError::SecretUnavailable { .. } => "secret_unavailable",
+            RuntimeError::SecretInvalidResponse { .. } => "secret_invalid_response",
             RuntimeError::Storage(_) => "storage",
         }
     }
@@ -299,6 +304,10 @@ impl RuntimeError {
             RuntimeError::SecretDenied { name } => format!("Secret '{name}' denied by backend"),
             RuntimeError::SecretUnavailable { backend, reason } => format!(
                 "Secret backend '{backend}' unavailable: {}",
+                redaction::redact_text(reason)
+            ),
+            RuntimeError::SecretInvalidResponse { backend, reason } => format!(
+                "Secret backend '{backend}' returned an invalid response: {}",
                 redaction::redact_text(reason)
             ),
             RuntimeError::Storage(message) => {
@@ -378,6 +387,12 @@ impl RuntimeError {
                 "name": name,
             }),
             RuntimeError::SecretUnavailable { backend, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "backend": backend,
+                "reason": redaction::redact_text(reason),
+            }),
+            RuntimeError::SecretInvalidResponse { backend, reason } => serde_json::json!({
                 "kind": self.kind(),
                 "message": self.message(),
                 "backend": backend,

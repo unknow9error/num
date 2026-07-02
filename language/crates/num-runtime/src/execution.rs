@@ -279,6 +279,12 @@ fn error_message(error: &RuntimeError) -> String {
                 redaction::redact_text(reason)
             )
         }
+        RuntimeError::SecretInvalidResponse { backend, reason } => {
+            format!(
+                "secret backend invalid response: {backend}: {}",
+                redaction::redact_text(reason)
+            )
+        }
         RuntimeError::Storage(message) => format!("storage: {}", redaction::redact_text(message)),
     }
 }

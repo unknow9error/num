@@ -54,6 +54,11 @@ pub struct RuntimeDeployment {
 pub struct SecretBackendDeployment {
     pub id: String,
     pub provider: String,
+    pub address: Option<String>,
+    pub mount: Option<String>,
+    pub path_prefix: Option<String>,
+    pub auth_method: String,
+    pub token_env: Option<EnvironmentVariableDeployment>,
     pub credential_env: Vec<EnvironmentVariableDeployment>,
     pub optional: bool,
     pub status: String,
@@ -1338,6 +1343,11 @@ impl SecretBackendDeployment {
         json!({
             "id": self.id,
             "provider": self.provider,
+            "address": self.address,
+            "mount": self.mount,
+            "path_prefix": self.path_prefix,
+            "auth_method": self.auth_method,
+            "token_env": self.token_env.as_ref().map(EnvironmentVariableDeployment::to_json),
             "credential_env": self.credential_env.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
             "optional": self.optional,
             "status": self.status,
@@ -1350,11 +1360,20 @@ fn secret_backends_from_manifest(manifest: &PackageManifest) -> Vec<SecretBacken
         .secrets
         .iter()
         .map(|backend| {
-            let credential_env = backend
-                .credential_env
+            let mut env_names = backend.credential_env.clone();
+            if let Some(token_env) = &backend.token_env {
+                env_names.push(token_env.clone());
+            }
+            env_names.sort();
+            env_names.dedup();
+            let credential_env = env_names
                 .iter()
                 .map(|name| EnvironmentVariableDeployment::from_name(name))
                 .collect::<Vec<_>>();
+            let token_env = backend
+                .token_env
+                .as_ref()
+                .map(|name| EnvironmentVariableDeployment::from_name(name));
             let missing = credential_env.iter().any(|variable| !variable.present);
             let status = if missing && backend.optional {
                 "optional-missing"
@@ -1366,6 +1385,11 @@ fn secret_backends_from_manifest(manifest: &PackageManifest) -> Vec<SecretBacken
             SecretBackendDeployment {
                 id: backend.id.clone(),
                 provider: backend.provider.clone(),
+                address: backend.address.clone(),
+                mount: backend.mount.clone(),
+                path_prefix: backend.path_prefix.clone(),
+                auth_method: backend.auth_method.clone(),
+                token_env,
                 credential_env,
                 optional: backend.optional,
                 status: status.to_string(),
@@ -2857,6 +2881,11 @@ version = "1.2.3"
 
 [secrets.vault]
 provider = "vault"
+address = "https://vault.internal:8200"
+mount = "secret"
+path_prefix = "apps/billing"
+auth_method = "token"
+token_env = "NUM_TEST_DEPLOY_VAULT_TOKEN"
 credential_env = ["NUM_TEST_DEPLOY_VAULT_TOKEN"]
 
 [secrets.kms]
@@ -2875,6 +2904,18 @@ optional = true
         assert_eq!(plan.secrets[0].status, "optional-missing");
         assert_eq!(plan.secrets[1].id, "vault");
         assert_eq!(plan.secrets[1].status, "missing-required");
+        assert_eq!(
+            plan.to_json()["secrets"][1]["address"],
+            "https://vault.internal:8200"
+        );
+        assert_eq!(plan.to_json()["secrets"][1]["mount"], "secret");
+        assert_eq!(plan.to_json()["secrets"][1]["path_prefix"], "apps/billing");
+        assert_eq!(plan.to_json()["secrets"][1]["auth_method"], "token");
+        assert_eq!(
+            plan.to_json()["secrets"][1]["token_env"]["name"],
+            "NUM_TEST_DEPLOY_VAULT_TOKEN"
+        );
+        assert_eq!(plan.to_json()["secrets"][1]["token_env"]["present"], false);
         assert_eq!(
             plan.to_json()["secrets"][1]["credential_env"][0]["present"],
             false

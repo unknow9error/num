@@ -1,8 +1,12 @@
 use crate::{RuntimeError, SecretStore, SecretValue};
 use serde_json::json;
+use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalSecretRef {
@@ -59,6 +63,7 @@ pub enum ExternalSecretError {
     Missing,
     Denied,
     Unavailable { reason: String },
+    InvalidResponse { reason: String },
 }
 
 pub struct ExternalSecretStore<B> {
@@ -179,7 +184,326 @@ fn map_external_secret_error(
             backend: reference.backend().to_string(),
             reason,
         },
+        ExternalSecretError::InvalidResponse { reason } => RuntimeError::SecretInvalidResponse {
+            backend: reference.backend().to_string(),
+            reason,
+        },
     }
+}
+
+#[derive(Clone)]
+pub struct VaultSecretConfig {
+    backend_id: String,
+    address: String,
+    mount: String,
+    path_prefix: Option<String>,
+    auth_method: String,
+    token: SecretValue,
+    timeout: Duration,
+}
+
+impl VaultSecretConfig {
+    pub fn token(
+        backend_id: impl Into<String>,
+        address: impl Into<String>,
+        mount: impl Into<String>,
+        token: SecretValue,
+    ) -> Self {
+        Self {
+            backend_id: backend_id.into(),
+            address: address.into(),
+            mount: mount.into(),
+            path_prefix: None,
+            auth_method: "token".to_string(),
+            token,
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    pub fn with_path_prefix(mut self, path_prefix: impl Into<String>) -> Self {
+        let path_prefix = path_prefix.into();
+        self.path_prefix = (!path_prefix.trim_matches('/').is_empty()).then_some(path_prefix);
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn backend_id(&self) -> &str {
+        &self.backend_id
+    }
+
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+
+    pub fn mount(&self) -> &str {
+        &self.mount
+    }
+
+    pub fn path_prefix(&self) -> Option<&str> {
+        self.path_prefix.as_deref()
+    }
+
+    pub fn auth_method(&self) -> &str {
+        &self.auth_method
+    }
+
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+}
+
+impl std::fmt::Debug for VaultSecretConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VaultSecretConfig")
+            .field("backend_id", &self.backend_id)
+            .field("address", &self.address)
+            .field("mount", &self.mount)
+            .field("path_prefix", &self.path_prefix)
+            .field("auth_method", &self.auth_method)
+            .field("token", &"<redacted>")
+            .field("timeout", &self.timeout)
+            .finish()
+    }
+}
+
+pub trait VaultSecretClient {
+    fn read_secret(
+        &self,
+        config: &VaultSecretConfig,
+        path: &str,
+    ) -> Result<VaultHttpResponse, ExternalSecretError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultHttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HttpVaultSecretClient;
+
+impl VaultSecretClient for HttpVaultSecretClient {
+    fn read_secret(
+        &self,
+        config: &VaultSecretConfig,
+        path: &str,
+    ) -> Result<VaultHttpResponse, ExternalSecretError> {
+        let endpoint = vault_http_endpoint(config, path)?;
+        let token = config
+            .token
+            .expose_text()
+            .map_err(|err| ExternalSecretError::Unavailable {
+                reason: err.message(),
+            })?;
+        let mut stream =
+            TcpStream::connect_timeout(&endpoint.address, config.timeout()).map_err(|err| {
+                ExternalSecretError::Unavailable {
+                    reason: format!("failed to connect to Vault: {err}"),
+                }
+            })?;
+        stream
+            .set_read_timeout(Some(config.timeout()))
+            .map_err(|err| ExternalSecretError::Unavailable {
+                reason: format!("failed to configure Vault read timeout: {err}"),
+            })?;
+        stream
+            .set_write_timeout(Some(config.timeout()))
+            .map_err(|err| ExternalSecretError::Unavailable {
+                reason: format!("failed to configure Vault write timeout: {err}"),
+            })?;
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nX-Vault-Token: {}\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+            endpoint.path, endpoint.host_header, token
+        );
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|err| ExternalSecretError::Unavailable {
+                reason: format!("failed to write Vault request: {err}"),
+            })?;
+        let mut response = String::new();
+        stream
+            .read_to_string(&mut response)
+            .map_err(|err| ExternalSecretError::Unavailable {
+                reason: format!("failed to read Vault response: {err}"),
+            })?;
+        parse_http_response(&response)
+    }
+}
+
+pub struct VaultSecretBackend<C = HttpVaultSecretClient> {
+    config: VaultSecretConfig,
+    client: C,
+}
+
+impl VaultSecretBackend<HttpVaultSecretClient> {
+    pub fn new(config: VaultSecretConfig) -> Self {
+        Self {
+            config,
+            client: HttpVaultSecretClient,
+        }
+    }
+}
+
+impl<C> VaultSecretBackend<C> {
+    pub fn with_client(config: VaultSecretConfig, client: C) -> Self {
+        Self { config, client }
+    }
+}
+
+impl<C: VaultSecretClient> ExternalSecretBackend for VaultSecretBackend<C> {
+    fn backend_id(&self) -> &str {
+        self.config.backend_id()
+    }
+
+    fn get_external_secret(&self, name: &str) -> Result<SecretValue, ExternalSecretError> {
+        if self.config.auth_method() != "token" {
+            return Err(ExternalSecretError::Unavailable {
+                reason: format!(
+                    "Vault auth method `{}` is not supported by this adapter",
+                    sanitize_secret_ref(self.config.auth_method())
+                ),
+            });
+        }
+        let response = self.client.read_secret(&self.config, name)?;
+        match response.status {
+            200 => extract_vault_kv_v2_secret(&response.body),
+            403 => Err(ExternalSecretError::Denied),
+            404 => Err(ExternalSecretError::Missing),
+            500..=599 => Err(ExternalSecretError::Unavailable {
+                reason: format!("Vault returned HTTP {}", response.status),
+            }),
+            status => Err(ExternalSecretError::InvalidResponse {
+                reason: format!("Vault returned unsupported HTTP status {status}"),
+            }),
+        }
+    }
+}
+
+struct VaultHttpEndpoint {
+    address: std::net::SocketAddr,
+    host_header: String,
+    path: String,
+}
+
+fn vault_http_endpoint(
+    config: &VaultSecretConfig,
+    secret_name: &str,
+) -> Result<VaultHttpEndpoint, ExternalSecretError> {
+    let Some(rest) = config.address().strip_prefix("http://") else {
+        return Err(ExternalSecretError::Unavailable {
+            reason: "Vault HTTP transport currently supports http:// fixture/dev endpoints; configure production TLS outside this adapter".to_string(),
+        });
+    };
+    let host_port = rest.split('/').next().unwrap_or(rest).trim();
+    if host_port.is_empty() {
+        return Err(ExternalSecretError::Unavailable {
+            reason: "Vault address is missing host".to_string(),
+        });
+    }
+    let socket = host_port
+        .to_socket_addrs()
+        .map_err(|err| ExternalSecretError::Unavailable {
+            reason: format!("failed to resolve Vault address: {err}"),
+        })?
+        .next()
+        .ok_or_else(|| ExternalSecretError::Unavailable {
+            reason: "Vault address resolved no socket addresses".to_string(),
+        })?;
+    let mount = config.mount().trim_matches('/');
+    if mount.is_empty() {
+        return Err(ExternalSecretError::Unavailable {
+            reason: "Vault mount is empty".to_string(),
+        });
+    }
+    let secret_path = match config.path_prefix() {
+        Some(prefix) => format!(
+            "{}/{}",
+            prefix.trim_matches('/'),
+            secret_name.trim_matches('/')
+        ),
+        None => secret_name.trim_matches('/').to_string(),
+    };
+    Ok(VaultHttpEndpoint {
+        address: socket,
+        host_header: host_port.to_string(),
+        path: format!(
+            "/v1/{}/data/{}",
+            percent_encode_path(mount),
+            percent_encode_path(&secret_path)
+        ),
+    })
+}
+
+fn parse_http_response(response: &str) -> Result<VaultHttpResponse, ExternalSecretError> {
+    let Some((head, body)) = response
+        .split_once("\r\n\r\n")
+        .or_else(|| response.split_once("\n\n"))
+    else {
+        return Err(ExternalSecretError::InvalidResponse {
+            reason: "Vault response did not include HTTP headers".to_string(),
+        });
+    };
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or_else(|| ExternalSecretError::InvalidResponse {
+            reason: "Vault response had no parseable HTTP status".to_string(),
+        })?;
+    Ok(VaultHttpResponse {
+        status,
+        body: body.to_string(),
+    })
+}
+
+fn extract_vault_kv_v2_secret(body: &str) -> Result<SecretValue, ExternalSecretError> {
+    let value: JsonValue =
+        serde_json::from_str(body).map_err(|err| ExternalSecretError::InvalidResponse {
+            reason: format!("Vault response was not valid JSON: {err}"),
+        })?;
+    let data = value
+        .pointer("/data/data")
+        .and_then(JsonValue::as_object)
+        .ok_or_else(|| ExternalSecretError::InvalidResponse {
+            reason: "Vault response missing data.data object".to_string(),
+        })?;
+    let secret = data
+        .get("value")
+        .or_else(|| data.get("secret"))
+        .or_else(|| data.get("password"))
+        .or_else(|| data.get("token"))
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| ExternalSecretError::InvalidResponse {
+            reason: "Vault response missing string secret value field".to_string(),
+        })?;
+    Ok(SecretValue::new(secret.as_bytes().to_vec()))
+}
+
+fn percent_encode_path(value: &str) -> String {
+    value
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .map(percent_encode_segment)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn percent_encode_segment(value: &str) -> String {
+    let mut output = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            output.push(byte as char);
+        } else {
+            output.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    output
 }
 
 #[derive(Debug, Clone, Default)]
@@ -325,7 +649,30 @@ impl<T, E: std::fmt::Display> MapStorage<T> for Result<T, E> {
 mod tests {
     use super::*;
     use std::env;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Debug, Clone)]
+    struct MockVaultClient {
+        response: Result<VaultHttpResponse, ExternalSecretError>,
+    }
+
+    impl VaultSecretClient for MockVaultClient {
+        fn read_secret(
+            &self,
+            config: &VaultSecretConfig,
+            path: &str,
+        ) -> Result<VaultHttpResponse, ExternalSecretError> {
+            assert_eq!(config.backend_id(), "vault");
+            assert_eq!(config.address(), "http://vault.test:8200");
+            assert_eq!(config.mount(), "secret");
+            assert_eq!(config.auth_method(), "token");
+            assert_eq!(path, "billing/api-key");
+            self.response.clone()
+        }
+    }
 
     fn unique_test_dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -433,5 +780,122 @@ mod tests {
             .unwrap_err();
         assert_eq!(write_error.kind(), "secret_unavailable");
         assert!(!write_error.message().contains("new_secret"));
+    }
+
+    #[test]
+    fn vault_secret_backend_reads_kv_v2_secret_without_leaking_token() {
+        let config = VaultSecretConfig::token(
+            "vault",
+            "http://vault.test:8200",
+            "secret",
+            SecretValue::new("vault-token"),
+        );
+        let backend = VaultSecretBackend::with_client(
+            config.clone(),
+            MockVaultClient {
+                response: Ok(VaultHttpResponse {
+                    status: 200,
+                    body: r#"{"data":{"data":{"value":"vault-secret-value"}}}"#.to_string(),
+                }),
+            },
+        );
+
+        let value = backend.get_external_secret("billing/api-key").unwrap();
+
+        assert_eq!(value.expose_text().unwrap(), "vault-secret-value");
+        assert!(!format!("{config:?}").contains("vault-token"));
+        assert_eq!(format!("{value:?}"), "SecretValue(<redacted>)");
+    }
+
+    #[test]
+    fn vault_secret_backend_maps_status_and_invalid_response_errors() {
+        let config = VaultSecretConfig::token(
+            "vault",
+            "http://vault.test:8200",
+            "secret",
+            SecretValue::new("vault-token"),
+        );
+        for (status, expected) in [
+            (403, ExternalSecretError::Denied),
+            (404, ExternalSecretError::Missing),
+            (
+                503,
+                ExternalSecretError::Unavailable {
+                    reason: "Vault returned HTTP 503".to_string(),
+                },
+            ),
+        ] {
+            let backend = VaultSecretBackend::with_client(
+                config.clone(),
+                MockVaultClient {
+                    response: Ok(VaultHttpResponse {
+                        status,
+                        body: "{}".to_string(),
+                    }),
+                },
+            );
+            assert_eq!(
+                backend.get_external_secret("billing/api-key").unwrap_err(),
+                expected
+            );
+        }
+
+        let backend = VaultSecretBackend::with_client(
+            config,
+            MockVaultClient {
+                response: Ok(VaultHttpResponse {
+                    status: 200,
+                    body: r#"{"data":{"data":{"metadata":"not-secret"}}}"#.to_string(),
+                }),
+            },
+        );
+        assert!(matches!(
+            backend.get_external_secret("billing/api-key"),
+            Err(ExternalSecretError::InvalidResponse { .. })
+        ));
+    }
+
+    #[test]
+    fn vault_http_client_reads_from_fixture_server() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0_u8; 512];
+            loop {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buffer[..read]);
+                if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(bytes).unwrap();
+            assert!(request.starts_with("GET /v1/secret/data/apps/billing/api-key HTTP/1.1"));
+            assert!(request.contains("X-Vault-Token: vault-token"));
+            let body = r#"{"data":{"data":{"token":"from-fixture-server"}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        let config = VaultSecretConfig::token(
+            "vault",
+            format!("http://{address}"),
+            "secret",
+            SecretValue::new("vault-token"),
+        )
+        .with_path_prefix("apps/billing");
+        let backend = VaultSecretBackend::new(config);
+
+        let value = backend.get_external_secret("api-key").unwrap();
+
+        assert_eq!(value.expose_text().unwrap(), "from-fixture-server");
+        handle.join().unwrap();
     }
 }

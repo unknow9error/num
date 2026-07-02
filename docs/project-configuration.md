@@ -200,6 +200,11 @@ at runtime boundaries that accept external secret references.
 ```toml
 [secrets.vault]
 provider = "vault"
+address = "https://vault.internal:8200"
+mount = "secret"
+path_prefix = "apps/billing"
+auth_method = "token"
+token_env = "VAULT_TOKEN"
 credential_env = ["VAULT_ADDR", "VAULT_TOKEN"]
 
 [secrets.kms]
@@ -211,13 +216,31 @@ optional = true
 Supported fields:
 
 - `provider` - provider family label such as `vault`, `kms`, or
-  `cloud-secrets`. This is metadata for adapter selection; the current runtime
-  does not ship those provider clients.
+  `cloud-secrets`. `vault` has the first runtime adapter slice; KMS and cloud
+  secret providers remain metadata-only.
+- `address` - Vault base address metadata. Address values are not secret
+  values, but deploy plans still record them separately from credential
+  presence.
+- `mount` - Vault KV v2 mount name, such as `secret`.
+- `path_prefix` or `path` - optional provider-side path prefix metadata for
+  operators and future runtime wiring.
+- `auth_method` - provider auth method. The current Vault runtime adapter
+  supports `token`.
+- `token_env` - environment variable name that should contain the Vault token
+  at runtime. Deploy plans record the name and whether it is present, never the
+  token value.
 - `credential_env` - environment variable names required by the external
   provider adapter. `num deploy` records names and presence only; it never reads
   or serializes credential values.
 - `optional` - marks the backend as advisory in deploy checks when credential
   environment names are missing.
+
+The initial Vault runtime adapter maps KV v2 JSON responses under
+`data.data` and distinguishes missing secrets, permission denial, unavailable
+Vault responses, and invalid response shapes. Its bundled HTTP transport is
+limited to `http://` fixture/dev endpoints for deterministic tests; production
+Vault HTTPS transport and additional auth methods are future provider-client
+work.
 
 `num deploy` and `num deploy --check` include a `secrets` section in their JSON
 plans. Missing credential environment variables for non-optional backends block
@@ -508,9 +531,9 @@ Implemented:
   deployment bundles for compatible `[deployment].target` values;
 - Kubernetes dry-run handoff output with namespace/image/port validation and
   secret-like environment reference warnings before real apply support;
-- external secret backend manifest metadata and deploy-check validation for
-  provider credential environment variable names, without reading or emitting
-  secret values;
+- external secret backend manifest metadata, first Vault token-auth/KV v2
+  adapter metadata, and deploy-check validation for provider credential
+  environment variable names, without reading or emitting secret values;
 - explicit container image publish handoff metadata and
   `deploy/image-publish.json` artifacts for configured registry/image targets,
   with credential values kept out of plain config;
