@@ -6,6 +6,9 @@
 
 - Added `num import sql --plan` to compare two supported SQL schema snapshots
   and print deterministic text or JSON migration-plan reports.
+- Added `num import openapi` support for component-level `oneOf` schemas whose
+  variants are local `$ref`s to representable object schemas, generating
+  deterministic Num union aliases and review comments for unsupported shapes.
 
 ## 0.4.1 - 2026-07-01
 

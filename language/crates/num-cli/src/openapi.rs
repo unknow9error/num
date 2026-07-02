@@ -64,7 +64,7 @@ pub fn render_openapi_connector(document: &Value, module_name: Option<&str>) -> 
     render_permission_scaffold(&mut out, &connector_name, &operations);
 
     for (name, schema) in component_schemas(document) {
-        render_type(&mut out, document, name, schema);
+        render_component_schema(&mut out, document, name, schema);
         out.push('\n');
     }
 
@@ -198,6 +198,20 @@ fn component_schemas(document: &Value) -> Vec<(&str, &Value)> {
     schemas
 }
 
+fn render_component_schema(out: &mut String, document: &Value, name: &str, schema: &Value) {
+    match oneof_union_variants(document, name, schema) {
+        Some(Ok(variants)) => {
+            out.push_str("type ");
+            out.push_str(&to_type_name(name));
+            out.push_str(" = ");
+            out.push_str(&variants.join(" | "));
+            out.push('\n');
+        }
+        Some(Err(comments)) => render_unsupported_oneof_type(out, name, comments),
+        None => render_type(out, document, name, schema),
+    }
+}
+
 fn render_type(out: &mut String, document: &Value, name: &str, schema: &Value) {
     out.push_str("type ");
     out.push_str(&to_type_name(name));
@@ -224,6 +238,82 @@ fn render_type(out: &mut String, document: &Value, name: &str, schema: &Value) {
         out.push('\n');
     }
     out.push_str("}\n");
+}
+
+fn render_unsupported_oneof_type(out: &mut String, name: &str, comments: Vec<String>) {
+    out.push_str("type ");
+    out.push_str(&to_type_name(name));
+    out.push_str(" {\n");
+    for comment in comments {
+        out.push_str("    // ");
+        out.push_str(&comment);
+        out.push('\n');
+    }
+    out.push_str("    value: Json\n");
+    out.push_str("}\n");
+}
+
+fn oneof_union_variants(
+    document: &Value,
+    name: &str,
+    schema: &Value,
+) -> Option<Result<Vec<String>, Vec<String>>> {
+    let items = schema.get("oneOf")?.as_array()?;
+    if items.is_empty() {
+        return Some(Err(vec![format!(
+            "OpenAPI oneOf for `{}` has no variants; generated as Json for review.",
+            sanitize_comment_text(name)
+        )]));
+    }
+
+    let mut variants = BTreeSet::new();
+    let mut comments = Vec::new();
+    for item in items {
+        let Some(reference) = item.get("$ref").and_then(Value::as_str) else {
+            comments.push(format!(
+                "OpenAPI oneOf for `{}` includes an inline or primitive member; generated as Json for review.",
+                sanitize_comment_text(name)
+            ));
+            continue;
+        };
+        let Some(resolved) = resolve_local_ref(document, reference) else {
+            comments.push(format!(
+                "OpenAPI oneOf for `{}` references unresolved `{}`; generated as Json for review.",
+                sanitize_comment_text(name),
+                sanitize_comment_text(reference)
+            ));
+            continue;
+        };
+        if !schema_is_representable_object(document, resolved) {
+            comments.push(format!(
+                "OpenAPI oneOf for `{}` references `{}` which is not a representable object schema; generated as Json for review.",
+                sanitize_comment_text(name),
+                sanitize_comment_text(reference)
+            ));
+            continue;
+        }
+        variants.insert(
+            reference
+                .rsplit('/')
+                .next()
+                .map(to_type_name)
+                .unwrap_or_else(|| "Json".to_string()),
+        );
+    }
+
+    if comments.is_empty() && !variants.is_empty() {
+        Some(Ok(variants.into_iter().collect()))
+    } else {
+        comments.sort();
+        comments.dedup();
+        Some(Err(comments))
+    }
+}
+
+fn schema_is_representable_object(document: &Value, schema: &Value) -> bool {
+    !render_openapi_type_fields(document, schema)
+        .fields
+        .is_empty()
 }
 
 #[derive(Debug, Default)]
@@ -1684,6 +1774,38 @@ paths:
         assert!(rendered.contains(
             "update_customer(customer_id: Text, body: UpdateCustomerRequest) -> CustomerProfile"
         ));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn renders_oneof_refs_as_deterministic_union_alias() {
+        let document: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/openapi/oneof_union.json"))
+                .unwrap();
+        let expected = include_str!("../tests/fixtures/openapi/oneof_union.expected.num");
+
+        let rendered = render_openapi_connector(&document, Some("generated.payments"));
+
+        assert_eq!(rendered, expected);
+        assert!(rendered.contains("type PaymentMethod = BankAccount | CardPayment"));
+        assert!(num_compiler::check("generated.num", &rendered).is_empty());
+    }
+
+    #[test]
+    fn preserves_unsupported_oneof_as_review_comment_and_json_fallback() {
+        let document: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/openapi/oneof_unsupported.json"
+        ))
+        .unwrap();
+        let expected = include_str!("../tests/fixtures/openapi/oneof_unsupported.expected.num");
+
+        let rendered = render_openapi_connector(&document, Some("generated.payments"));
+
+        assert_eq!(rendered, expected);
+        assert!(rendered.contains(
+            "// OpenAPI oneOf for `MixedPayment` includes an inline or primitive member; generated as Json for review."
+        ));
+        assert!(rendered.contains("value: Json"));
         assert!(num_compiler::check("generated.num", &rendered).is_empty());
     }
 
