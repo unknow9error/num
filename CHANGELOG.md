@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-07-02
+
 ### Patch
 
 - Added `num import sql --plan` to compare two supported SQL schema snapshots
