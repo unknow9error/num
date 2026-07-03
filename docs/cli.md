@@ -1029,11 +1029,13 @@ num release-plan --json
 num release-plan path/to/CHANGELOG.md --json
 ```
 
-The command reads the `## Unreleased` section and requires entries under
-SemVer headings: `Major`, `Minor`, or `Patch`. It reports the highest current
-bump and the next version from the current CLI package version. Use it in every
-PR that changes user-visible behavior so the changelog and SemVer impact stay
-aligned before merge.
+The command reads the `## Unreleased` section and reports the highest current
+bump from SemVer headings: `Major`, `Minor`, or `Patch`. A clean post-release
+`Unreleased` section with no entries reports `bump: none` and keeps the next
+version equal to the current CLI package version. Non-empty unreleased entries
+must still live under a SemVer heading. Use it in every PR that changes
+user-visible behavior so the changelog and SemVer impact stay aligned before
+merge.
 
 ### `import openapi`
 

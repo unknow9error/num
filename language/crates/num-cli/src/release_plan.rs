@@ -149,11 +149,6 @@ pub fn plan_from_changelog(
         .map(|section| section.bump)
         .max()
         .unwrap_or(SemverBump::None);
-    if bump == SemverBump::None {
-        return Err(
-            "CHANGELOG.md Unreleased must include Major, Minor, or Patch entries".to_string(),
-        );
-    }
     Ok(ReleasePlan {
         changelog_path: changelog_path.to_path_buf(),
         current_version,
@@ -192,6 +187,12 @@ fn parse_unreleased_sections(source: &str) -> Result<Vec<ReleaseSection>, String
             continue;
         }
         let Some(section) = current_section.as_mut() else {
+            if line.starts_with("- ") {
+                return Err(
+                    "CHANGELOG.md Unreleased entries must be under Major, Minor, or Patch headings"
+                        .to_string(),
+                );
+            }
             continue;
         };
         if line.starts_with("- ") {
@@ -250,7 +251,28 @@ mod tests {
     }
 
     #[test]
-    fn release_plan_requires_unreleased_semver_entries() {
+    fn release_plan_reports_noop_for_clean_unreleased_section() {
+        let path = temp_changelog(
+            r#"# Changelog
+
+## Unreleased
+
+### Patch
+
+## 0.1.1 - 2026-06-07
+"#,
+        );
+
+        let plan = plan_from_changelog(&path, "0.1.1").unwrap();
+
+        assert_eq!(plan.bump, SemverBump::None);
+        assert_eq!(plan.next_version.render(), "0.1.1");
+        assert!(plan.sections.is_empty());
+        assert_eq!(plan.to_json()["bump"], "none");
+    }
+
+    #[test]
+    fn release_plan_rejects_unclassified_unreleased_entries() {
         let path = temp_changelog(
             r#"# Changelog
 
@@ -264,7 +286,7 @@ mod tests {
 
         let err = plan_from_changelog(&path, "0.1.1").unwrap_err();
 
-        assert!(err.contains("Unreleased must include Major, Minor, or Patch"));
+        assert!(err.contains("Unreleased entries must be under Major, Minor, or Patch"));
     }
 
     fn temp_changelog(source: &str) -> std::path::PathBuf {

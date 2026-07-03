@@ -218,7 +218,8 @@ Implemented:
   `--write-dependencies` application;
 - `num version` CLI/language/manifest-schema/lockfile-schema version reporting;
 - `num release-plan` SemVer bump planning from changelog `Major`/`Minor`/
-  `Patch` sections;
+  `Patch` sections, including a clean no-op result for empty post-release
+  `Unreleased` sections;
 - `num lock --check` lockfile schema validation, and deploy-time validation
   plus inclusion of `num.lock` in materialized bundles when present;
 - `num lock --migrate` dry-run/write lockfile schema migration for legacy
