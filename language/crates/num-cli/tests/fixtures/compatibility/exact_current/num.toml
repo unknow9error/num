@@ -1,10 +1,10 @@
 [language]
-version = "0.4.8"
+version = "0.4.9"
 compatibility = "exact"
 manifest_schema = 1
 
 [project]
 name = "exact-current"
-version = "0.4.8"
+version = "0.4.9"
 source = "src"
 entry = "src/main.num"
