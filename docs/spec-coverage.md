@@ -243,6 +243,10 @@ Implemented:
   checkout cache;
 - deployment environment validation metadata from `[environment]` in deploy
   plans, materialized artifact metadata, and generated runbooks;
+- AI provider/model alias manifest metadata from `[ai]` and
+  `[ai.models.<alias>]`, including default model, provider label, model id,
+  timeout/cost metadata, and deploy-check validation of credential environment
+  names without credential values;
 - explicit Docker registry image publish handoff metadata in deploy plans and
   `deploy/image-publish.json`, including registry/image/tag strategy, publish
   reference, and credentials references without credential values;
@@ -646,7 +650,7 @@ human-in-the-loop branches.
 Not yet implemented:
 
 - real AI provider integration;
-- model registry;
+- runtime model registry or provider execution beyond manifest alias metadata;
 - runtime prompt-injection scanners and configurable scanner catalogs;
 - tool-call sandboxing;
 - AI policy configuration;

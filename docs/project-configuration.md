@@ -247,6 +247,54 @@ plans. Missing credential environment variables for non-optional backends block
 deploy checks; optional missing backends remain visible as
 `optional-missing`.
 
+### `[ai]` and `[ai.models.<alias>]`
+
+Projects can declare AI model aliases and provider metadata without hardcoding
+provider details in `.num` source files. This is planning metadata only: real
+provider execution and provider-specific policy routing are future runtime work.
+
+```toml
+[ai]
+default_model = "fast-classifier"
+
+[ai.models.fast-classifier]
+provider = "openai"
+model = "gpt-4.1-mini"
+credential_env = ["OPENAI_API_KEY"]
+timeout_ms = 5000
+max_cost = "0.10 USD"
+
+[ai.models.reasoner]
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+credential_env = ["ANTHROPIC_API_KEY"]
+timeout_ms = 12000
+max_cost = "0.50 USD"
+```
+
+Supported fields:
+
+- `[ai].default_model` or `[ai].default` - optional alias selected as the
+  package default.
+- `provider` - provider family label such as `openai`, `anthropic`, or a
+  future internal provider name.
+- `model` or `model_id` - provider model identifier for the alias.
+- `credential_env` or `credentials_env` - environment variable names required
+  by the provider adapter. Names are trimmed, sorted, and deduplicated.
+- `timeout_ms` - default provider call timeout metadata in milliseconds.
+- `max_cost` or `default_max_cost` - operator-facing cost metadata for the
+  alias, stored as text until provider-specific pricing is implemented.
+
+Unknown fields under `[ai]` and `[ai.models.<alias>]` are ignored for forward
+compatibility, so manifests can carry provider-specific future metadata before
+the CLI understands it.
+
+`num deploy` includes an `ai` section in JSON plans with aliases, provider
+labels, model ids, timeout/cost metadata, and credential environment name
+presence. `num deploy --check` blocks when a declared model has missing
+credential environment variables. It records names and presence only; it never
+reads or serializes credential values.
+
 ### `[sanitizer_packs.<name>]`
 
 Projects can define named text sanitizer packs in the manifest and use them at

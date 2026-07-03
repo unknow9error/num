@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added manifest-level AI model alias/provider metadata and deploy-check
+  validation for provider credential environment names without reading secret
+  values.
+
 ## 0.4.4 - 2026-07-03
 
 ### Patch
