@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.9 - 2026-07-03
+
+### Patch
+
 - Added a runtime encryption envelope boundary with `Encrypted<T>` type
   recognition, provider-backed encrypt/decrypt helpers, a deterministic test
   provider, redacted envelope logging, and decrypted secret label metadata.
