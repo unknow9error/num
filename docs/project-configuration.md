@@ -526,6 +526,7 @@ metadata, environment validation metadata, target profile metadata, deployment
 warnings, and security metadata. Target profiles classify `local`,
 `container`/`docker`/`oci`, `kubernetes`/`k8s`,
 `cloud`/`aws`/`gcp`/`azure`, `serverless`/`function`/`functions`,
+`edge`/`edge-runtime`/`edge-worker`/`worker`/`workers`,
 `bare-metal`/`systemd`/`host`, and custom targets, then record the expected
 external execution boundary, required artifacts, and target-specific validation
 result. Container targets recommend `[deployment].service`; Kubernetes and
@@ -534,6 +535,11 @@ serverless targets require `[deployment].service`, recommend
 `[deployment].region` as a provider handoff label, and generate
 `deploy/serverless/handler.mjs`, `deploy/serverless/manifest.json`, and
 `deploy/serverless/env.example` as provider-neutral handoff artifacts;
+edge targets require `[deployment].service`, recommend `[deployment].region` as
+an edge placement/provider label, reject file-backed workflow/audit stores and
+local process connectors, and generate `deploy/edge/worker.mjs`,
+`deploy/edge/manifest.json`, and `deploy/edge/env.example` as provider-neutral
+Fetch handler handoff artifacts;
 bare-metal targets require `[deployment].service`, recommend
 `[deployment].region` as a host inventory label, and generate
 `deploy/num.service` plus `deploy/num.env` as runbook artifacts. When any image

@@ -783,10 +783,15 @@ and `cloud`/`aws`/`gcp`/`azure` targets require both `service` and `region`.
 `serverless`/`function` targets require `service`, recommend `region` as a
 provider handoff label, and record that AWS Lambda, Cloudflare Workers, Vercel,
 Netlify, provider event adapters, binary packaging, and upload execution remain
-external. `bare-metal`/`systemd` targets require `service`, recommend `region`
-as a host inventory label, and record that host provisioning remains an
-external operator step. Custom targets stay valid as custom handoff plans, but
-their profile records the explicit external runner boundary.
+external. `edge`/`edge-runtime`/`edge-worker`/`worker` targets require
+`service`, recommend `region` as an edge placement/provider label, block
+file-backed runtime stores and local process connectors, and record that
+Cloudflare Workers, Vercel Edge, Netlify Edge, Deno Deploy, provider bindings,
+durable state, bundling, and rollout execution remain external.
+`bare-metal`/`systemd` targets require `service`, recommend `region` as a host
+inventory label, and record that host provisioning remains an external operator
+step. Custom targets stay valid as custom handoff plans, but their profile
+records the explicit external runner boundary.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
@@ -856,6 +861,16 @@ that adapts a basic HTTP-like event into `num route <project> <METHOD> <PATH>
 placeholders, unsupported providers, and environment requirements; the env
 template lists variable names only. It is a handoff artifact, not an AWS Lambda,
 Cloudflare Workers, Vercel, Netlify, or provider upload implementation.
+For `edge`, `edge-runtime`, `edge-worker`, `worker`, or `workers` targets, the
+bundle includes `deploy/edge/worker.mjs`, `deploy/edge/manifest.json`, and
+`deploy/edge/env.example`. The worker is a provider-neutral Fetch scaffold that
+does not use filesystem access, `child_process`, or local Num CLI execution; it
+returns an explicit adapter-required response until a provider-specific
+edge-compatible runtime is bound. The manifest records service/runtime
+metadata, edge limitations, unsupported providers, and environment binding
+names. File-backed workflow/audit stores and local process connectors are
+blocking target-validation errors because edge providers cannot run those local
+runtime dependencies.
 
 When `[deployment]` includes image publish fields such as `registry`, `image`,
 `tag_strategy`, or `credentials_ref`, container and Kubernetes bundles add
