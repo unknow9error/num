@@ -599,6 +599,39 @@ impl DeploymentTargetProfile {
                     validation,
                 )
             }
+            "serverless" | "function" | "functions" => {
+                let validation = DeploymentTargetValidation::new(
+                    vec![DeploymentTargetField::new(
+                        "[deployment].service",
+                        service.is_some(),
+                        "single service route entrypoint for the generated serverless handler",
+                    )],
+                    vec![DeploymentTargetField::new(
+                        "[deployment].region",
+                        region.is_some(),
+                        "provider region label for external serverless rollout handoff",
+                    )],
+                    Some(
+                        "serverless bundles are provider-neutral handoff artifacts only; AWS Lambda, Cloudflare Workers, Vercel, Netlify, and provider upload execution stay external"
+                            .to_string(),
+                    ),
+                );
+                (
+                    "serverless",
+                    "external-serverless-adapter",
+                    vec![
+                        "num-deploy.json",
+                        "num.toml",
+                        "modules/",
+                        "src/",
+                        "RUNBOOK.md",
+                        "deploy/serverless/handler.mjs",
+                        "deploy/serverless/manifest.json",
+                        "deploy/serverless/env.example",
+                    ],
+                    validation,
+                )
+            }
             "bare-metal" | "baremetal" | "systemd" | "host" => {
                 let validation = DeploymentTargetValidation::new(
                     vec![DeploymentTargetField::new(
@@ -664,6 +697,9 @@ impl DeploymentTargetProfile {
         let mut warnings = validation.messages();
         if class == "host" {
             warnings.extend(bare_metal_external_service_warnings(manifest));
+        }
+        if class == "serverless" {
+            warnings.extend(serverless_external_service_warnings(manifest));
         }
 
         Self {
@@ -813,6 +849,36 @@ fn bare_metal_external_service_warnings(manifest: &PackageManifest) -> Vec<Strin
         warnings.push(format!(
             "bare-metal environment variables [{}] look secret-store or key-provider related; fill deploy/num.env on the host without committing values",
             secret_like_vars.join(", ")
+        ));
+    }
+    warnings
+}
+
+fn serverless_external_service_warnings(manifest: &PackageManifest) -> Vec<String> {
+    let mut warnings = vec![
+        "serverless handler bundles route one service through `num route`; provider HTTP event adapters, binary packaging, cold-start tuning, and upload execution stay external".to_string(),
+        "serverless runtime stores must be reviewed for per-invocation behavior; memory/file stores are not a clustered durable backend".to_string(),
+    ];
+    if !manifest.connectors.is_empty() {
+        let methods = manifest
+            .connectors
+            .iter()
+            .map(|connector| connector.method.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "serverless bundle includes process connectors [{methods}]; package their commands, working directories, network access, and credential environment variables with the function"
+        ));
+    }
+    if !manifest.secrets.is_empty() {
+        let backends = manifest
+            .secrets
+            .iter()
+            .map(|backend| format!("{}:{}", backend.id, backend.provider))
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "serverless secret backends [{backends}] are adapter references only; provision provider clients, credentials, and access policies outside this bundle"
         ));
     }
     warnings
@@ -1819,6 +1885,34 @@ fn materialize_runtime_artifacts(
             )?;
             artifacts.push(relative_to(&environment, artifact_root)?);
         }
+        "serverless" => {
+            let handler = artifact_root.join("deploy/serverless/handler.mjs");
+            write_text(
+                &handler,
+                &render_serverless_handler(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&handler, artifact_root)?);
+
+            let manifest = artifact_root.join("deploy/serverless/manifest.json");
+            write_text(
+                &manifest,
+                &render_serverless_manifest(plan)?,
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&manifest, artifact_root)?);
+
+            let environment = artifact_root.join("deploy/serverless/env.example");
+            write_text(
+                &environment,
+                &render_serverless_environment(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&environment, artifact_root)?);
+        }
         _ => {}
     }
     if plan.target_profile.class != "local" {
@@ -1993,6 +2087,129 @@ fn render_systemd_environment(plan: &DeploymentPlan) -> String {
     }
     for variable in &plan.environment.optional {
         out.push_str(&format!("# {}=\n", variable.name));
+    }
+    out
+}
+
+fn render_serverless_handler(plan: &DeploymentPlan) -> String {
+    let service = plan.service.as_deref().unwrap_or("<service>");
+    format!(
+        r#"// Generated by num deploy for {package} {version}.
+// Provider-neutral handler scaffold. Adapt your platform event into {{ method, path, headers }}
+// and keep provider credentials in the platform secret manager, not in this file.
+import {{ spawnSync }} from "node:child_process";
+
+const PROJECT_DIR = process.env.NUM_PROJECT_DIR || ".";
+const SERVICE = process.env.NUM_SERVICE || "{service}";
+
+function eventMethod(event) {{
+  return event?.method || event?.httpMethod || event?.requestContext?.http?.method || "GET";
+}}
+
+function eventPath(event) {{
+  return event?.path || event?.rawPath || event?.url || "/";
+}}
+
+function headerValue(headers, name) {{
+  if (!headers) return undefined;
+  const exact = headers[name];
+  if (exact !== undefined) return exact;
+  const lower = name.toLowerCase();
+  const match = Object.keys(headers).find((key) => key.toLowerCase() === lower);
+  return match ? headers[match] : undefined;
+}}
+
+export async function handler(event = {{}}) {{
+  const headers = event.headers || {{}};
+  const args = ["route", PROJECT_DIR, eventMethod(event), eventPath(event), SERVICE];
+  for (const [flag, header] of [
+    ["--tenant", "x-tenant"],
+    ["--actor", "x-actor"],
+    ["--request-id", "x-request-id"],
+    ["--correlation-id", "x-correlation-id"],
+  ]) {{
+    const value = headerValue(headers, header);
+    if (value) args.push(flag, String(value));
+  }}
+
+  const result = spawnSync(process.env.NUM_BIN || "num", args, {{
+    cwd: process.env.NUM_WORKDIR || process.cwd(),
+    encoding: "utf8",
+    env: process.env,
+  }});
+  const body = result.stdout || result.stderr || "";
+  return {{
+    statusCode: result.status === 0 ? 200 : 500,
+    headers: {{ "content-type": body.trim().startsWith("{{") ? "application/json" : "text/plain" }},
+    body,
+  }};
+}}
+"#,
+        package = plan.package_name,
+        version = plan.package_version,
+        service = js_string_literal(service)
+    )
+}
+
+fn render_serverless_manifest(plan: &DeploymentPlan) -> Result<String, String> {
+    serde_json::to_string_pretty(&json!({
+        "kind": "num.deploy.serverless.v1",
+        "package": {
+            "name": plan.package_name,
+            "version": plan.package_version,
+        },
+        "target": plan.target,
+        "service": plan.service,
+        "region": plan.region,
+        "entrypoint": "deploy/serverless/handler.mjs",
+        "execution": "handoff-only",
+        "runtime": {
+            "workflow_store": plan.runtime.workflow_store,
+            "audit_store": plan.runtime.audit_store,
+        },
+        "environment": plan.environment.to_json(),
+        "connectors": plan.process_connector_bindings.iter().map(ProcessConnectorDeployment::to_json).collect::<Vec<_>>(),
+        "unsupported_providers": [
+            "aws-lambda",
+            "cloudflare-workers",
+            "vercel",
+            "netlify"
+        ],
+        "boundary": "provider adapters, credentials, binary packaging, upload, and rollout execution stay outside this generated bundle",
+    }))
+    .map(|json| format!("{json}\n"))
+    .map_err(|err| format!("failed to render serverless manifest JSON: {err}"))
+}
+
+fn render_serverless_environment(plan: &DeploymentPlan) -> String {
+    let mut out = String::new();
+    out.push_str("# Generated by num deploy. Fill values in your provider secret manager; do not commit secrets.\n");
+    out.push_str("NUM_PROJECT_DIR=.\n");
+    out.push_str(&format!(
+        "NUM_SERVICE={}\n",
+        shell_env_value(plan.service.as_deref().unwrap_or("<service>"))
+    ));
+    out.push_str("NUM_BIN=num\n");
+    out.push_str("NUM_WORKDIR=.\n");
+    out.push_str(&format!(
+        "NUM_WORKFLOW_STORE={}\n",
+        shell_env_value(&plan.runtime.workflow_store)
+    ));
+    out.push_str(&format!(
+        "NUM_AUDIT_STORE={}\n",
+        shell_env_value(&plan.runtime.audit_store)
+    ));
+    for variable in &plan.environment.required {
+        out.push_str(&format!("{}=\n", variable.name));
+    }
+    for variable in &plan.environment.optional {
+        out.push_str(&format!("# {}=\n", variable.name));
+    }
+    for connector in &plan.process_connector_bindings {
+        out.push_str(&format!(
+            "# connector {} command: {}\n",
+            connector.method, connector.command
+        ));
     }
     out
 }
@@ -2323,6 +2540,14 @@ fn yaml_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| format!("\"{}\"", value.replace('"', "\\\"")))
 }
 
+fn js_string_literal(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
 fn render_runbook(plan: &DeploymentPlan) -> String {
     let mut out = String::new();
     out.push_str("# num Deployment Runbook\n\n");
@@ -2436,6 +2661,13 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
             out.push_str(
                 "- `deploy/kubernetes.yaml` provides a deployment and service scaffold\n\n",
             );
+        }
+        "serverless" => {
+            out.push_str("## Serverless Runtime\n\n");
+            out.push_str("- `deploy/serverless/handler.mjs` is a provider-neutral Node handler scaffold that invokes `num route`\n");
+            out.push_str("- `deploy/serverless/manifest.json` records the service, runtime stores, connector placeholders, unsupported providers, and environment requirements\n");
+            out.push_str("- `deploy/serverless/env.example` lists required runtime variables without values\n");
+            out.push_str("- AWS Lambda, Cloudflare Workers, Vercel, Netlify, provider event adapters, binary packaging, and upload execution stay external\n\n");
         }
         "host" => {
             out.push_str("## Bare-Metal Runtime\n\n");
@@ -2871,6 +3103,41 @@ target = "container"
             .iter()
             .any(|warning| warning.contains("[deployment].service")));
         assert!(container_plan.render_text().contains("Deployment warnings"));
+
+        let serverless_manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[deployment]
+target = "serverless"
+"#,
+        );
+        let serverless_plan = build_deployment_plan(&serverless_manifest, &compilation.module, 1);
+        assert_eq!(serverless_plan.target_profile.class, "serverless");
+        assert_eq!(
+            serverless_plan.target_profile.execution,
+            "external-serverless-adapter"
+        );
+        assert_eq!(
+            serverless_plan.target_profile.validation.status,
+            "missing-required"
+        );
+        assert!(serverless_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("[deployment].service")));
+        assert!(serverless_plan
+            .target_profile
+            .validation
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("[deployment].region")));
 
         let custom_manifest = PackageManifest::parse(
             root,
@@ -3485,6 +3752,156 @@ service BillingApi {
         assert!(dry_run.render_text().contains("Kubernetes dry-run handoff"));
         assert_eq!(dry_run.to_json()["validation"]["status"], "ready");
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materializes_serverless_runtime_scaffold() {
+        env::set_var("NUM_TEST_SERVERLESS_API_KEY", "secret-value");
+        let root = temp_dir("bundle_serverless_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.4.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing-api"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "file:.num-state"
+audit_store = "file:audit/events.jsonl"
+
+[environment]
+required = ["NUM_TEST_SERVERLESS_API_KEY"]
+optional = ["NUM_LOG_LEVEL"]
+
+[deployment]
+target = "serverless"
+service = "BillingApi"
+region = "us-east-1"
+
+[connectors]
+"payments.find" = { command = "node", args = "ops/payments.js", cwd = "ops" }
+"#,
+        )
+        .unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: r#"module app.main
+
+permission IssueRefund
+
+connector payments {
+    find(id: Text) -> Text
+}
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit("refund")
+    }
+}
+"#
+            .to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        assert_eq!(plan.target_profile.class, "serverless");
+        assert_eq!(plan.target_profile.execution, "external-serverless-adapter");
+        assert_eq!(plan.target_profile.validation.status, "custom-boundary");
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/serverless/handler.mjs".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/serverless/manifest.json".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/serverless/env.example".to_string()));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("AWS Lambda")));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("process connectors [payments.find]")));
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.runtime_artifacts,
+            vec![
+                "deploy/serverless/handler.mjs".to_string(),
+                "deploy/serverless/manifest.json".to_string(),
+                "deploy/serverless/env.example".to_string(),
+                "deploy/github-actions.yml".to_string(),
+                "deploy/Jenkinsfile".to_string(),
+                "deploy/.gitlab-ci.yml".to_string()
+            ]
+        );
+        assert_eq!(report.files.len(), 12);
+        let handler =
+            fs::read_to_string(artifact_root.join("deploy/serverless/handler.mjs")).unwrap();
+        assert!(handler.contains("spawnSync(process.env.NUM_BIN || \"num\", args"));
+        assert!(handler
+            .contains("[\"route\", PROJECT_DIR, eventMethod(event), eventPath(event), SERVICE]"));
+        assert!(handler.contains("const SERVICE = process.env.NUM_SERVICE || \"BillingApi\""));
+        assert!(!handler.contains("secret-value"));
+
+        let serverless_manifest = serde_json::from_str::<serde_json::Value>(
+            &fs::read_to_string(artifact_root.join("deploy/serverless/manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(serverless_manifest["kind"], "num.deploy.serverless.v1");
+        assert_eq!(serverless_manifest["service"], "BillingApi");
+        assert_eq!(
+            serverless_manifest["connectors"][0]["method"],
+            "payments.find"
+        );
+        assert_eq!(
+            serverless_manifest["environment"]["required"][0]["name"],
+            "NUM_TEST_SERVERLESS_API_KEY"
+        );
+        assert_eq!(
+            serverless_manifest["unsupported_providers"][0],
+            "aws-lambda"
+        );
+        assert!(!serverless_manifest.to_string().contains("secret-value"));
+
+        let env_example =
+            fs::read_to_string(artifact_root.join("deploy/serverless/env.example")).unwrap();
+        assert!(env_example.contains("NUM_SERVICE=BillingApi"));
+        assert!(env_example.contains("NUM_TEST_SERVERLESS_API_KEY=\n"));
+        assert!(env_example.contains("# NUM_LOG_LEVEL=\n"));
+        assert!(env_example.contains("# connector payments.find command: node"));
+        assert!(!env_example.contains("secret-value"));
+
+        let runbook = fs::read_to_string(&report.runbook_path).unwrap();
+        assert!(runbook.contains("## Serverless Runtime"));
+        assert!(runbook.contains("AWS Lambda, Cloudflare Workers, Vercel, Netlify"));
+
+        env::remove_var("NUM_TEST_SERVERLESS_API_KEY");
         fs::remove_dir_all(root).unwrap();
     }
 

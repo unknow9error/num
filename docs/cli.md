@@ -780,10 +780,13 @@ visible in JSON while keeping a zero exit status.
 Target validation records required and recommended `[deployment]` fields for
 the selected target. `container` targets recommend `service`; `kubernetes`/`k8s`
 and `cloud`/`aws`/`gcp`/`azure` targets require both `service` and `region`.
-`bare-metal`/`systemd` targets require `service`, recommend `region` as a host
-inventory label, and record that host provisioning remains an external operator
-step. Custom targets stay valid as custom handoff plans, but their profile
-records the explicit external runner boundary.
+`serverless`/`function` targets require `service`, recommend `region` as a
+provider handoff label, and record that AWS Lambda, Cloudflare Workers, Vercel,
+Netlify, provider event adapters, binary packaging, and upload execution remain
+external. `bare-metal`/`systemd` targets require `service`, recommend `region`
+as a host inventory label, and record that host provisioning remains an
+external operator step. Custom targets stay valid as custom handoff plans, but
+their profile records the explicit external runner boundary.
 
 With `--apply`, the command materializes a reproducible local/CI deployment
 bundle. The bundle includes:
@@ -845,6 +848,14 @@ Secret mappings before a real apply exists. For `bare-metal`, `baremetal`,
 `deploy/num.env`: the service unit is a systemd-style draft, and the environment
 file template lists `NUM_DEPLOY_PLAN`, runtime store expectations, and
 required/optional manifest environment variables without secret values.
+For `serverless`, `function`, or `functions` targets, the bundle includes
+`deploy/serverless/handler.mjs`, `deploy/serverless/manifest.json`, and
+`deploy/serverless/env.example`. The handler is a provider-neutral Node scaffold
+that adapts a basic HTTP-like event into `num route <project> <METHOD> <PATH>
+<service>`; the manifest records service/runtime metadata, connector command
+placeholders, unsupported providers, and environment requirements; the env
+template lists variable names only. It is a handoff artifact, not an AWS Lambda,
+Cloudflare Workers, Vercel, Netlify, or provider upload implementation.
 
 When `[deployment]` includes image publish fields such as `registry`, `image`,
 `tag_strategy`, or `credentials_ref`, container and Kubernetes bundles add
@@ -864,7 +875,9 @@ runtime scaffolding; image publishing execution, cluster credentials, SSH
 access, host package installation, Jenkins controller/agent provisioning,
 GitHub runner provisioning, GitLab runner provisioning, `systemctl` execution,
 Kubernetes `kubectl apply` or API-server mutation, and cloud rollout execution
-remain external deployment steps.
+remain external deployment steps. Serverless provider adapters, cold-start
+tuning, runtime binary packaging, and provider upload execution also remain
+external deployment steps.
 
 ### `compat`
 

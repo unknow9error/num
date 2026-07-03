@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added provider-neutral serverless deploy bundle scaffolding with a handler
+  entrypoint, runtime manifest, environment template, connector placeholders,
+  and explicit unsupported-provider boundaries.
+
 ## 0.4.5 - 2026-07-03
 
 ### Patch

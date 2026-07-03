@@ -388,6 +388,9 @@ Implemented:
 - deploy artifact source-tree snapshots plus generated Docker Compose,
   Kubernetes, and bare-metal systemd-style runtime scaffolds for
   container/orchestrator/host targets;
+- provider-neutral serverless deploy handoff bundles with a Node handler
+  scaffold, runtime manifest, connector placeholders, env-name template, and
+  explicit unsupported-provider boundary;
 - container image publish handoff artifacts for configured registry/image
   targets, with generated Compose/Kubernetes scaffolds pointing at the planned
   image reference;
@@ -694,6 +697,8 @@ Major full-spec areas not implemented in v0.4.5:
 - actor model;
 - clustered/networked queue coordination beyond the local file-backed worker
   lease and heartbeat model;
+- provider-specific serverless adapters and rollout execution for AWS Lambda,
+  Cloudflare Workers, Vercel, Netlify, or similar platforms;
 - production external secrets manager provider clients such as Vault HTTPS with
   non-token auth methods, KMS, and cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
