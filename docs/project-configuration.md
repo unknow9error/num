@@ -525,18 +525,23 @@ compiled workflows, actions, service routes, connectors, dependencies, runtime
 metadata, environment validation metadata, target profile metadata, deployment
 warnings, and security metadata. Target profiles classify `local`,
 `container`/`docker`/`oci`, `kubernetes`/`k8s`,
-`cloud`/`aws`/`gcp`/`azure`, `bare-metal`/`systemd`/`host`, and custom targets,
-then record the expected external execution boundary, required artifacts, and
-target-specific validation result. Container targets recommend
-`[deployment].service`; Kubernetes and cloud targets require
-`[deployment].service` and `[deployment].region`; bare-metal targets require
-`[deployment].service`, recommend `[deployment].region` as a host inventory
-label, and generate `deploy/num.service` plus `deploy/num.env` as runbook
-artifacts. When any image publish field is configured for container or
-Kubernetes targets, `num deploy` records an explicit image publish handoff under
-`image_publish` and `deploy/image-publish.json`, including the exact image
-reference and `credentials_ref`. Registry credentials remain behind the
-secret-store boundary; build, login, tag, and push execution stays external.
+`cloud`/`aws`/`gcp`/`azure`, `serverless`/`function`/`functions`,
+`bare-metal`/`systemd`/`host`, and custom targets, then record the expected
+external execution boundary, required artifacts, and target-specific validation
+result. Container targets recommend `[deployment].service`; Kubernetes and
+cloud targets require `[deployment].service` and `[deployment].region`;
+serverless targets require `[deployment].service`, recommend
+`[deployment].region` as a provider handoff label, and generate
+`deploy/serverless/handler.mjs`, `deploy/serverless/manifest.json`, and
+`deploy/serverless/env.example` as provider-neutral handoff artifacts;
+bare-metal targets require `[deployment].service`, recommend
+`[deployment].region` as a host inventory label, and generate
+`deploy/num.service` plus `deploy/num.env` as runbook artifacts. When any image
+publish field is configured for container or Kubernetes targets, `num deploy`
+records an explicit image publish handoff under `image_publish` and
+`deploy/image-publish.json`, including the exact image reference and
+`credentials_ref`. Registry credentials remain behind the secret-store
+boundary; build, login, tag, and push execution stays external.
 Kubernetes targets can also be inspected with
 `num deploy --kubernetes-dry-run`, which prints or writes the generated
 deployment/service resources plus validation for namespace, image, ports, and
