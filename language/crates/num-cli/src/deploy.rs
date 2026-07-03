@@ -632,6 +632,40 @@ impl DeploymentTargetProfile {
                     validation,
                 )
             }
+            "edge" | "edge-runtime" | "edge-worker" | "worker" | "workers" => {
+                let mut validation = DeploymentTargetValidation::new(
+                    vec![DeploymentTargetField::new(
+                        "[deployment].service",
+                        service.is_some(),
+                        "single service route entrypoint for the generated edge fetch handler",
+                    )],
+                    vec![DeploymentTargetField::new(
+                        "[deployment].region",
+                        region.is_some(),
+                        "edge region, placement, or provider label for external rollout handoff",
+                    )],
+                    Some(
+                        "edge bundles are provider-neutral fetch-handler handoff artifacts only; Cloudflare Workers, Vercel Edge, Netlify Edge, Deno Deploy, provider bindings, and rollout execution stay external"
+                            .to_string(),
+                    ),
+                );
+                apply_edge_runtime_validation(manifest, &mut validation);
+                (
+                    "edge",
+                    "external-edge-adapter",
+                    vec![
+                        "num-deploy.json",
+                        "num.toml",
+                        "modules/",
+                        "src/",
+                        "RUNBOOK.md",
+                        "deploy/edge/worker.mjs",
+                        "deploy/edge/manifest.json",
+                        "deploy/edge/env.example",
+                    ],
+                    validation,
+                )
+            }
             "bare-metal" | "baremetal" | "systemd" | "host" => {
                 let validation = DeploymentTargetValidation::new(
                     vec![DeploymentTargetField::new(
@@ -701,6 +735,9 @@ impl DeploymentTargetProfile {
         if class == "serverless" {
             warnings.extend(serverless_external_service_warnings(manifest));
         }
+        if class == "edge" {
+            warnings.extend(edge_external_service_warnings(manifest));
+        }
 
         Self {
             class: class.to_string(),
@@ -765,6 +802,13 @@ impl DeploymentTargetValidation {
             .cloned()
             .chain(self.boundary.iter().cloned())
             .collect()
+    }
+
+    fn add_error(&mut self, error: String) {
+        self.errors.push(error);
+        if self.status != "missing-required" {
+            self.status = "invalid-target".to_string();
+        }
     }
 
     fn to_json(&self) -> Value {
@@ -882,6 +926,95 @@ fn serverless_external_service_warnings(manifest: &PackageManifest) -> Vec<Strin
         ));
     }
     warnings
+}
+
+fn apply_edge_runtime_validation(
+    manifest: &PackageManifest,
+    validation: &mut DeploymentTargetValidation,
+) {
+    if is_file_backed_store(&manifest.runtime.workflow_store) {
+        validation.add_error(format!(
+            "edge target does not support file-backed workflow_store `{}`; use an external edge-compatible state binding instead",
+            sanitize_warning_value(&manifest.runtime.workflow_store)
+        ));
+    }
+    if is_file_backed_store(&manifest.runtime.audit_store) {
+        validation.add_error(format!(
+            "edge target does not support file-backed audit_store `{}`; use provider logs or an external audit sink instead",
+            sanitize_warning_value(&manifest.runtime.audit_store)
+        ));
+    }
+    if !manifest.connectors.is_empty() {
+        let methods = manifest
+            .connectors
+            .iter()
+            .map(|connector| connector.method.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        validation.add_error(format!(
+            "edge target does not support local process connectors [{methods}]; expose them through network or provider bindings before edge rollout"
+        ));
+    }
+}
+
+fn edge_external_service_warnings(manifest: &PackageManifest) -> Vec<String> {
+    let mut warnings = vec![
+        "edge fetch-handler bundles cannot use a local filesystem, child_process, long-lived local state, or local Num CLI execution; compile/bind a provider runtime adapter outside this bundle".to_string(),
+        "edge CPU time, cold-start size, streaming behavior, and provider-specific request/response limits must be reviewed before rollout".to_string(),
+    ];
+    if manifest.runtime.workflow_store == "memory" {
+        warnings.push(
+            "edge workflow_store `memory` is per-isolate/per-request only; waits, retries, leases, and clustered execution need an external edge-compatible state binding"
+                .to_string(),
+        );
+    }
+    if manifest.runtime.audit_store != "stdout" {
+        warnings.push(format!(
+            "edge audit_store `{}` requires an external sink or provider logging binding; local audit files are unsupported",
+            sanitize_warning_value(&manifest.runtime.audit_store)
+        ));
+    }
+    if !manifest.connectors.is_empty() {
+        let methods = manifest
+            .connectors
+            .iter()
+            .map(|connector| connector.method.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "edge bundle rejects local process connectors [{methods}]; use provider bindings or network connector adapters"
+        ));
+    }
+    if !manifest.secrets.is_empty() {
+        let backends = manifest
+            .secrets
+            .iter()
+            .map(|backend| format!("{}:{}", backend.id, backend.provider))
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!(
+            "edge secret backends [{backends}] are adapter references only; provision provider secret bindings and access policies outside this bundle"
+        ));
+    }
+    let secret_like_vars = manifest
+        .environment
+        .required
+        .iter()
+        .chain(manifest.environment.optional.iter())
+        .filter(|name| is_secret_service_env_name(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !secret_like_vars.is_empty() {
+        warnings.push(format!(
+            "edge environment variables [{}] look secret-store or key-provider related; bind them through the edge provider secret manager without committing values",
+            secret_like_vars.join(", ")
+        ));
+    }
+    warnings
+}
+
+fn is_file_backed_store(value: &str) -> bool {
+    value == "file" || value.starts_with("file:")
 }
 
 fn sanitize_warning_value(value: &str) -> String {
@@ -1913,6 +2046,29 @@ fn materialize_runtime_artifacts(
             )?;
             artifacts.push(relative_to(&environment, artifact_root)?);
         }
+        "edge" => {
+            let worker = artifact_root.join("deploy/edge/worker.mjs");
+            write_text(&worker, &render_edge_worker(plan), artifact_root, files)?;
+            artifacts.push(relative_to(&worker, artifact_root)?);
+
+            let manifest = artifact_root.join("deploy/edge/manifest.json");
+            write_text(
+                &manifest,
+                &render_edge_manifest(plan)?,
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&manifest, artifact_root)?);
+
+            let environment = artifact_root.join("deploy/edge/env.example");
+            write_text(
+                &environment,
+                &render_edge_environment(plan),
+                artifact_root,
+                files,
+            )?;
+            artifacts.push(relative_to(&environment, artifact_root)?);
+        }
         _ => {}
     }
     if plan.target_profile.class != "local" {
@@ -2209,6 +2365,119 @@ fn render_serverless_environment(plan: &DeploymentPlan) -> String {
         out.push_str(&format!(
             "# connector {} command: {}\n",
             connector.method, connector.command
+        ));
+    }
+    out
+}
+
+fn render_edge_worker(plan: &DeploymentPlan) -> String {
+    let service = plan.service.as_deref().unwrap_or("<service>");
+    format!(
+        r#"// Generated by num deploy for {package} {version}.
+// Provider-neutral edge fetch handler scaffold. It deliberately avoids
+// filesystem access, child_process, and local Num CLI execution.
+const SERVICE = "{service}";
+
+function requestHeaders(request) {{
+  return Object.fromEntries(request.headers.entries());
+}}
+
+function edgeRouteRequest(request, env = {{}}) {{
+  const url = new URL(request.url);
+  return {{
+    service: env.NUM_SERVICE || SERVICE,
+    method: request.method,
+    path: url.pathname,
+    query: url.search,
+    headers: requestHeaders(request),
+  }};
+}}
+
+export async function fetch(request, env = {{}}, ctx = {{}}) {{
+  const route = edgeRouteRequest(request, env);
+  const body = JSON.stringify({{
+    error: "edge-runtime-adapter-required",
+    message: "Bind this scaffold to an edge-compatible Num runtime adapter before serving traffic.",
+    route,
+    boundary: "provider bindings, durable state, secrets, audit sinks, and rollout execution stay outside this generated bundle",
+  }}, null, 2);
+  return new Response(body, {{
+    status: 501,
+    headers: {{ "content-type": "application/json" }},
+  }});
+}}
+
+export default {{ fetch }};
+"#,
+        package = plan.package_name,
+        version = plan.package_version,
+        service = js_string_literal(service)
+    )
+}
+
+fn render_edge_manifest(plan: &DeploymentPlan) -> Result<String, String> {
+    serde_json::to_string_pretty(&json!({
+        "kind": "num.deploy.edge.v1",
+        "package": {
+            "name": plan.package_name,
+            "version": plan.package_version,
+        },
+        "target": plan.target,
+        "service": plan.service,
+        "region": plan.region,
+        "entrypoint": "deploy/edge/worker.mjs",
+        "execution": "handoff-only",
+        "runtime": {
+            "workflow_store": plan.runtime.workflow_store,
+            "audit_store": plan.runtime.audit_store,
+        },
+        "environment": plan.environment.to_json(),
+        "connectors": plan.process_connector_bindings.iter().map(ProcessConnectorDeployment::to_json).collect::<Vec<_>>(),
+        "limitations": [
+            "no-local-filesystem",
+            "no-child-process",
+            "no-local-process-connectors",
+            "short-cpu-budget",
+            "provider-specific-secret-bindings",
+            "external-durable-state-required"
+        ],
+        "unsupported_providers": [
+            "cloudflare-workers",
+            "vercel-edge",
+            "netlify-edge",
+            "deno-deploy"
+        ],
+        "boundary": "edge provider adapters, durable state bindings, credentials, bundling, upload, and rollout execution stay outside this generated bundle",
+    }))
+    .map(|json| format!("{json}\n"))
+    .map_err(|err| format!("failed to render edge manifest JSON: {err}"))
+}
+
+fn render_edge_environment(plan: &DeploymentPlan) -> String {
+    let mut out = String::new();
+    out.push_str("# Generated by num deploy. Bind values in the edge provider secret/config manager; do not commit secrets.\n");
+    out.push_str(&format!(
+        "NUM_SERVICE={}\n",
+        shell_env_value(plan.service.as_deref().unwrap_or("<service>"))
+    ));
+    out.push_str(&format!(
+        "NUM_WORKFLOW_STORE={}\n",
+        shell_env_value(&plan.runtime.workflow_store)
+    ));
+    out.push_str(&format!(
+        "NUM_AUDIT_STORE={}\n",
+        shell_env_value(&plan.runtime.audit_store)
+    ));
+    for variable in &plan.environment.required {
+        out.push_str(&format!("{}=\n", variable.name));
+    }
+    for variable in &plan.environment.optional {
+        out.push_str(&format!("# {}=\n", variable.name));
+    }
+    for secret in &plan.secrets {
+        out.push_str(&format!(
+            "# secret backend {} provider: {}\n",
+            secret.id, secret.provider
         ));
     }
     out
@@ -2668,6 +2937,13 @@ fn render_runbook(plan: &DeploymentPlan) -> String {
             out.push_str("- `deploy/serverless/manifest.json` records the service, runtime stores, connector placeholders, unsupported providers, and environment requirements\n");
             out.push_str("- `deploy/serverless/env.example` lists required runtime variables without values\n");
             out.push_str("- AWS Lambda, Cloudflare Workers, Vercel, Netlify, provider event adapters, binary packaging, and upload execution stay external\n\n");
+        }
+        "edge" => {
+            out.push_str("## Edge Runtime\n\n");
+            out.push_str("- `deploy/edge/worker.mjs` is a provider-neutral Fetch handler scaffold; it does not use filesystem access, child_process, or a local Num CLI\n");
+            out.push_str("- `deploy/edge/manifest.json` records service/runtime metadata, edge limitations, connector placeholders, unsupported providers, and environment requirements\n");
+            out.push_str("- `deploy/edge/env.example` lists edge binding names without values\n");
+            out.push_str("- Cloudflare Workers, Vercel Edge, Netlify Edge, Deno Deploy, provider bindings, durable state, secret bindings, bundling, and upload execution stay external\n\n");
         }
         "host" => {
             out.push_str("## Bare-Metal Runtime\n\n");
@@ -3138,6 +3414,91 @@ target = "serverless"
             .warnings
             .iter()
             .any(|warning| warning.contains("[deployment].region")));
+
+        let edge_rejected_manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[runtime]
+workflow_store = "file:.num-state"
+audit_store = "file:audit/events.jsonl"
+
+[deployment]
+target = "edge"
+service = "BillingApi"
+
+[connectors]
+"payments.find" = { command = "node", args = "ops/payments.js" }
+"#,
+        );
+        let edge_rejected_plan =
+            build_deployment_plan(&edge_rejected_manifest, &compilation.module, 1);
+        assert_eq!(edge_rejected_plan.target_profile.class, "edge");
+        assert_eq!(
+            edge_rejected_plan.target_profile.execution,
+            "external-edge-adapter"
+        );
+        assert_eq!(
+            edge_rejected_plan.target_profile.validation.status,
+            "invalid-target"
+        );
+        assert!(edge_rejected_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("file-backed workflow_store")));
+        assert!(edge_rejected_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("file-backed audit_store")));
+        assert!(edge_rejected_plan
+            .target_profile
+            .validation
+            .errors
+            .iter()
+            .any(|error| error.contains("local process connectors [payments.find]")));
+        assert!(edge_rejected_plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Cloudflare Workers")));
+
+        let edge_accepted_manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[runtime]
+workflow_store = "edge-kv:workflow"
+audit_store = "stdout"
+
+[deployment]
+target = "edge"
+service = "BillingApi"
+region = "global"
+"#,
+        );
+        let edge_accepted_plan =
+            build_deployment_plan(&edge_accepted_manifest, &compilation.module, 1);
+        assert_eq!(edge_accepted_plan.target_profile.class, "edge");
+        assert_eq!(
+            edge_accepted_plan.target_profile.validation.status,
+            "custom-boundary"
+        );
+        assert!(edge_accepted_plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/edge/worker.mjs".to_string()));
 
         let custom_manifest = PackageManifest::parse(
             root,
@@ -3902,6 +4263,150 @@ service BillingApi {
         assert!(runbook.contains("AWS Lambda, Cloudflare Workers, Vercel, Netlify"));
 
         env::remove_var("NUM_TEST_SERVERLESS_API_KEY");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn materializes_edge_runtime_scaffold() {
+        env::set_var("NUM_TEST_EDGE_TOKEN", "secret-value");
+        let root = temp_dir("bundle_edge_project");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("num.toml"),
+            r#"[language]
+version = "0.4.0"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "billing-edge"
+version = "1.2.3"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "edge-kv:workflow"
+audit_store = "stdout"
+
+[environment]
+required = ["NUM_TEST_EDGE_TOKEN"]
+optional = ["NUM_EDGE_LOG_LEVEL"]
+
+[deployment]
+target = "edge"
+service = "BillingApi"
+region = "global"
+
+[secrets.edge]
+provider = "cloudflare"
+credential_env = ["NUM_TEST_EDGE_TOKEN"]
+"#,
+        )
+        .unwrap();
+        let manifest = PackageManifest::discover(&root).unwrap().unwrap();
+        let source = SourceFile {
+            name: root.join("src/main.num").display().to_string(),
+            source: r#"module app.main
+
+permission IssueRefund
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit("refund")
+    }
+}
+"#
+            .to_string(),
+        };
+        let compilation = compile(&source.name, &source.source);
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let artifact_root = root.join("dist/bundle");
+
+        assert_eq!(plan.target_profile.class, "edge");
+        assert_eq!(plan.target_profile.execution, "external-edge-adapter");
+        assert_eq!(plan.target_profile.validation.status, "custom-boundary");
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/edge/worker.mjs".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/edge/manifest.json".to_string()));
+        assert!(plan
+            .target_profile
+            .required_artifacts
+            .contains(&"deploy/edge/env.example".to_string()));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("filesystem")));
+        assert!(plan
+            .target_profile
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("secret backends [edge:cloudflare]")));
+
+        let report = materialize_deployment_artifact(
+            &plan,
+            &manifest,
+            std::slice::from_ref(&source),
+            &artifact_root,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.runtime_artifacts,
+            vec![
+                "deploy/edge/worker.mjs".to_string(),
+                "deploy/edge/manifest.json".to_string(),
+                "deploy/edge/env.example".to_string(),
+                "deploy/github-actions.yml".to_string(),
+                "deploy/Jenkinsfile".to_string(),
+                "deploy/.gitlab-ci.yml".to_string()
+            ]
+        );
+        assert_eq!(report.files.len(), 12);
+
+        let worker = fs::read_to_string(artifact_root.join("deploy/edge/worker.mjs")).unwrap();
+        assert!(worker.contains("export async function fetch(request"));
+        assert!(worker.contains("edge-runtime-adapter-required"));
+        assert!(worker.contains("const SERVICE = \"BillingApi\""));
+        assert!(!worker.contains("spawnSync"));
+        assert!(!worker.contains("secret-value"));
+
+        let edge_manifest = serde_json::from_str::<serde_json::Value>(
+            &fs::read_to_string(artifact_root.join("deploy/edge/manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(edge_manifest["kind"], "num.deploy.edge.v1");
+        assert_eq!(edge_manifest["service"], "BillingApi");
+        assert_eq!(edge_manifest["limitations"][0], "no-local-filesystem");
+        assert_eq!(
+            edge_manifest["unsupported_providers"][0],
+            "cloudflare-workers"
+        );
+        assert_eq!(
+            edge_manifest["environment"]["required"][0]["name"],
+            "NUM_TEST_EDGE_TOKEN"
+        );
+        assert!(!edge_manifest.to_string().contains("secret-value"));
+
+        let env_example =
+            fs::read_to_string(artifact_root.join("deploy/edge/env.example")).unwrap();
+        assert!(env_example.contains("NUM_SERVICE=BillingApi"));
+        assert!(env_example.contains("NUM_TEST_EDGE_TOKEN=\n"));
+        assert!(env_example.contains("# NUM_EDGE_LOG_LEVEL=\n"));
+        assert!(env_example.contains("# secret backend edge provider: cloudflare"));
+        assert!(!env_example.contains("secret-value"));
+
+        let runbook = fs::read_to_string(&report.runbook_path).unwrap();
+        assert!(runbook.contains("## Edge Runtime"));
+        assert!(runbook.contains("Cloudflare Workers, Vercel Edge, Netlify Edge"));
+
+        env::remove_var("NUM_TEST_EDGE_TOKEN");
         fs::remove_dir_all(root).unwrap();
     }
 

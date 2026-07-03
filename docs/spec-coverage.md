@@ -391,6 +391,9 @@ Implemented:
 - provider-neutral serverless deploy handoff bundles with a Node handler
   scaffold, runtime manifest, connector placeholders, env-name template, and
   explicit unsupported-provider boundary;
+- provider-neutral edge deploy handoff bundles with a Fetch handler scaffold,
+  runtime manifest, edge limitations, env-name template, and blocking
+  validation for file-backed stores or local process connectors;
 - container image publish handoff artifacts for configured registry/image
   targets, with generated Compose/Kubernetes scaffolds pointing at the planned
   image reference;
@@ -698,7 +701,9 @@ Major full-spec areas not implemented in v0.4.6:
 - clustered/networked queue coordination beyond the local file-backed worker
   lease and heartbeat model;
 - provider-specific serverless adapters and rollout execution for AWS Lambda,
-  Cloudflare Workers, Vercel, Netlify, or similar platforms;
+  Vercel, Netlify, or similar platforms;
+- provider-specific edge adapters and rollout execution for Cloudflare Workers,
+  Vercel Edge, Netlify Edge, Deno Deploy, or similar platforms;
 - production external secrets manager provider clients such as Vault HTTPS with
   non-token auth methods, KMS, and cloud secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
