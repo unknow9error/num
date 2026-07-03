@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.4 - 2026-07-03
+
+### Patch
+
 - Made `num release-plan` return a deterministic no-op plan for clean
   post-release `Unreleased` sections while still rejecting unclassified entries.
 
