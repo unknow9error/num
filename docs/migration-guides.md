@@ -6,7 +6,7 @@ rules are intentionally deterministic and reviewable: run commands without
 
 ## 0.1.x Source Modules
 
-Current language version: `0.4.4`.
+Current language version: `0.4.5`.
 
 ### Explicit Module Declarations
 
