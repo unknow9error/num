@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added a runtime metrics export boundary with OpenTelemetry-compatible metric
+  names and attributes, no-op/test exporters, and safe-by-default tenant/actor
+  label policy controls.
+
 ## 0.4.7 - 2026-07-03
 
 ### Patch

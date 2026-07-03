@@ -311,6 +311,9 @@ Implemented:
   queued-event processing helpers;
 - in-memory database connector executor for generated SQL connector contracts;
 - runtime trace event model and demo interpreter trace collection;
+- runtime metrics export contract with OpenTelemetry-compatible metric names,
+  attributes, instruments, no-op/test exporters, and safe-by-default
+  tenant/actor label policy controls;
 - audit JSONL report summarization by result/action/actor/tenant plus failure
   details;
 - workflow lifecycle engine for persisted start/wait/resume/complete/fail/
@@ -718,6 +721,8 @@ Major full-spec areas not implemented in v0.4.7:
 - interactive audit dashboard beyond the stable `num.audit_dashboard.v1`
   `audit-report --json` read model;
 - interactive cost dashboard;
+- OTLP/network metrics exporters, automatic runtime-wide metrics wiring, and
+  provider-specific metrics backends beyond the current export contract;
 - cloud/container/bare-metal deployment execution model beyond generated
   local/CI artifacts, image publish handoffs, and Kubernetes dry-run handoffs;
 - CI/CD integrations beyond generated GitHub Actions/Jenkins/GitLab deploy-gate

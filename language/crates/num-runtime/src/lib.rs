@@ -18,6 +18,7 @@ pub mod http;
 pub mod interpreter;
 pub mod js_interop;
 pub mod json;
+pub mod metrics;
 pub mod observability;
 pub mod process_connectors;
 pub mod rate_limit;
