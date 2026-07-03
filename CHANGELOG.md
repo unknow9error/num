@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.7 - 2026-07-03
+
+### Patch
+
 - Added a provider-neutral edge deploy target boundary with Fetch handler
   scaffolding, edge runtime limitations, blocking validation for local
   filesystem/process-connector dependencies, and explicit provider handoff
