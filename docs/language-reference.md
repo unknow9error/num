@@ -374,6 +374,7 @@ The semantic checker recognizes these type names:
 - `Brand`
 - `Money`
 - `Secret`
+- `Encrypted`
 - `Uncertain`
 - `Document`
 - `Pdf`
@@ -444,6 +445,24 @@ secret values should stay inside `Secret<T>` or an external secret store.
 Hashing does not automatically remove privacy or provenance labels. A hash of
 private user input may still be linkable private data, so declassification
 requires an explicit policy decision or `anonymize(...)` where appropriate.
+
+### Encryption Envelopes
+
+`Encrypted<T>` is the first security-envelope type for encrypted payloads. It
+represents ciphertext plus metadata such as provider, algorithm, key id,
+created-at time, plaintext type, privacy, and trust labels. The runtime
+boundary keeps key material out of the envelope and exposes redacted debug/JSON
+views so logs can include metadata without logging ciphertext or plaintext.
+
+Encrypt/decrypt operations live behind a provider boundary. The implemented
+test provider is deterministic and exists for runtime tests and local boundary
+checks; it is not production cryptography. Decrypted values are returned as
+secret values with `secret` privacy and `decrypted:<provider>` trust metadata.
+
+Low-level crypto helpers, raw key handling, token/password encryption recipes,
+and production KMS clients are deliberately out of scope for this first slice.
+Future provider adapters should plug into the same envelope contract instead of
+adding ad hoc crypto functions to Num source.
 
 ### Bytes and Xml Helpers
 

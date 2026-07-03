@@ -345,6 +345,10 @@ Implemented:
   and invalid-response errors, deterministic test stub backend, first Vault
   token-auth/KV v2 adapter slice with fixture/dev `http://` transport, and
   deploy-plan credential env-name validation without secret values;
+- provider-neutral encryption envelope boundary with `Encrypted<T>` type
+  recognition, algorithm/key/created-at metadata, provider-backed
+  encrypt/decrypt helpers, deterministic test provider coverage, redacted
+  envelope JSON/debug views, and decrypted secret privacy/trust labels;
 - runtime redaction of `Secret<T>` values and secret-like connector failures in
   trace/debug JSON, structured runtime errors, process connector JSON
   conversion, and service error responses;
@@ -708,7 +712,8 @@ Major full-spec areas not implemented in v0.4.8:
 - provider-specific edge adapters and rollout execution for Cloudflare Workers,
   Vercel Edge, Netlify Edge, Deno Deploy, or similar platforms;
 - production external secrets manager provider clients such as Vault HTTPS with
-  non-token auth methods, KMS, and cloud secret stores;
+  non-token auth methods, production KMS encryption providers, and cloud secret
+  stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative

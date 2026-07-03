@@ -81,6 +81,9 @@ Owns runtime contracts and the demo interpreter:
 - `AuditSink`, `StateStore`, and `SecretStore` traits;
 - provider-neutral external secret backend adapter boundary and first Vault
   token-auth/KV v2 adapter slice;
+- provider-neutral encryption envelope boundary with redacted `Encrypted<T>`
+  payload metadata, provider-backed encrypt/decrypt helpers, deterministic test
+  provider coverage, and decrypted secret privacy/trust labels;
 - workflow event and queue contracts;
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;

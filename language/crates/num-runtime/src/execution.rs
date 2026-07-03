@@ -232,6 +232,7 @@ fn is_retryable(error: &RuntimeError) -> bool {
         RuntimeError::ConnectorFailed { retryable, .. } => *retryable,
         RuntimeError::ActionFailed { .. }
         | RuntimeError::Timeout { .. }
+        | RuntimeError::EncryptionUnavailable { .. }
         | RuntimeError::Storage(_) => true,
         _ => false,
     }
@@ -282,6 +283,21 @@ fn error_message(error: &RuntimeError) -> String {
         RuntimeError::SecretInvalidResponse { backend, reason } => {
             format!(
                 "secret backend invalid response: {backend}: {}",
+                redaction::redact_text(reason)
+            )
+        }
+        RuntimeError::EncryptionDenied { provider, key_id } => {
+            format!("encryption denied: {provider}: key {key_id}")
+        }
+        RuntimeError::EncryptionUnavailable { provider, reason } => {
+            format!(
+                "encryption provider unavailable: {provider}: {}",
+                redaction::redact_text(reason)
+            )
+        }
+        RuntimeError::EncryptionInvalidEnvelope { provider, reason } => {
+            format!(
+                "encryption invalid envelope: {provider}: {}",
                 redaction::redact_text(reason)
             )
         }

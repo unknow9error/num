@@ -2909,6 +2909,32 @@ workflow main(page: Page<Text, Int>) {
     }
 
     #[test]
+    fn accepts_encrypted_envelope_type_with_payload_argument() {
+        let source = r#"
+module tests.types
+
+workflow main(payload: Encrypted<Text>) {
+    audit("metadata-only")
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn rejects_encrypted_envelope_without_payload_argument() {
+        let source = r#"
+module tests.types
+
+workflow main(payload: Encrypted) {
+    audit("bad")
+}
+"#;
+
+        assert!(codes(source).contains(&"N1203"));
+    }
+
+    #[test]
     fn formats_generic_type_declaration() {
         let source = r#"
 module tests.types

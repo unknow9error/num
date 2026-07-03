@@ -10,6 +10,7 @@ pub mod datetime;
 pub mod debugger;
 pub mod decimal;
 pub mod document;
+pub mod encryption;
 pub mod engine;
 pub mod events;
 pub mod execution;
@@ -248,6 +249,18 @@ pub enum RuntimeError {
         backend: String,
         reason: String,
     },
+    EncryptionDenied {
+        provider: String,
+        key_id: String,
+    },
+    EncryptionUnavailable {
+        provider: String,
+        reason: String,
+    },
+    EncryptionInvalidEnvelope {
+        provider: String,
+        reason: String,
+    },
     Storage(String),
 }
 
@@ -266,6 +279,9 @@ impl RuntimeError {
             RuntimeError::SecretDenied { .. } => "secret_denied",
             RuntimeError::SecretUnavailable { .. } => "secret_unavailable",
             RuntimeError::SecretInvalidResponse { .. } => "secret_invalid_response",
+            RuntimeError::EncryptionDenied { .. } => "encryption_denied",
+            RuntimeError::EncryptionUnavailable { .. } => "encryption_unavailable",
+            RuntimeError::EncryptionInvalidEnvelope { .. } => "encryption_invalid_envelope",
             RuntimeError::Storage(_) => "storage",
         }
     }
@@ -309,6 +325,17 @@ impl RuntimeError {
             ),
             RuntimeError::SecretInvalidResponse { backend, reason } => format!(
                 "Secret backend '{backend}' returned an invalid response: {}",
+                redaction::redact_text(reason)
+            ),
+            RuntimeError::EncryptionDenied { provider, key_id } => {
+                format!("Encryption provider '{provider}' denied key '{key_id}'")
+            }
+            RuntimeError::EncryptionUnavailable { provider, reason } => format!(
+                "Encryption provider '{provider}' unavailable: {}",
+                redaction::redact_text(reason)
+            ),
+            RuntimeError::EncryptionInvalidEnvelope { provider, reason } => format!(
+                "Encryption provider '{provider}' rejected envelope: {}",
                 redaction::redact_text(reason)
             ),
             RuntimeError::Storage(message) => {
@@ -397,6 +424,24 @@ impl RuntimeError {
                 "kind": self.kind(),
                 "message": self.message(),
                 "backend": backend,
+                "reason": redaction::redact_text(reason),
+            }),
+            RuntimeError::EncryptionDenied { provider, key_id } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "provider": provider,
+                "key_id": key_id,
+            }),
+            RuntimeError::EncryptionUnavailable { provider, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "provider": provider,
+                "reason": redaction::redact_text(reason),
+            }),
+            RuntimeError::EncryptionInvalidEnvelope { provider, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "provider": provider,
                 "reason": redaction::redact_text(reason),
             }),
             RuntimeError::Storage(_) => base,
