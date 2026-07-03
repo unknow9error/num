@@ -85,6 +85,9 @@ Owns runtime contracts and the demo interpreter:
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;
 - runtime trace event model for observability/debugging;
+- runtime metrics export boundary with OpenTelemetry-compatible names and
+  attributes for workflow events, route latency, connector failures, AI calls,
+  cost counters, and rate-limit hits, plus safe-by-default tenant/actor labels;
 - connector egress context envelopes for propagating actor, tenant, scoped
   capability, request/correlation identifiers, policy decision, and declared
   source/privacy/trust labels across external connector boundaries;
