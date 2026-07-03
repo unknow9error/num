@@ -22,6 +22,7 @@ pub struct DeploymentPlan {
     pub entry: String,
     pub runtime: RuntimeDeployment,
     pub secrets: Vec<SecretBackendDeployment>,
+    pub ai: AiDeployment,
     pub environment: DeploymentEnvironment,
     pub security: SecurityDeployment,
     pub modules: usize,
@@ -61,6 +62,25 @@ pub struct SecretBackendDeployment {
     pub token_env: Option<EnvironmentVariableDeployment>,
     pub credential_env: Vec<EnvironmentVariableDeployment>,
     pub optional: bool,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AiDeployment {
+    pub default_model: Option<String>,
+    pub models: Vec<AiModelDeployment>,
+    pub status: String,
+    pub missing_required: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AiModelDeployment {
+    pub alias: String,
+    pub provider: String,
+    pub model: String,
+    pub credential_env: Vec<EnvironmentVariableDeployment>,
+    pub timeout_ms: Option<u64>,
+    pub max_cost: Option<String>,
     pub status: String,
 }
 
@@ -249,6 +269,7 @@ pub fn build_deployment_plan(
             audit_store: manifest.runtime.audit_store.clone(),
         },
         secrets: secret_backends_from_manifest(manifest),
+        ai: AiDeployment::from_manifest(manifest),
         environment: DeploymentEnvironment::from_manifest(manifest),
         security: SecurityDeployment {
             policy_mode: manifest.security.policy_mode.clone(),
@@ -344,6 +365,7 @@ impl DeploymentPlan {
                 "audit_store": self.runtime.audit_store,
             },
             "secrets": self.secrets.iter().map(SecretBackendDeployment::to_json).collect::<Vec<_>>(),
+            "ai": self.ai.to_json(),
             "environment": self.environment.to_json(),
             "security": {
                 "policy_mode": self.security.policy_mode,
@@ -419,6 +441,13 @@ impl DeploymentPlan {
             out.push_str(&format!(
                 "Process connectors: {}\n",
                 self.process_connectors.join(", ")
+            ));
+        }
+        if !self.ai.models.is_empty() {
+            out.push_str(&format!(
+                "AI models: status={}, declared={}\n",
+                self.ai.status,
+                self.ai.models.len()
             ));
         }
         if self.image_publish.enabled {
@@ -1208,12 +1237,14 @@ pub fn build_deploy_check_report(
         .secrets
         .iter()
         .any(|backend| backend.status == "missing-required");
+    let ai_blocking = plan.ai.status == "missing-required";
     let blocking = compile_blocking
         || policy_blocking
         || security_blocking
         || target_blocking
         || environment_blocking
-        || secret_backend_blocking;
+        || secret_backend_blocking
+        || ai_blocking;
 
     let missing_cost_metadata = plan
         .actions
@@ -1289,6 +1320,12 @@ pub fn build_deploy_check_report(
                 "status": if secret_backend_blocking { "blocking" } else { "ready" },
                 "backends": plan.secrets.iter().map(SecretBackendDeployment::to_json).collect::<Vec<_>>(),
             },
+            "ai": {
+                "status": if ai_blocking { "blocking" } else { &plan.ai.status },
+                "default_model": plan.ai.default_model,
+                "models": plan.ai.models.iter().map(AiModelDeployment::to_json).collect::<Vec<_>>(),
+                "missing_required": plan.ai.missing_required,
+            },
             "image_publish": plan.image_publish.to_json(),
         },
         "diagnostics": compile_diagnostics.iter().map(diagnostic_to_json).collect::<Vec<_>>(),
@@ -1350,6 +1387,85 @@ impl SecretBackendDeployment {
             "token_env": self.token_env.as_ref().map(EnvironmentVariableDeployment::to_json),
             "credential_env": self.credential_env.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
             "optional": self.optional,
+            "status": self.status,
+        })
+    }
+}
+
+impl AiDeployment {
+    fn from_manifest(manifest: &PackageManifest) -> Self {
+        let models = manifest
+            .ai
+            .models
+            .iter()
+            .map(AiModelDeployment::from_manifest_model)
+            .collect::<Vec<_>>();
+        let missing_required = models
+            .iter()
+            .flat_map(|model| {
+                model
+                    .credential_env
+                    .iter()
+                    .filter(|variable| !variable.present)
+                    .map(move |variable| format!("{}:{}", model.alias, variable.name))
+            })
+            .collect::<Vec<_>>();
+        let status = if missing_required.is_empty() {
+            "ready"
+        } else {
+            "missing-required"
+        };
+
+        Self {
+            default_model: manifest.ai.default_model.clone(),
+            models,
+            status: status.to_string(),
+            missing_required,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "default_model": self.default_model,
+            "models": self.models.iter().map(AiModelDeployment::to_json).collect::<Vec<_>>(),
+            "status": self.status,
+            "missing_required": self.missing_required,
+        })
+    }
+}
+
+impl AiModelDeployment {
+    fn from_manifest_model(model: &package::PackageAiModel) -> Self {
+        let credential_env = model
+            .credential_env
+            .iter()
+            .map(|name| EnvironmentVariableDeployment::from_name(name))
+            .collect::<Vec<_>>();
+        let status = if credential_env.iter().any(|variable| !variable.present) {
+            "missing-required"
+        } else {
+            "ready"
+        };
+
+        Self {
+            alias: model.alias.clone(),
+            provider: model.provider.clone(),
+            model: model.model.clone(),
+            credential_env,
+            timeout_ms: model.timeout_ms,
+            max_cost: model.max_cost.clone(),
+            status: status.to_string(),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "alias": self.alias,
+            "provider": self.provider,
+            "model": self.model,
+            "credential_env": self.credential_env.iter().map(EnvironmentVariableDeployment::to_json).collect::<Vec<_>>(),
+            "timeout_ms": self.timeout_ms,
+            "max_cost": self.max_cost,
             "status": self.status,
         })
     }
@@ -2923,6 +3039,70 @@ optional = true
         assert_eq!(report["status"], "blocked");
         assert_eq!(report["gates"]["secrets"]["status"], "blocking");
         assert!(!report.to_string().contains("secret-value"));
+    }
+
+    #[test]
+    fn deployment_plan_reports_ai_provider_validation() {
+        env::remove_var("NUM_TEST_AI_MISSING_KEY");
+        env::set_var("NUM_TEST_AI_PRESENT_KEY", "secret-value");
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "billing"
+version = "1.2.3"
+
+[ai]
+default_model = "fast"
+
+[ai.models.fast]
+provider = "openai"
+model = "gpt-4.1-mini"
+credential_env = ["NUM_TEST_AI_MISSING_KEY", "NUM_TEST_AI_PRESENT_KEY"]
+timeout_ms = 5000
+max_cost = "0.10 USD"
+"#,
+        );
+        let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
+
+        let plan = build_deployment_plan(&manifest, &compilation.module, 1);
+        let report = build_deploy_check_report(&plan, &compilation.diagnostics, &[], false);
+
+        assert_eq!(plan.ai.default_model, Some("fast".to_string()));
+        assert_eq!(plan.ai.models.len(), 1);
+        assert_eq!(plan.ai.models[0].alias, "fast");
+        assert_eq!(plan.ai.models[0].provider, "openai");
+        assert_eq!(plan.ai.models[0].model, "gpt-4.1-mini");
+        assert_eq!(plan.ai.models[0].status, "missing-required");
+        assert_eq!(
+            plan.ai.missing_required,
+            vec!["fast:NUM_TEST_AI_MISSING_KEY"]
+        );
+        assert_eq!(plan.to_json()["ai"]["default_model"], "fast");
+        assert_eq!(
+            plan.to_json()["ai"]["models"][0]["credential_env"][0]["name"],
+            "NUM_TEST_AI_MISSING_KEY"
+        );
+        assert_eq!(
+            plan.to_json()["ai"]["models"][0]["credential_env"][0]["present"],
+            false
+        );
+        assert_eq!(
+            plan.to_json()["ai"]["models"][0]["credential_env"][1]["name"],
+            "NUM_TEST_AI_PRESENT_KEY"
+        );
+        assert_eq!(
+            plan.to_json()["ai"]["models"][0]["credential_env"][1]["present"],
+            true
+        );
+        assert_eq!(report["status"], "blocked");
+        assert_eq!(report["gates"]["ai"]["status"], "blocking");
+        assert!(!plan.to_json().to_string().contains("secret-value"));
+        assert!(!report.to_string().contains("secret-value"));
+
+        env::remove_var("NUM_TEST_AI_PRESENT_KEY");
     }
 
     #[test]

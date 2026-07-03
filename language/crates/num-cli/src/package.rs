@@ -18,6 +18,7 @@ pub struct PackageManifest {
     pub registry: PackageRegistry,
     pub runtime: PackageRuntime,
     pub secrets: Vec<PackageSecretBackend>,
+    pub ai: PackageAiConfig,
     pub environment: PackageEnvironment,
     pub deployment: PackageDeployment,
     pub security: PackageSecurity,
@@ -70,6 +71,22 @@ pub struct PackageSecretBackend {
     pub token_env: Option<String>,
     pub credential_env: Vec<String>,
     pub optional: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageAiConfig {
+    pub default_model: Option<String>,
+    pub models: Vec<PackageAiModel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageAiModel {
+    pub alias: String,
+    pub provider: String,
+    pub model: String,
+    pub credential_env: Vec<String>,
+    pub timeout_ms: Option<u64>,
+    pub max_cost: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -229,6 +246,8 @@ impl PackageManifest {
         let mut workflow_store = None;
         let mut audit_store = None;
         let mut secret_backends = Vec::new();
+        let mut ai_default_model = None;
+        let mut ai_models = Vec::new();
         let mut environment_required = Vec::new();
         let mut environment_optional = Vec::new();
         let mut deployment_target = None;
@@ -293,6 +312,17 @@ impl PackageManifest {
                     let id = section.strip_prefix("secrets.").unwrap_or_default().trim();
                     upsert_secret_backend(&mut secret_backends, id, &key, value);
                 }
+                "ai" => match key.as_str() {
+                    "default_model" | "default" => ai_default_model = parse_toml_string(value),
+                    _ => {}
+                },
+                section if section.starts_with("ai.models.") => {
+                    let alias = section
+                        .strip_prefix("ai.models.")
+                        .unwrap_or_default()
+                        .trim();
+                    upsert_ai_model(&mut ai_models, alias, &key, value);
+                }
                 "environment" => match key.as_str() {
                     "required" => environment_required.extend(parse_toml_string_array(value)),
                     "optional" => environment_optional.extend(parse_toml_string_array(value)),
@@ -342,6 +372,7 @@ impl PackageManifest {
         connectors.sort_by(|left, right| left.method.cmp(&right.method));
         javascript.sort_by(|left, right| left.method.cmp(&right.method));
         secret_backends.sort_by(|left, right| left.id.cmp(&right.id));
+        ai_models.sort_by(|left, right| left.alias.cmp(&right.alias));
         sanitizer_packs.sort_by(|left, right| left.name.cmp(&right.name));
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -373,6 +404,10 @@ impl PackageManifest {
                 audit_store: audit_store.unwrap_or_else(|| "stdout".to_string()),
             },
             secrets: secret_backends,
+            ai: PackageAiConfig {
+                default_model: ai_default_model,
+                models: ai_models,
+            },
             environment: PackageEnvironment {
                 required: normalize_env_names(environment_required),
                 optional: normalize_env_names(environment_optional),
@@ -1246,6 +1281,42 @@ fn upsert_secret_backend(
     }
 }
 
+fn upsert_ai_model(models: &mut Vec<PackageAiModel>, alias: &str, key: &str, value: &str) {
+    let alias = alias.trim();
+    if alias.is_empty() {
+        return;
+    }
+    let index = models.iter().position(|model| model.alias == alias);
+    let index = index.unwrap_or_else(|| {
+        models.push(PackageAiModel {
+            alias: alias.to_string(),
+            provider: "external".to_string(),
+            model: alias.to_string(),
+            ..PackageAiModel::default()
+        });
+        models.len() - 1
+    });
+    let model = &mut models[index];
+    match key {
+        "provider" => {
+            if let Some(provider) = parse_toml_string(value) {
+                model.provider = provider;
+            }
+        }
+        "model" | "model_id" => {
+            if let Some(model_id) = parse_toml_string(value) {
+                model.model = model_id;
+            }
+        }
+        "credential_env" | "credentials_env" => {
+            model.credential_env = normalize_env_names(parse_toml_string_array(value));
+        }
+        "timeout_ms" => model.timeout_ms = parse_toml_u64(value),
+        "max_cost" | "default_max_cost" => model.max_cost = parse_toml_string(value),
+        _ => {}
+    }
+}
+
 fn pack_policy(pack: &PackageSanitizerPack) -> Result<TextSanitizationPolicy, String> {
     let mut policy = TextSanitizationPolicy::default();
     if let Some(trim) = pack.trim {
@@ -1516,6 +1587,10 @@ fn parse_toml_bool(value: &str) -> Option<bool> {
 }
 
 fn parse_toml_u32(value: &str) -> Option<u32> {
+    value.trim().parse().ok()
+}
+
+fn parse_toml_u64(value: &str) -> Option<u64> {
     value.trim().parse().ok()
 }
 
@@ -1961,6 +2036,60 @@ optional = true
             manifest.secrets[1].credential_env,
             vec!["VAULT_ADDR".to_string(), "VAULT_TOKEN".to_string()]
         );
+        assert!(!format!("{manifest:?}").contains("secret-value"));
+    }
+
+    #[test]
+    fn manifest_reads_ai_model_metadata_without_values() {
+        let root = Path::new("/workspace/app");
+        let manifest = PackageManifest::parse(
+            root,
+            &root.join("num.toml"),
+            r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[ai]
+default_model = "fast-classifier"
+
+[ai.models.reasoner]
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+credential_env = ["ANTHROPIC_API_KEY"]
+timeout_ms = 12000
+max_cost = "0.50 USD"
+future_temperature = "0.2"
+
+[ai.models.fast-classifier]
+provider = "openai"
+model = "gpt-4.1-mini"
+credential_env = [" OPENAI_API_KEY ", "OPENAI_ORG", "OPENAI_API_KEY"]
+timeout_ms = 5000
+max_cost = "0.10 USD"
+region = "future-region"
+"#,
+        );
+
+        assert_eq!(
+            manifest.ai.default_model,
+            Some("fast-classifier".to_string())
+        );
+        assert_eq!(manifest.ai.models.len(), 2);
+        assert_eq!(manifest.ai.models[0].alias, "fast-classifier");
+        assert_eq!(manifest.ai.models[0].provider, "openai");
+        assert_eq!(manifest.ai.models[0].model, "gpt-4.1-mini");
+        assert_eq!(
+            manifest.ai.models[0].credential_env,
+            vec!["OPENAI_API_KEY".to_string(), "OPENAI_ORG".to_string()]
+        );
+        assert_eq!(manifest.ai.models[0].timeout_ms, Some(5000));
+        assert_eq!(manifest.ai.models[0].max_cost, Some("0.10 USD".to_string()));
+        assert_eq!(manifest.ai.models[1].alias, "reasoner");
+        assert_eq!(manifest.ai.models[1].provider, "anthropic");
+        assert_eq!(manifest.ai.models[1].model, "claude-3-5-sonnet");
+        assert_eq!(manifest.ai.models[1].timeout_ms, Some(12000));
+        assert_eq!(manifest.ai.models[1].max_cost, Some("0.50 USD".to_string()));
         assert!(!format!("{manifest:?}").contains("secret-value"));
     }
 

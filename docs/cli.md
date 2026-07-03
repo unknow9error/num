@@ -757,20 +757,23 @@ num deploy examples/refund_workflow --kubernetes-dry-run --kubernetes-out dist/k
 The plan includes package name/version, deployment target metadata, a checked
 target profile with execution class, required artifacts, target-specific
 validation status, validation errors/warnings, environment validation status
-from `[environment]`, runtime store metadata, security mode, compiled module
-count, workflows, actions, service routes, connectors, process connector
-bindings, and direct dependencies. It also embeds the manifest language/schema
-compatibility contract. Process connector bindings include method, command,
-args, cwd, and timeout metadata for future deployment runners.
+from `[environment]`, AI provider/model alias metadata from `[ai]`, runtime
+store metadata, security mode, compiled module count, workflows, actions,
+service routes, connectors, process connector bindings, and direct
+dependencies. It also embeds the manifest language/schema compatibility
+contract. Process connector bindings include method, command, args, cwd, and
+timeout metadata for future deployment runners.
 
 `--check` makes deploy validation explicit for CI jobs. It compiles the project,
 applies the manifest policy mode, runs lint/security checks, validates the
 target profile/environment, checks image-publish metadata, reports high-risk
-actions without cost metadata, and exits without materializing an artifact
-directory. With `--json`, the command emits a versioned `num.deploy_check.v1`
-read model with gate status for `compile`, `policy`, `cost`, `security`,
-`target`, `environment`, and `image_publish`. Blocking gates return non-zero;
-advisory warnings remain visible in JSON while keeping a zero exit status.
+actions without cost metadata, validates declared AI provider credential
+environment names without reading secret values, and exits without
+materializing an artifact directory. With `--json`, the command emits a
+versioned `num.deploy_check.v1` read model with gate status for `compile`,
+`policy`, `cost`, `security`, `target`, `environment`, `secrets`, `ai`, and
+`image_publish`. Blocking gates return non-zero; advisory warnings remain
+visible in JSON while keeping a zero exit status.
 `--check` can be combined with `--json` and `--out`, but not with `--apply` or
 `--kubernetes-dry-run`.
 
