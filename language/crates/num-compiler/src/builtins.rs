@@ -46,6 +46,12 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in wrapper for values that must not be logged or sent to unsafe sinks.",
     },
     BuiltinSymbol {
+        name: "Encrypted",
+        kind: BuiltinKind::Type,
+        signature: "Encrypted<T>",
+        documentation: "Built-in envelope type for provider-encrypted payloads with algorithm, key id, and redacted ciphertext metadata.",
+    },
+    BuiltinSymbol {
         name: "Document",
         kind: BuiltinKind::Type,
         signature: "Document",

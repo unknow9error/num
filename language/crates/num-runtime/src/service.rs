@@ -357,6 +357,24 @@ fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> 
                     message: error.message(),
                 };
             }
+            RuntimeError::EncryptionDenied { .. } => {
+                return RouteErrorClass::Permission {
+                    code: "encryption_denied",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::EncryptionUnavailable { .. } => {
+                return RouteErrorClass::Internal {
+                    code: "encryption_unavailable",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::EncryptionInvalidEnvelope { .. } => {
+                return RouteErrorClass::Internal {
+                    code: "encryption_invalid_envelope",
+                    message: error.message(),
+                };
+            }
             RuntimeError::SanitizationFailed { .. } => {
                 return RouteErrorClass::Validation {
                     code: "sanitization_failed",
