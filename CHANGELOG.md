@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.11 - 2026-07-06
+
+### Patch
+
 - Added a JWT verification boundary for service routes with configured issuer,
   audience, allowed algorithms, env-backed signing secret, verified actor/role
   claims, and fail-closed authentication errors.
