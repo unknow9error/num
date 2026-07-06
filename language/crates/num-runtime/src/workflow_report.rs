@@ -358,9 +358,12 @@ mod tests {
             security: SecurityContext {
                 actor: "support@example.com".to_string(),
                 tenant: tenant.to_string(),
+                roles: Default::default(),
                 permissions: BTreeSet::new(),
                 correlation_id: "corr_1".to_string(),
                 request_id: "req_1".to_string(),
+                provenance: None,
+                trust: None,
             },
             started_at: UNIX_EPOCH + Duration::from_secs(1),
             updated_at: UNIX_EPOCH + Duration::from_secs(updated_at_seconds),

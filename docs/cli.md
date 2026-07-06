@@ -474,6 +474,10 @@ Current limitations:
   structured `403` tenant error and are written to audit output;
 - `X-Role` and comma-separated `X-Roles` headers are resolved against `.num`
   `role` declarations and grant the role's allowed permissions for the request;
+- when `[security.jwt]` is configured, `Authorization: Bearer <jwt>` is
+  verified before route execution; missing, invalid, expired, wrong-issuer, or
+  wrong-audience tokens return a structured `401` auth error, and verified
+  `sub`/`tenant`/`roles` claims populate `current_user` and permissions;
 - permissions can also be injected by the CLI for demo purposes;
 - configured `[connectors]` process commands run before the demo connector
   fallback.

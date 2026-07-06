@@ -47,6 +47,16 @@ pub struct ProjectPackage {
 pub struct PackageSecurity {
     pub policy_mode: String,
     pub tenant_isolation: bool,
+    pub jwt: Option<PackageJwtSecurity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageJwtSecurity {
+    pub issuer: String,
+    pub audience: String,
+    pub algorithms: Vec<String>,
+    pub secret_env: String,
+    pub leeway_seconds: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -260,6 +270,11 @@ impl PackageManifest {
         let mut deployment_credentials_ref = None;
         let mut policy_mode = None;
         let mut tenant_isolation = None;
+        let mut jwt_issuer = None;
+        let mut jwt_audience = None;
+        let mut jwt_algorithms = Vec::new();
+        let mut jwt_secret_env = None;
+        let mut jwt_leeway_seconds = None;
         let mut connectors = Vec::new();
         let mut javascript = Vec::new();
         let mut sanitizer_packs = Vec::new();
@@ -365,6 +380,16 @@ impl PackageManifest {
                     "tenant_isolation" => tenant_isolation = parse_toml_bool(value),
                     _ => {}
                 },
+                "security.jwt" => match key.as_str() {
+                    "issuer" => jwt_issuer = parse_toml_string(value),
+                    "audience" => jwt_audience = parse_toml_string(value),
+                    "algorithms" | "allowed_algorithms" => {
+                        jwt_algorithms.extend(parse_toml_string_array(value))
+                    }
+                    "secret_env" => jwt_secret_env = parse_toml_string(value),
+                    "leeway_seconds" => jwt_leeway_seconds = parse_toml_i64(value),
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -425,6 +450,20 @@ impl PackageManifest {
             security: PackageSecurity {
                 policy_mode: policy_mode.unwrap_or_else(|| "strict".to_string()),
                 tenant_isolation: tenant_isolation.unwrap_or(false),
+                jwt: match (jwt_issuer, jwt_audience, jwt_secret_env) {
+                    (Some(issuer), Some(audience), Some(secret_env)) => Some(PackageJwtSecurity {
+                        issuer,
+                        audience,
+                        algorithms: normalize_env_names(if jwt_algorithms.is_empty() {
+                            vec!["HS256".to_string()]
+                        } else {
+                            jwt_algorithms
+                        }),
+                        secret_env,
+                        leeway_seconds: jwt_leeway_seconds.unwrap_or(0).max(0),
+                    }),
+                    _ => None,
+                },
             },
             connectors,
             javascript,
@@ -1594,6 +1633,10 @@ fn parse_toml_u64(value: &str) -> Option<u64> {
     value.trim().parse().ok()
 }
 
+fn parse_toml_i64(value: &str) -> Option<i64> {
+    value.trim().parse().ok()
+}
+
 fn parse_toml_usize(value: &str) -> Option<usize> {
     value.trim().parse().ok()
 }
@@ -1814,11 +1857,24 @@ version = "0.1.0"
 [security]
 policy_mode = "strict"
 tenant_isolation = true
+
+[security.jwt]
+issuer = "https://issuer.example"
+audience = "num-api"
+algorithms = ["HS256"]
+secret_env = "NUM_TEST_JWT_SECRET"
+leeway_seconds = 30
 "#,
         );
 
         assert_eq!(manifest.security.policy_mode, "strict");
         assert!(manifest.security.tenant_isolation);
+        let jwt = manifest.security.jwt.as_ref().unwrap();
+        assert_eq!(jwt.issuer, "https://issuer.example");
+        assert_eq!(jwt.audience, "num-api");
+        assert_eq!(jwt.algorithms, vec!["HS256"]);
+        assert_eq!(jwt.secret_env, "NUM_TEST_JWT_SECRET");
+        assert_eq!(jwt.leeway_seconds, 30);
     }
 
     #[test]

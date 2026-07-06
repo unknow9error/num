@@ -19,6 +19,7 @@ pub mod http;
 pub mod interpreter;
 pub mod js_interop;
 pub mod json;
+pub mod jwt;
 pub mod metrics;
 pub mod observability;
 pub mod process_connectors;
@@ -54,9 +55,12 @@ pub enum WorkflowStatus {
 pub struct SecurityContext {
     pub actor: ActorId,
     pub tenant: TenantId,
+    pub roles: BTreeSet<String>,
     pub permissions: BTreeSet<Permission>,
     pub correlation_id: String,
     pub request_id: String,
+    pub provenance: Option<String>,
+    pub trust: Option<String>,
 }
 
 impl SecurityContext {
@@ -235,6 +239,10 @@ pub enum RuntimeError {
         expected: TenantId,
         actual: TenantId,
     },
+    AuthenticationFailed {
+        code: String,
+        reason: String,
+    },
     SecretNotFound {
         name: String,
     },
@@ -275,6 +283,7 @@ impl RuntimeError {
             RuntimeError::ConnectorFailed { .. } => "connector_failed",
             RuntimeError::SanitizationFailed { .. } => "sanitization_failed",
             RuntimeError::TenantIsolationViolation { .. } => "tenant_isolation_violation",
+            RuntimeError::AuthenticationFailed { .. } => "authentication_failed",
             RuntimeError::SecretNotFound { .. } => "secret_not_found",
             RuntimeError::SecretDenied { .. } => "secret_denied",
             RuntimeError::SecretUnavailable { .. } => "secret_unavailable",
@@ -316,6 +325,9 @@ impl RuntimeError {
             }
             RuntimeError::TenantIsolationViolation { expected, actual } => {
                 format!("Tenant isolation violation: expected '{expected}', got '{actual}'")
+            }
+            RuntimeError::AuthenticationFailed { reason, .. } => {
+                format!("Authentication failed: {}", redaction::redact_text(reason))
             }
             RuntimeError::SecretNotFound { name } => format!("Secret '{name}' not found"),
             RuntimeError::SecretDenied { name } => format!("Secret '{name}' denied by backend"),
@@ -404,6 +416,12 @@ impl RuntimeError {
                 "expected": expected,
                 "actual": actual,
             }),
+            RuntimeError::AuthenticationFailed { code, reason } => serde_json::json!({
+                "kind": self.kind(),
+                "message": self.message(),
+                "code": code,
+                "reason": redaction::redact_text(reason),
+            }),
             RuntimeError::SecretNotFound { name } => serde_json::json!({
                 "kind": self.kind(),
                 "message": self.message(),
@@ -485,12 +503,15 @@ mod tests {
         SecurityContext {
             actor: actor.to_string(),
             tenant: tenant.to_string(),
+            roles: Default::default(),
             permissions: permissions
                 .into_iter()
                 .map(str::to_string)
                 .collect::<BTreeSet<_>>(),
             correlation_id: "corr_test".to_string(),
             request_id: "req_test".to_string(),
+            provenance: None,
+            trust: None,
         }
     }
 

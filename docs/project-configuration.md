@@ -426,6 +426,13 @@ Example:
 [security]
 policy_mode = "strict"
 tenant_isolation = true
+
+[security.jwt]
+issuer = "https://issuer.example"
+audience = "num-api"
+algorithms = ["HS256"]
+secret_env = "NUM_JWT_SECRET"
+leeway_seconds = 30
 ```
 
 Supported `policy_mode` values:
@@ -443,6 +450,14 @@ access is guarded with `TenantGuard`, and service-route commands (`num route`,
 does not match the service tenant. The current demo service tenant defaults to
 `default`; omit the field or set it to `false` to preserve permissive demo
 behavior while prototyping.
+
+`[security.jwt]` enables fail-closed JWT verification for service routes.
+The first slice verifies HS256 bearer tokens against configured `issuer`,
+`audience`, `algorithms`, and a signing secret loaded from `secret_env`.
+Verified `sub`, `tenant`, and `roles` claims populate the route
+`SecurityContext`; role names are resolved against `.num` `role` declarations.
+Token minting, OAuth authorization-code flow, refresh tokens, and session
+stores remain future security-provider work.
 
 ### `[runtime]`
 

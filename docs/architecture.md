@@ -87,6 +87,9 @@ Owns runtime contracts and the demo interpreter:
 - KMS-style encryption provider adapter boundary over the same envelope
   contract, with provider-neutral key ids, metadata-only credential env names,
   structured key/provider failures, and deterministic fake KMS coverage;
+- service-route JWT verification boundary with manifest-configured
+  issuer/audience/allowed algorithms, env-backed signing secret, verified
+  actor/tenant/role claims, and structured fail-closed auth errors;
 - workflow event and queue contracts;
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;

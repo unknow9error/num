@@ -90,9 +90,12 @@ mod tests {
         SecurityContext {
             actor: "agent@example.com".to_string(),
             tenant: tenant.to_string(),
+            roles: Default::default(),
             permissions: BTreeSet::new(),
             correlation_id: "corr_1".to_string(),
             request_id: "req_1".to_string(),
+            provenance: None,
+            trust: None,
         }
     }
 }

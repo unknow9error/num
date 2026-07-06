@@ -31,10 +31,11 @@ use num_runtime::{
     debugger::{BreakpointSpec, DebugReport},
     http,
     js_interop::{JavaScriptModuleConfig, JavaScriptModuleExecutor},
+    jwt::{JwtVerificationConfig, JwtVerifier},
     process_connectors::{ProcessConnectorConfig, ProcessConnectorExecutor},
     service::ServiceRuntime,
     storage::FileStateStore,
-    workflow_report,
+    workflow_report, SecretValue,
 };
 use std::env;
 use std::fs;
@@ -630,6 +631,7 @@ fn run() -> Result<(), String> {
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
+            let jwt_verifier = jwt_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -640,6 +642,11 @@ fn run() -> Result<(), String> {
             .with_output_enabled(false)
             .with_tenant_isolation(tenant_isolation)
             .with_sanitizer_packs(sanitizer_packs);
+            let runtime = if let Some(verifier) = jwt_verifier {
+                runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
             let mut request = num_runtime::http::HttpRequest::new(method, route_path, "");
             route_options.apply_headers(&mut request);
             let response = runtime.handle_http_request_with_empty_body_input(&request, input);
@@ -661,6 +668,7 @@ fn run() -> Result<(), String> {
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
+            let jwt_verifier = jwt_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -670,6 +678,11 @@ fn run() -> Result<(), String> {
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
             .with_tenant_isolation(tenant_isolation)
             .with_sanitizer_packs(sanitizer_packs);
+            let runtime = if let Some(verifier) = jwt_verifier {
+                runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
 
             println!("Serving one request for service {service_name} on http://{addr}");
             http::serve_once(&addr, |request| {
@@ -694,6 +707,7 @@ fn run() -> Result<(), String> {
             let audit_target = runtime_config::resolve_interpreter_audit_target(&path)?;
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
+            let jwt_verifier = jwt_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -703,6 +717,11 @@ fn run() -> Result<(), String> {
             .with_audit_recorder(service_audit_recorder(audit_target, service_name.clone()))
             .with_tenant_isolation(tenant_isolation)
             .with_sanitizer_packs(sanitizer_packs);
+            let runtime = if let Some(verifier) = jwt_verifier {
+                runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
 
             println!("Serving service {service_name} on http://{}", options.addr);
             http::serve(&options.addr, options.max_requests, |request| {
@@ -872,6 +891,25 @@ fn runtime_sanitizer_packs(
     manifest.sanitizer_pack_policies()
 }
 
+fn jwt_verifier_for_path(path: &Path) -> Result<Option<JwtVerifier>, String> {
+    let Some(manifest) = package::PackageManifest::discover(path)? else {
+        return Ok(None);
+    };
+    let Some(jwt) = manifest.security.jwt else {
+        return Ok(None);
+    };
+    let secret = env::var(&jwt.secret_env).map_err(|_| {
+        format!(
+            "JWT verification is configured but environment variable `{}` is missing",
+            jwt.secret_env
+        )
+    })?;
+    let config = JwtVerificationConfig::new(jwt.issuer, jwt.audience)
+        .with_allowed_algorithms(jwt.algorithms)
+        .with_leeway_seconds(jwt.leeway_seconds);
+    Ok(Some(JwtVerifier::new(config, SecretValue::new(secret))))
+}
+
 fn connector_executor_for_path(
     path: &Path,
     demo_output_enabled: bool,
@@ -1016,6 +1054,7 @@ struct RouteOptions {
     tenant: Option<String>,
     request_id: Option<String>,
     correlation_id: Option<String>,
+    bearer_token: Option<String>,
 }
 
 impl RouteOptions {
@@ -1035,6 +1074,11 @@ impl RouteOptions {
             request
                 .headers
                 .insert("x-correlation-id".to_string(), correlation_id);
+        }
+        if let Some(token) = self.bearer_token {
+            request
+                .headers
+                .insert("authorization".to_string(), format!("Bearer {token}"));
         }
     }
 }
@@ -1433,6 +1477,7 @@ fn parse_route_options(args: impl Iterator<Item = String>) -> Result<RouteOption
             "--correlation-id" => {
                 options.correlation_id = Some(next_route_value(&mut args, "--correlation-id")?)
             }
+            "--bearer" => options.bearer_token = Some(next_route_value(&mut args, "--bearer")?),
             other if other.starts_with("--") => {
                 return Err(format!("unexpected route argument '{other}'"));
             }
@@ -2089,6 +2134,8 @@ service Api {
                 "req_42".to_string(),
                 "--correlation-id".to_string(),
                 "corr_42".to_string(),
+                "--bearer".to_string(),
+                "jwt-token".to_string(),
             ]
             .into_iter(),
         )
@@ -2099,6 +2146,7 @@ service Api {
         assert_eq!(options.actor, Some("agent@example.com".to_string()));
         assert_eq!(options.request_id, Some("req_42".to_string()));
         assert_eq!(options.correlation_id, Some("corr_42".to_string()));
+        assert_eq!(options.bearer_token, Some("jwt-token".to_string()));
     }
 
     #[test]
