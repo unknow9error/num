@@ -433,6 +433,11 @@ audience = "num-api"
 algorithms = ["HS256"]
 secret_env = "NUM_JWT_SECRET"
 leeway_seconds = 30
+
+[security.session]
+cookie_name = "num_session"
+secret_env = "NUM_SESSION_SECRET"
+leeway_seconds = 30
 ```
 
 Supported `policy_mode` values:
@@ -456,8 +461,16 @@ The first slice verifies HS256 bearer tokens against configured `issuer`,
 `audience`, `algorithms`, and a signing secret loaded from `secret_env`.
 Verified `sub`, `tenant`, and `roles` claims populate the route
 `SecurityContext`; role names are resolved against `.num` `role` declarations.
-Token minting, OAuth authorization-code flow, refresh tokens, and session
-stores remain future security-provider work.
+`[security.session]` enables fail-closed signed-cookie session verification for
+service routes. The cookie value is a signed `payload.signature` token whose
+payload contains minimal `id`, `actor`, `tenant`, `roles`, and `exp` claims.
+The signature uses HMAC-SHA256 with a secret loaded from `secret_env`, and
+verified session actor/tenant/role claims populate the route `SecurityContext`.
+Configure only one service authentication provider at a time:
+`[security.jwt]` or `[security.session]`.
+
+Token minting, OAuth authorization-code flow, refresh tokens, and persistent
+server-side session stores remain future security-provider work.
 
 ### `[runtime]`
 

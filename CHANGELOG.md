@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added a signed-cookie session verification prototype for service routes with
+  env-backed HMAC secrets, minimal session claims, verified actor/tenant/role
+  context, and fail-closed auth errors.
+
 ## 0.4.11 - 2026-07-06
 
 ### Patch

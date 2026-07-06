@@ -1,0 +1,19 @@
+[language]
+version = "0.4.11"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "signed-session-route"
+version = "0.1.0"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "memory"
+audit_store = "stdout"
+
+[security.session]
+cookie_name = "num_session"
+secret_env = "NUM_SESSION_SERVICE_ROUTE_SECRET"
+leeway_seconds = 30

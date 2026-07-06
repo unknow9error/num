@@ -29,6 +29,7 @@ pub mod sanitization;
 pub mod scalar_validation;
 pub mod secrets;
 pub mod service;
+pub mod session;
 pub mod storage;
 pub mod tenant;
 pub mod worker;
