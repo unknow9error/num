@@ -1,0 +1,25 @@
+[language]
+version = "0.4.10"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "jwt-service-route"
+version = "0.1.0"
+source = "src"
+entry = "src/main.num"
+
+[dependencies]
+
+[runtime]
+workflow_store = "memory"
+audit_store = "stdout"
+
+[security]
+policy_mode = "strict"
+
+[security.jwt]
+issuer = "https://issuer.example"
+audience = "num-api"
+algorithms = ["HS256"]
+secret_env = "NUM_JWT_SERVICE_ROUTE_SECRET"

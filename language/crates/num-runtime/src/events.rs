@@ -653,11 +653,14 @@ fn json_to_event_kind(value: &Value) -> Result<WorkflowEventKind, RuntimeError> 
                 security: SecurityContext {
                     actor: string_field(security, "actor")?,
                     tenant: string_field(security, "tenant")?,
+                    roles: Default::default(),
                     permissions: string_array_field(security, "permissions")?
                         .into_iter()
                         .collect(),
                     correlation_id: string_field(security, "correlation_id")?,
                     request_id: string_field(security, "request_id")?,
+                    provenance: None,
+                    trust: None,
                 },
                 metadata: string_map_field(workflow, "metadata")?,
             }))
@@ -965,9 +968,12 @@ mod tests {
             security: SecurityContext {
                 actor: "agent@example.com".to_string(),
                 tenant: "tenant_1".to_string(),
+                roles: Default::default(),
                 permissions,
                 correlation_id: "corr_1".to_string(),
                 request_id: "req_1".to_string(),
+                provenance: None,
+                trust: None,
             },
             metadata,
         }

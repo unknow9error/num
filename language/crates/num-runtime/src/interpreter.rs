@@ -475,12 +475,34 @@ fn current_user_value(security: &SecurityContext) -> Value {
     fields.insert("id".to_string(), Value::String(security.actor.clone()));
     fields.insert("tenant".to_string(), Value::String(security.tenant.clone()));
     fields.insert(
+        "roles".to_string(),
+        Value::List(security.roles.iter().cloned().map(Value::String).collect()),
+    );
+    fields.insert(
         "request_id".to_string(),
         Value::String(security.request_id.clone()),
     );
     fields.insert(
         "correlation_id".to_string(),
         Value::String(security.correlation_id.clone()),
+    );
+    fields.insert(
+        "provenance".to_string(),
+        Value::String(
+            security
+                .provenance
+                .clone()
+                .unwrap_or_else(|| "runtime".to_string()),
+        ),
+    );
+    fields.insert(
+        "trust".to_string(),
+        Value::String(
+            security
+                .trust
+                .clone()
+                .unwrap_or_else(|| "untrusted".to_string()),
+        ),
     );
     Value::Struct("Actor".to_string(), fields)
 }
@@ -520,9 +542,12 @@ fn demo_security_context(permissions: Vec<String>) -> SecurityContext {
     SecurityContext {
         actor: "admin@company.com".to_string(),
         tenant: "default".to_string(),
+        roles: Default::default(),
         permissions: permissions.into_iter().collect::<BTreeSet<_>>(),
         correlation_id: "corr_demo".to_string(),
         request_id: "req_demo".to_string(),
+        provenance: None,
+        trust: None,
     }
 }
 

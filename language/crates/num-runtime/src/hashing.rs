@@ -5,6 +5,37 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+pub fn sha256(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes)
+}
+
+pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    const BLOCK_SIZE: usize = 64;
+    let mut normalized_key = [0u8; BLOCK_SIZE];
+    if key.len() > BLOCK_SIZE {
+        normalized_key[..32].copy_from_slice(&sha256(key));
+    } else {
+        normalized_key[..key.len()].copy_from_slice(key);
+    }
+
+    let mut outer = [0x5cu8; BLOCK_SIZE];
+    let mut inner = [0x36u8; BLOCK_SIZE];
+    for index in 0..BLOCK_SIZE {
+        outer[index] ^= normalized_key[index];
+        inner[index] ^= normalized_key[index];
+    }
+
+    let mut inner_material = Vec::with_capacity(BLOCK_SIZE + message.len());
+    inner_material.extend(inner);
+    inner_material.extend(message);
+    let inner_digest = sha256(&inner_material);
+
+    let mut outer_material = Vec::with_capacity(BLOCK_SIZE + inner_digest.len());
+    outer_material.extend(outer);
+    outer_material.extend(inner_digest);
+    sha256(&outer_material)
+}
+
 pub fn sha256_base64(bytes: &[u8]) -> String {
     base64_encode(&Sha256::digest(bytes))
 }
@@ -69,6 +100,34 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+pub fn base64url_encode_no_pad(bytes: &[u8]) -> String {
+    base64_encode(bytes)
+        .trim_end_matches('=')
+        .replace('+', "-")
+        .replace('/', "_")
+}
+
+pub fn base64url_decode(input: &str) -> Result<Vec<u8>, String> {
+    let normalized = input.trim();
+    if normalized.contains('=') {
+        return Err("base64url input must be unpadded".to_string());
+    }
+    if normalized
+        .bytes()
+        .any(|byte| !byte.is_ascii_alphanumeric() && byte != b'-' && byte != b'_')
+    {
+        return Err("base64url input contains invalid characters".to_string());
+    }
+    let mut standard = normalized.replace('-', "+").replace('_', "/");
+    match standard.len() % 4 {
+        0 => {}
+        2 => standard.push_str("=="),
+        3 => standard.push('='),
+        _ => return Err("base64url length is invalid".to_string()),
+    }
+    base64_decode(&standard)
 }
 
 fn base64_value(byte: u8) -> Option<u8> {
@@ -219,7 +278,9 @@ const SHA256_K: [u32; 64] = [
 
 #[cfg(test)]
 mod tests {
-    use super::{sha256_base64, sha256_hex};
+    use super::{
+        base64url_decode, base64url_encode_no_pad, hmac_sha256, sha256_base64, sha256_hex,
+    };
 
     #[test]
     fn hashes_sha256_hex_known_vector() {
@@ -235,5 +296,27 @@ mod tests {
             sha256_base64(b"abc"),
             "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0="
         );
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc4231_vector() {
+        let digest = hmac_sha256(&[0x0b; 20], b"Hi There");
+        let hex = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        assert_eq!(
+            hex,
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+    }
+
+    #[test]
+    fn base64url_round_trips_without_padding() {
+        let encoded = base64url_encode_no_pad(b"{\"alg\":\"HS256\"}");
+
+        assert!(!encoded.contains('='));
+        assert_eq!(base64url_decode(&encoded).unwrap(), b"{\"alg\":\"HS256\"}");
     }
 }

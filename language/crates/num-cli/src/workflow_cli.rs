@@ -245,6 +245,7 @@ fn parse_start_event(args: impl Iterator<Item = String>) -> Result<(WorkflowEven
     let security = SecurityContext {
         actor: options.actor,
         tenant: options.tenant,
+        roles: Default::default(),
         permissions: options.permissions,
         correlation_id: options
             .correlation_id
@@ -252,6 +253,8 @@ fn parse_start_event(args: impl Iterator<Item = String>) -> Result<(WorkflowEven
         request_id: options
             .request_id
             .unwrap_or_else(|| format!("req_{event_id}")),
+        provenance: None,
+        trust: None,
     };
     let event = WorkflowEvent::start(
         event_id,

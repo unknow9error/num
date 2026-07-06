@@ -374,6 +374,9 @@ Implemented:
   `X-Actor`, `X-Tenant`, `X-Request-Id`, and `X-Correlation-Id`;
 - request role headers `X-Role` and `X-Roles` resolved against `.num` `role`
   declarations to populate service-route runtime permissions;
+- manifest-configured JWT verification for service routes using env-backed
+  HS256 signing secrets, configured issuer/audience/allowed algorithms,
+  verified actor/tenant/role claims, and structured fail-closed auth errors;
 - project manifest `[security].tenant_isolation` wiring for `num route`,
   `num serve`, and `num serve-once`, with cross-tenant service-route requests
   rejected before route execution and recorded in audit output;
@@ -718,6 +721,8 @@ Major full-spec areas not implemented in v0.4.10:
 - production external secrets manager provider clients such as Vault HTTPS with
   non-token auth methods, cloud-specific KMS encryption clients, and cloud
   secret stores;
+- OAuth authorization-code callbacks, token minting, refresh-token handling,
+  full session stores, and production identity-provider integrations;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative

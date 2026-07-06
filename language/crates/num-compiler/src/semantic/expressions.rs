@@ -342,7 +342,7 @@ impl<'a> Checker<'a> {
                     )
                     .with_reason("field access must resolve against declared type fields")
                     .with_help(
-                        "use `.id`, `.tenant`, `.request_id`, or `.correlation_id` on current_user",
+                        "use `.id`, `.tenant`, `.roles`, `.request_id`, `.correlation_id`, `.provenance`, or `.trust` on current_user",
                     ),
                 );
             }
@@ -662,6 +662,12 @@ impl<'a> Checker<'a> {
 fn actor_member_type(field: &str) -> Option<TypeRef> {
     match field {
         "id" | "tenant" | "request_id" | "correlation_id" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        "roles" => Some(TypeRef {
+            raw: "List<Text>".to_string(),
+        }),
+        "provenance" | "trust" => Some(TypeRef {
             raw: "Text".to_string(),
         }),
         _ => None,

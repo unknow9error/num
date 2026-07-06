@@ -272,6 +272,12 @@ fn error_message(error: &RuntimeError) -> String {
         RuntimeError::TenantIsolationViolation { expected, actual } => {
             format!("tenant isolation violation: expected {expected}, actual {actual}")
         }
+        RuntimeError::AuthenticationFailed { code, reason } => {
+            format!(
+                "authentication failed: {code}: {}",
+                redaction::redact_text(reason)
+            )
+        }
         RuntimeError::SecretNotFound { name } => format!("secret not found: {name}"),
         RuntimeError::SecretDenied { name } => format!("secret denied: {name}"),
         RuntimeError::SecretUnavailable { backend, reason } => {

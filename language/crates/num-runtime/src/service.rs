@@ -1,6 +1,7 @@
 use crate::http::{HttpRequest, HttpResponse};
 use crate::interpreter::{Runtime, Value};
 use crate::json;
+use crate::jwt::{bearer_token, JwtVerifier};
 use crate::rate_limit::RateLimiter;
 use crate::redaction;
 use crate::sanitization::TextSanitizationPolicy;
@@ -11,6 +12,7 @@ use num_compiler::ast::{Declaration, Module};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 type ServiceAuditRecorder<'a> =
     Arc<dyn Fn(&SecurityContext, &str, &str, &[String]) -> Result<(), RuntimeError> + 'a>;
@@ -26,6 +28,8 @@ pub struct ServiceRuntime<'a> {
     service_tenant: TenantId,
     rate_limiter: RateLimiter,
     sanitizer_packs: HashMap<String, TextSanitizationPolicy>,
+    jwt_verifier: Option<JwtVerifier>,
+    jwt_clock: Arc<dyn Fn() -> i64 + 'a>,
 }
 
 impl<'a> ServiceRuntime<'a> {
@@ -45,6 +49,8 @@ impl<'a> ServiceRuntime<'a> {
             service_tenant: "default".to_string(),
             rate_limiter: RateLimiter::new(),
             sanitizer_packs: HashMap::new(),
+            jwt_verifier: None,
+            jwt_clock: Arc::new(current_epoch_seconds),
         }
     }
 
@@ -65,6 +71,8 @@ impl<'a> ServiceRuntime<'a> {
             service_tenant: "default".to_string(),
             rate_limiter: RateLimiter::new(),
             sanitizer_packs: HashMap::new(),
+            jwt_verifier: None,
+            jwt_clock: Arc::new(current_epoch_seconds),
         }
     }
 
@@ -108,6 +116,16 @@ impl<'a> ServiceRuntime<'a> {
         self
     }
 
+    pub fn with_jwt_verifier(mut self, verifier: JwtVerifier) -> Self {
+        self.jwt_verifier = Some(verifier);
+        self
+    }
+
+    pub fn with_jwt_clock(mut self, clock: impl Fn() -> i64 + 'a) -> Self {
+        self.jwt_clock = Arc::new(clock);
+        self
+    }
+
     pub fn first_service_name(module: &Module) -> Option<String> {
         module
             .declarations
@@ -121,14 +139,62 @@ impl<'a> ServiceRuntime<'a> {
     }
 
     pub fn security_context(&self, request: &HttpRequest) -> SecurityContext {
+        self.security_context_result(request)
+            .unwrap_or_else(|_| self.header_security_context(request))
+    }
+
+    fn security_context_result(
+        &self,
+        request: &HttpRequest,
+    ) -> Result<SecurityContext, RuntimeError> {
+        if let Some(verifier) = &self.jwt_verifier {
+            let token = bearer_token(request.header("authorization")).map_err(jwt_runtime_error)?;
+            let claims = verifier
+                .verify(token, (self.jwt_clock)())
+                .map_err(jwt_runtime_error)?;
+            let roles = claims.roles.iter().cloned().collect::<BTreeSet<_>>();
+            let mut permissions = self.permissions.iter().cloned().collect::<BTreeSet<_>>();
+            for role in &roles {
+                permissions.extend(self.permissions_for_role(role));
+            }
+
+            return Ok(SecurityContext {
+                actor: claims.subject,
+                tenant: claims
+                    .tenant
+                    .or_else(|| request.header("x-tenant").map(ToString::to_string))
+                    .unwrap_or_else(|| "default".to_string()),
+                roles,
+                permissions,
+                correlation_id: request
+                    .header("x-correlation-id")
+                    .or_else(|| request.header("x-request-id"))
+                    .unwrap_or("corr_demo")
+                    .to_string(),
+                request_id: request
+                    .header("x-request-id")
+                    .unwrap_or("req_demo")
+                    .to_string(),
+                provenance: Some(claims.provenance),
+                trust: Some(claims.trust),
+            });
+        }
+
+        Ok(self.header_security_context(request))
+    }
+
+    fn header_security_context(&self, request: &HttpRequest) -> SecurityContext {
         let mut permissions = self.permissions.iter().cloned().collect::<BTreeSet<_>>();
+        let mut roles = BTreeSet::new();
         for role in request_roles(request) {
+            roles.insert(role.to_string());
             permissions.extend(self.permissions_for_role(role));
         }
 
         SecurityContext {
             actor: request.header("x-actor").unwrap_or("anonymous").to_string(),
             tenant: request.header("x-tenant").unwrap_or("default").to_string(),
+            roles,
             permissions,
             correlation_id: request
                 .header("x-correlation-id")
@@ -139,6 +205,8 @@ impl<'a> ServiceRuntime<'a> {
                 .header("x-request-id")
                 .unwrap_or("req_demo")
                 .to_string(),
+            provenance: Some("headers".to_string()),
+            trust: Some("untrusted".to_string()),
         }
     }
 
@@ -158,7 +226,16 @@ impl<'a> ServiceRuntime<'a> {
         request: &HttpRequest,
         empty_body_input: Option<Value>,
     ) -> HttpResponse {
-        let security = self.security_context(request);
+        let security = match self.security_context_result(request) {
+            Ok(security) => security,
+            Err(error) => {
+                let fallback_security = self.header_security_context(request);
+                return route_error_response(
+                    classify_route_error(&error.message(), Some(&error)),
+                    &fallback_security,
+                );
+            }
+        };
         if let Err(error) = self
             .tenant_guard
             .ensure_access(&security, &self.service_tenant)
@@ -273,6 +350,10 @@ enum RouteErrorClass {
         code: &'static str,
         message: String,
     },
+    Auth {
+        code: String,
+        message: String,
+    },
     Connector {
         code: String,
         method: String,
@@ -300,6 +381,12 @@ fn classify_route_error(message: &str, runtime_error: Option<&RuntimeError>) -> 
             RuntimeError::TenantIsolationViolation { .. } => {
                 return RouteErrorClass::Tenant {
                     code: "tenant_isolation_violation",
+                    message: error.message(),
+                };
+            }
+            RuntimeError::AuthenticationFailed { code, .. } => {
+                return RouteErrorClass::Auth {
+                    code: code.clone(),
                     message: error.message(),
                 };
             }
@@ -466,6 +553,13 @@ fn route_error_payload(
                 "error": base_error("tenant", code, message, request_id, correlation_id),
             }),
         ),
+        RouteErrorClass::Auth { code, message } => (
+            401,
+            "Unauthorized",
+            json!({
+                "error": base_error("auth", code, message, request_id, correlation_id),
+            }),
+        ),
         RouteErrorClass::Connector {
             code,
             method,
@@ -538,15 +632,31 @@ fn request_roles(request: &HttpRequest) -> impl Iterator<Item = &str> {
         .filter(|role| !role.is_empty())
 }
 
+fn current_epoch_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn jwt_runtime_error(error: crate::jwt::JwtVerificationError) -> RuntimeError {
+    RuntimeError::AuthenticationFailed {
+        code: error.kind().to_string(),
+        reason: error.message(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ServiceRuntime;
     use crate::connectors::StaticConnectorRegistry;
     use crate::http::HttpRequest;
     use crate::interpreter::Value;
+    use crate::jwt::{sign_hs256_for_tests, JwtVerificationConfig, JwtVerifier};
     use crate::rate_limit::{FileRateLimitStore, RateLimiter};
-    use crate::RuntimeError;
+    use crate::{RuntimeError, SecretValue};
     use num_compiler::compile;
+    use serde_json::json;
     use serde_json::Value as JsonValue;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -582,6 +692,48 @@ service BillingApi rate limit 1 per 1m {
     }
 }
 "#
+    }
+
+    fn jwt_service_source() -> &'static str {
+        r#"
+module test.jwt
+
+permission IssueRefund
+
+role FinanceManager {
+    allow IssueRefund
+}
+
+service BillingApi {
+    route POST "/refunds" requires Permission.IssueRefund {
+        audit(current_user.id)
+        audit(current_user.trust)
+        audit(current_user.provenance)
+    }
+}
+"#
+    }
+
+    fn jwt_verifier() -> JwtVerifier {
+        JwtVerifier::new(
+            JwtVerificationConfig::new("https://issuer.example", "num-api"),
+            SecretValue::new("test-signing-secret"),
+        )
+    }
+
+    fn jwt_token(exp: i64) -> String {
+        sign_hs256_for_tests(
+            json!({"alg": "HS256", "typ": "JWT"}),
+            json!({
+                "iss": "https://issuer.example",
+                "sub": "finance@example.com",
+                "aud": "num-api",
+                "exp": exp,
+                "tenant": "tenant_a",
+                "roles": ["FinanceManager"]
+            }),
+            &SecretValue::new("test-signing-secret"),
+        )
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {
@@ -1031,6 +1183,81 @@ service BillingApi {
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body, "ok\n");
+    }
+
+    #[test]
+    fn jwt_auth_populates_service_security_context_and_roles() {
+        let compilation = compile("test.num", jwt_service_source());
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&captured);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_jwt_verifier(jwt_verifier())
+            .with_jwt_clock(|| 1_700_000_100)
+            .with_audit_recorder(move |security, method, path, events| {
+                captured_events.lock().unwrap().push((
+                    security.actor.clone(),
+                    security.tenant.clone(),
+                    security.roles.iter().cloned().collect::<Vec<_>>(),
+                    security.provenance.clone(),
+                    security.trust.clone(),
+                    method.to_string(),
+                    path.to_string(),
+                    events.to_vec(),
+                ));
+                Ok(())
+            });
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request.headers.insert(
+            "authorization".to_string(),
+            format!("Bearer {}", jwt_token(4_102_444_800)),
+        );
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        let records = captured.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "finance@example.com");
+        assert_eq!(records[0].1, "tenant_a");
+        assert_eq!(records[0].2, vec!["FinanceManager"]);
+        assert_eq!(records[0].3.as_deref(), Some("jwt:https://issuer.example"));
+        assert_eq!(records[0].4.as_deref(), Some("verified"));
+        assert_eq!(records[0].5, "POST");
+        assert_eq!(records[0].6, "/refunds");
+        assert_eq!(
+            records[0].7,
+            vec![
+                "\"finance@example.com\"".to_string(),
+                "\"verified\"".to_string(),
+                "\"jwt:https://issuer.example\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn jwt_auth_fails_closed_for_missing_and_expired_tokens() {
+        let compilation = compile("test.num", jwt_service_source());
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_jwt_verifier(jwt_verifier())
+            .with_jwt_clock(|| 1_700_000_100);
+
+        let missing = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));
+        assert_eq!(missing.status, 401);
+        let missing_body = error_body(&missing);
+        assert_eq!(missing_body["error"]["kind"], "auth");
+        assert_eq!(missing_body["error"]["code"], "jwt_missing");
+
+        let mut expired_request = HttpRequest::new("POST", "/refunds", "");
+        expired_request.headers.insert(
+            "authorization".to_string(),
+            format!("Bearer {}", jwt_token(1_700_000_000)),
+        );
+        let expired = runtime.handle_http_request(&expired_request);
+        assert_eq!(expired.status, 401);
+        let expired_body = error_body(&expired);
+        assert_eq!(expired_body["error"]["kind"], "auth");
+        assert_eq!(expired_body["error"]["code"], "jwt_expired");
+        assert!(!expired.body.contains("test-signing-secret"));
     }
 
     #[test]

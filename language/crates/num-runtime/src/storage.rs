@@ -131,11 +131,14 @@ fn json_to_workflow(value: &Value) -> Result<WorkflowState, RuntimeError> {
         security: SecurityContext {
             actor: string_field(security, "actor")?,
             tenant: string_field(security, "tenant")?,
+            roles: Default::default(),
             permissions: string_array_field(security, "permissions")?
                 .into_iter()
                 .collect(),
             correlation_id: string_field(security, "correlation_id")?,
             request_id: string_field(security, "request_id")?,
+            provenance: None,
+            trust: None,
         },
         started_at: system_time_from_ms(u64_field(value, "started_at_ms")?),
         updated_at: system_time_from_ms(u64_field(value, "updated_at_ms")?),
@@ -368,9 +371,12 @@ mod tests {
             security: SecurityContext {
                 actor: "agent@example.com".to_string(),
                 tenant: "tenant_1".to_string(),
+                roles: Default::default(),
                 permissions,
                 correlation_id: "corr_1".to_string(),
                 request_id: "req_1".to_string(),
+                provenance: None,
+                trust: None,
             },
             started_at: fixed_time(1),
             updated_at: fixed_time(2),

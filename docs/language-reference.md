@@ -1166,14 +1166,20 @@ minor-unit objects. Request bodies are read using `Content-Length` with basic
 header/body size limits. The service runtime captures `X-Actor`, `X-Tenant`,
 `X-Request-Id`, and `X-Correlation-Id` headers into a `SecurityContext`; the
 actor context is exposed as `current_user`, with `current_user.id`,
-`current_user.tenant`, `current_user.request_id`, and
-`current_user.correlation_id` available during execution. `X-Role` and
-comma-separated `X-Roles` headers are resolved against `.num` `role`
-declarations and grant the role's allowed permissions for that request. A
-project manifest with `[security].tenant_isolation = true` makes `num route`,
-`num serve`, and `num serve-once` reject cross-tenant service requests before
-the route body executes and emit a structured tenant error plus audit event. A
-hardened production HTTP server runtime is not implemented yet.
+`current_user.tenant`, `current_user.roles`, `current_user.request_id`,
+`current_user.correlation_id`, `current_user.provenance`, and
+`current_user.trust` available during execution. `X-Role` and comma-separated
+`X-Roles` headers are resolved against `.num` `role` declarations and grant the
+role's allowed permissions for that request. When a project manifest configures
+`[security.jwt]`, service routes fail closed on missing, malformed, expired, or
+invalid bearer tokens. Verified JWT `sub`, `tenant`, and `roles` claims replace
+demo actor/role headers for route security, with `current_user.trust` set to
+`verified` and provenance set to the JWT issuer. A project manifest with
+`[security].tenant_isolation = true` makes `num route`, `num serve`, and
+`num serve-once` reject cross-tenant service requests before the route body
+executes and emit a structured tenant error plus audit event. Token minting,
+OAuth callback handling, refresh tokens, session stores, and a hardened
+production HTTP server runtime are not implemented yet.
 
 Service-route failures use a stable JSON response body:
 

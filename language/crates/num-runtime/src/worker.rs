@@ -525,9 +525,12 @@ mod tests {
             security: SecurityContext {
                 actor: "agent@example.com".to_string(),
                 tenant: "tenant_1".to_string(),
+                roles: Default::default(),
                 permissions,
                 correlation_id: "corr_1".to_string(),
                 request_id: "req_1".to_string(),
+                provenance: None,
+                trust: None,
             },
             metadata,
         }

@@ -1,0 +1,16 @@
+module examples.jwt_service_route
+
+permission ViewBilling
+
+role FinanceManager {
+    allow ViewBilling
+}
+
+service BillingApi {
+    route POST "/billing/summary" requires Permission.ViewBilling {
+        audit(current_user.id)
+        audit(current_user.tenant)
+        audit(current_user.trust)
+        audit(current_user.provenance)
+    }
+}
