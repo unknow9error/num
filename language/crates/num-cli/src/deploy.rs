@@ -3613,7 +3613,7 @@ optional = ["NUM_TEST_DEPLOY_OPTIONAL"]
     #[test]
     fn deployment_plan_reports_external_secret_backend_validation() {
         env::remove_var("NUM_TEST_DEPLOY_VAULT_TOKEN");
-        env::remove_var("NUM_TEST_DEPLOY_OPTIONAL_KMS");
+        env::set_var("NUM_TEST_DEPLOY_OPTIONAL_KMS", "secret-value");
         let root = Path::new("/workspace/app");
         let manifest = PackageManifest::parse(
             root,
@@ -3645,7 +3645,11 @@ optional = true
 
         assert_eq!(plan.secrets.len(), 2);
         assert_eq!(plan.secrets[0].id, "kms");
-        assert_eq!(plan.secrets[0].status, "optional-missing");
+        assert_eq!(plan.secrets[0].status, "ready");
+        assert_eq!(
+            plan.to_json()["secrets"][0]["credential_env"][0]["present"],
+            true
+        );
         assert_eq!(plan.secrets[1].id, "vault");
         assert_eq!(plan.secrets[1].status, "missing-required");
         assert_eq!(
@@ -3666,7 +3670,9 @@ optional = true
         );
         assert_eq!(report["status"], "blocked");
         assert_eq!(report["gates"]["secrets"]["status"], "blocking");
+        assert!(!plan.to_json().to_string().contains("secret-value"));
         assert!(!report.to_string().contains("secret-value"));
+        env::remove_var("NUM_TEST_DEPLOY_OPTIONAL_KMS");
     }
 
     #[test]

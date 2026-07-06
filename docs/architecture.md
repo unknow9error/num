@@ -84,6 +84,9 @@ Owns runtime contracts and the demo interpreter:
 - provider-neutral encryption envelope boundary with redacted `Encrypted<T>`
   payload metadata, provider-backed encrypt/decrypt helpers, deterministic test
   provider coverage, and decrypted secret privacy/trust labels;
+- KMS-style encryption provider adapter boundary over the same envelope
+  contract, with provider-neutral key ids, metadata-only credential env names,
+  structured key/provider failures, and deterministic fake KMS coverage;
 - workflow event and queue contracts;
 - tenant isolation guard for tenant-scoped workflow state and event access;
 - text sanitization contracts, reusable sanitizer packs, and policy composition;
