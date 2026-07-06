@@ -34,6 +34,7 @@ use num_runtime::{
     jwt::{JwtVerificationConfig, JwtVerifier},
     process_connectors::{ProcessConnectorConfig, ProcessConnectorExecutor},
     service::ServiceRuntime,
+    session::{SessionVerificationConfig, SessionVerifier},
     storage::FileStateStore,
     workflow_report, SecretValue,
 };
@@ -611,11 +612,11 @@ fn run() -> Result<(), String> {
         "route" => {
             let path = required_path(args.next(), "route")?;
             let method = args.next().ok_or_else(|| {
-                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>]"
+                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] [--bearer <jwt>] [--cookie <cookie-header>]"
                     .to_string()
             })?;
             let route_path = args.next().ok_or_else(|| {
-                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>]"
+                "usage: num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] [--bearer <jwt>] [--cookie <cookie-header>]"
                     .to_string()
             })?;
             let route_options = parse_route_options(args)?;
@@ -632,6 +633,7 @@ fn run() -> Result<(), String> {
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let jwt_verifier = jwt_verifier_for_path(&path)?;
+            let session_verifier = session_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -644,6 +646,11 @@ fn run() -> Result<(), String> {
             .with_sanitizer_packs(sanitizer_packs);
             let runtime = if let Some(verifier) = jwt_verifier {
                 runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
+            let runtime = if let Some(verifier) = session_verifier {
+                runtime.with_session_verifier(verifier)
             } else {
                 runtime
             };
@@ -669,6 +676,7 @@ fn run() -> Result<(), String> {
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let jwt_verifier = jwt_verifier_for_path(&path)?;
+            let session_verifier = session_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -680,6 +688,11 @@ fn run() -> Result<(), String> {
             .with_sanitizer_packs(sanitizer_packs);
             let runtime = if let Some(verifier) = jwt_verifier {
                 runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
+            let runtime = if let Some(verifier) = session_verifier {
+                runtime.with_session_verifier(verifier)
             } else {
                 runtime
             };
@@ -708,6 +721,7 @@ fn run() -> Result<(), String> {
             let tenant_isolation = runtime_config::resolve_tenant_isolation(&path)?;
             let sanitizer_packs = runtime_sanitizer_packs(&path)?;
             let jwt_verifier = jwt_verifier_for_path(&path)?;
+            let session_verifier = session_verifier_for_path(&path)?;
             let runtime = ServiceRuntime::with_connectors(
                 &compilation.module,
                 service_name.clone(),
@@ -719,6 +733,11 @@ fn run() -> Result<(), String> {
             .with_sanitizer_packs(sanitizer_packs);
             let runtime = if let Some(verifier) = jwt_verifier {
                 runtime.with_jwt_verifier(verifier)
+            } else {
+                runtime
+            };
+            let runtime = if let Some(verifier) = session_verifier {
+                runtime.with_session_verifier(verifier)
             } else {
                 runtime
             };
@@ -910,6 +929,30 @@ fn jwt_verifier_for_path(path: &Path) -> Result<Option<JwtVerifier>, String> {
     Ok(Some(JwtVerifier::new(config, SecretValue::new(secret))))
 }
 
+fn session_verifier_for_path(path: &Path) -> Result<Option<SessionVerifier>, String> {
+    let Some(manifest) = package::PackageManifest::discover(path)? else {
+        return Ok(None);
+    };
+    let Some(session) = manifest.security.session else {
+        return Ok(None);
+    };
+    if manifest.security.jwt.is_some() {
+        return Err(
+            "configure only one service authentication provider: `[security.jwt]` or `[security.session]`"
+                .to_string(),
+        );
+    }
+    let secret = env::var(&session.secret_env).map_err(|_| {
+        format!(
+            "Session verification is configured but environment variable `{}` is missing",
+            session.secret_env
+        )
+    })?;
+    let config = SessionVerificationConfig::new(session.cookie_name)
+        .with_leeway_seconds(session.leeway_seconds);
+    Ok(Some(SessionVerifier::new(config, SecretValue::new(secret))))
+}
+
 fn connector_executor_for_path(
     path: &Path,
     demo_output_enabled: bool,
@@ -1055,6 +1098,7 @@ struct RouteOptions {
     request_id: Option<String>,
     correlation_id: Option<String>,
     bearer_token: Option<String>,
+    cookie: Option<String>,
 }
 
 impl RouteOptions {
@@ -1079,6 +1123,9 @@ impl RouteOptions {
             request
                 .headers
                 .insert("authorization".to_string(), format!("Bearer {token}"));
+        }
+        if let Some(cookie) = self.cookie {
+            request.headers.insert("cookie".to_string(), cookie);
         }
     }
 }
@@ -1478,6 +1525,7 @@ fn parse_route_options(args: impl Iterator<Item = String>) -> Result<RouteOption
                 options.correlation_id = Some(next_route_value(&mut args, "--correlation-id")?)
             }
             "--bearer" => options.bearer_token = Some(next_route_value(&mut args, "--bearer")?),
+            "--cookie" => options.cookie = Some(next_route_value(&mut args, "--cookie")?),
             other if other.starts_with("--") => {
                 return Err(format!("unexpected route argument '{other}'"));
             }
@@ -1666,7 +1714,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num import sql --plan <old.sql> <new.sql>    Compare SQL schema files and report a migration plan\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] [--bearer <jwt>] [--cookie <cookie-header>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num import sql --plan <old.sql> <new.sql>    Compare SQL schema files and report a migration plan\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -2136,6 +2184,8 @@ service Api {
                 "corr_42".to_string(),
                 "--bearer".to_string(),
                 "jwt-token".to_string(),
+                "--cookie".to_string(),
+                "num_session=session-token".to_string(),
             ]
             .into_iter(),
         )
@@ -2147,6 +2197,10 @@ service Api {
         assert_eq!(options.request_id, Some("req_42".to_string()));
         assert_eq!(options.correlation_id, Some("corr_42".to_string()));
         assert_eq!(options.bearer_token, Some("jwt-token".to_string()));
+        assert_eq!(
+            options.cookie,
+            Some("num_session=session-token".to_string())
+        );
     }
 
     #[test]

@@ -48,6 +48,7 @@ pub struct PackageSecurity {
     pub policy_mode: String,
     pub tenant_isolation: bool,
     pub jwt: Option<PackageJwtSecurity>,
+    pub session: Option<PackageSessionSecurity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +56,13 @@ pub struct PackageJwtSecurity {
     pub issuer: String,
     pub audience: String,
     pub algorithms: Vec<String>,
+    pub secret_env: String,
+    pub leeway_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageSessionSecurity {
+    pub cookie_name: String,
     pub secret_env: String,
     pub leeway_seconds: i64,
 }
@@ -275,6 +283,9 @@ impl PackageManifest {
         let mut jwt_algorithms = Vec::new();
         let mut jwt_secret_env = None;
         let mut jwt_leeway_seconds = None;
+        let mut session_cookie_name = None;
+        let mut session_secret_env = None;
+        let mut session_leeway_seconds = None;
         let mut connectors = Vec::new();
         let mut javascript = Vec::new();
         let mut sanitizer_packs = Vec::new();
@@ -390,6 +401,12 @@ impl PackageManifest {
                     "leeway_seconds" => jwt_leeway_seconds = parse_toml_i64(value),
                     _ => {}
                 },
+                "security.session" => match key.as_str() {
+                    "cookie_name" => session_cookie_name = parse_toml_string(value),
+                    "secret_env" => session_secret_env = parse_toml_string(value),
+                    "leeway_seconds" => session_leeway_seconds = parse_toml_i64(value),
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -464,6 +481,11 @@ impl PackageManifest {
                     }),
                     _ => None,
                 },
+                session: session_secret_env.map(|secret_env| PackageSessionSecurity {
+                    cookie_name: session_cookie_name.unwrap_or_else(|| "num_session".to_string()),
+                    secret_env,
+                    leeway_seconds: session_leeway_seconds.unwrap_or(0).max(0),
+                }),
             },
             connectors,
             javascript,
@@ -1864,6 +1886,11 @@ audience = "num-api"
 algorithms = ["HS256"]
 secret_env = "NUM_TEST_JWT_SECRET"
 leeway_seconds = 30
+
+[security.session]
+cookie_name = "num_session"
+secret_env = "NUM_TEST_SESSION_SECRET"
+leeway_seconds = 15
 "#,
         );
 
@@ -1875,6 +1902,10 @@ leeway_seconds = 30
         assert_eq!(jwt.algorithms, vec!["HS256"]);
         assert_eq!(jwt.secret_env, "NUM_TEST_JWT_SECRET");
         assert_eq!(jwt.leeway_seconds, 30);
+        let session = manifest.security.session.as_ref().unwrap();
+        assert_eq!(session.cookie_name, "num_session");
+        assert_eq!(session.secret_env, "NUM_TEST_SESSION_SECRET");
+        assert_eq!(session.leeway_seconds, 15);
     }
 
     #[test]

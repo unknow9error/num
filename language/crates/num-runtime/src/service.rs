@@ -5,6 +5,7 @@ use crate::jwt::{bearer_token, JwtVerifier};
 use crate::rate_limit::RateLimiter;
 use crate::redaction;
 use crate::sanitization::TextSanitizationPolicy;
+use crate::session::SessionVerifier;
 use crate::tenant::TenantGuard;
 use crate::{connectors::ConnectorExecutor, connectors::DemoConnectorExecutor};
 use crate::{RuntimeError, SecurityContext, TenantId};
@@ -29,6 +30,7 @@ pub struct ServiceRuntime<'a> {
     rate_limiter: RateLimiter,
     sanitizer_packs: HashMap<String, TextSanitizationPolicy>,
     jwt_verifier: Option<JwtVerifier>,
+    session_verifier: Option<SessionVerifier>,
     jwt_clock: Arc<dyn Fn() -> i64 + 'a>,
 }
 
@@ -50,6 +52,7 @@ impl<'a> ServiceRuntime<'a> {
             rate_limiter: RateLimiter::new(),
             sanitizer_packs: HashMap::new(),
             jwt_verifier: None,
+            session_verifier: None,
             jwt_clock: Arc::new(current_epoch_seconds),
         }
     }
@@ -72,6 +75,7 @@ impl<'a> ServiceRuntime<'a> {
             rate_limiter: RateLimiter::new(),
             sanitizer_packs: HashMap::new(),
             jwt_verifier: None,
+            session_verifier: None,
             jwt_clock: Arc::new(current_epoch_seconds),
         }
     }
@@ -118,6 +122,11 @@ impl<'a> ServiceRuntime<'a> {
 
     pub fn with_jwt_verifier(mut self, verifier: JwtVerifier) -> Self {
         self.jwt_verifier = Some(verifier);
+        self
+    }
+
+    pub fn with_session_verifier(mut self, verifier: SessionVerifier) -> Self {
+        self.session_verifier = Some(verifier);
         self
     }
 
@@ -177,6 +186,35 @@ impl<'a> ServiceRuntime<'a> {
                     .to_string(),
                 provenance: Some(claims.provenance),
                 trust: Some(claims.trust),
+            });
+        }
+
+        if let Some(verifier) = &self.session_verifier {
+            let session = verifier
+                .verify_cookie_header(request.header("cookie"), (self.jwt_clock)())
+                .map_err(session_runtime_error)?;
+            let roles = session.roles.iter().cloned().collect::<BTreeSet<_>>();
+            let mut permissions = self.permissions.iter().cloned().collect::<BTreeSet<_>>();
+            for role in &roles {
+                permissions.extend(self.permissions_for_role(role));
+            }
+
+            return Ok(SecurityContext {
+                actor: session.actor,
+                tenant: session.tenant,
+                roles,
+                permissions,
+                correlation_id: request
+                    .header("x-correlation-id")
+                    .or_else(|| request.header("x-request-id"))
+                    .unwrap_or("corr_demo")
+                    .to_string(),
+                request_id: request
+                    .header("x-request-id")
+                    .unwrap_or("req_demo")
+                    .to_string(),
+                provenance: Some(session.provenance),
+                trust: Some(session.trust),
             });
         }
 
@@ -646,6 +684,13 @@ fn jwt_runtime_error(error: crate::jwt::JwtVerificationError) -> RuntimeError {
     }
 }
 
+fn session_runtime_error(error: crate::session::SessionVerificationError) -> RuntimeError {
+    RuntimeError::AuthenticationFailed {
+        code: error.kind().to_string(),
+        reason: error.message(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ServiceRuntime;
@@ -654,6 +699,7 @@ mod tests {
     use crate::interpreter::Value;
     use crate::jwt::{sign_hs256_for_tests, JwtVerificationConfig, JwtVerifier};
     use crate::rate_limit::{FileRateLimitStore, RateLimiter};
+    use crate::session::{sign_session_for_tests, SessionVerificationConfig, SessionVerifier};
     use crate::{RuntimeError, SecretValue};
     use num_compiler::compile;
     use serde_json::json;
@@ -733,6 +779,27 @@ service BillingApi {
                 "roles": ["FinanceManager"]
             }),
             &SecretValue::new("test-signing-secret"),
+        )
+    }
+
+    fn session_verifier() -> SessionVerifier {
+        SessionVerifier::new(
+            SessionVerificationConfig::new("num_session"),
+            SecretValue::new("test-session-secret"),
+        )
+    }
+
+    fn session_token(exp: i64) -> String {
+        sign_session_for_tests(
+            "test-session-secret",
+            json!({
+                "id": "sess_123",
+                "actor": "finance@example.com",
+                "tenant": "tenant_a",
+                "roles": ["FinanceManager"],
+                "exp": exp,
+                "iat": 1_700_000_000,
+            }),
         )
     }
 
@@ -1258,6 +1325,94 @@ service BillingApi {
         assert_eq!(expired_body["error"]["kind"], "auth");
         assert_eq!(expired_body["error"]["code"], "jwt_expired");
         assert!(!expired.body.contains("test-signing-secret"));
+    }
+
+    #[test]
+    fn signed_session_cookie_populates_service_security_context_and_roles() {
+        let compilation = compile("test.num", jwt_service_source());
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&captured);
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_session_verifier(session_verifier())
+            .with_jwt_clock(|| 1_700_000_100)
+            .with_audit_recorder(move |security, method, path, events| {
+                captured_events.lock().unwrap().push((
+                    security.actor.clone(),
+                    security.tenant.clone(),
+                    security.roles.iter().cloned().collect::<Vec<_>>(),
+                    security.provenance.clone(),
+                    security.trust.clone(),
+                    method.to_string(),
+                    path.to_string(),
+                    events.to_vec(),
+                ));
+                Ok(())
+            });
+        let mut request = HttpRequest::new("POST", "/refunds", "");
+        request.headers.insert(
+            "cookie".to_string(),
+            format!("theme=light; num_session={}", session_token(4_102_444_800)),
+        );
+
+        let response = runtime.handle_http_request(&request);
+
+        assert_eq!(response.status, 200);
+        let records = captured.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "finance@example.com");
+        assert_eq!(records[0].1, "tenant_a");
+        assert_eq!(records[0].2, vec!["FinanceManager"]);
+        assert_eq!(records[0].3.as_deref(), Some("session:sess_123"));
+        assert_eq!(records[0].4.as_deref(), Some("verified"));
+        assert_eq!(records[0].5, "POST");
+        assert_eq!(records[0].6, "/refunds");
+        assert_eq!(
+            records[0].7,
+            vec![
+                "\"finance@example.com\"".to_string(),
+                "\"verified\"".to_string(),
+                "\"session:sess_123\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn signed_session_cookie_fails_closed_for_missing_expired_and_tampered_requests() {
+        let compilation = compile("test.num", jwt_service_source());
+        let runtime = ServiceRuntime::new(&compilation.module, "BillingApi", vec![])
+            .with_session_verifier(session_verifier())
+            .with_jwt_clock(|| 1_700_000_100);
+
+        let missing = runtime.handle_http_request(&HttpRequest::new("POST", "/refunds", ""));
+        assert_eq!(missing.status, 401);
+        let missing_body = error_body(&missing);
+        assert_eq!(missing_body["error"]["kind"], "auth");
+        assert_eq!(missing_body["error"]["code"], "session_missing");
+
+        let mut expired_request = HttpRequest::new("POST", "/refunds", "");
+        expired_request.headers.insert(
+            "cookie".to_string(),
+            format!("num_session={}", session_token(1_700_000_000)),
+        );
+        let expired = runtime.handle_http_request(&expired_request);
+        assert_eq!(expired.status, 401);
+        let expired_body = error_body(&expired);
+        assert_eq!(expired_body["error"]["kind"], "auth");
+        assert_eq!(expired_body["error"]["code"], "session_expired");
+
+        let mut tampered_cookie = session_token(4_102_444_800);
+        tampered_cookie.push('x');
+        let mut tampered_request = HttpRequest::new("POST", "/refunds", "");
+        tampered_request.headers.insert(
+            "cookie".to_string(),
+            format!("num_session={tampered_cookie}"),
+        );
+        let tampered = runtime.handle_http_request(&tampered_request);
+        assert_eq!(tampered.status, 401);
+        let tampered_body = error_body(&tampered);
+        assert_eq!(tampered_body["error"]["kind"], "auth");
+        assert_eq!(tampered_body["error"]["code"], "session_invalid_signature");
+        assert!(!tampered.body.contains("test-session-secret"));
     }
 
     #[test]

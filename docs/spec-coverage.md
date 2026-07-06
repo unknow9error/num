@@ -377,6 +377,9 @@ Implemented:
 - manifest-configured JWT verification for service routes using env-backed
   HS256 signing secrets, configured issuer/audience/allowed algorithms,
   verified actor/tenant/role claims, and structured fail-closed auth errors;
+- manifest-configured signed-cookie session verification for service routes
+  using env-backed HMAC secrets, minimal id/actor/tenant/roles/expiry claims,
+  verified actor/tenant/role context, and structured fail-closed auth errors;
 - project manifest `[security].tenant_isolation` wiring for `num route`,
   `num serve`, and `num serve-once`, with cross-tenant service-route requests
   rejected before route execution and recorded in audit output;
@@ -722,7 +725,8 @@ Major full-spec areas not implemented in v0.4.11:
   non-token auth methods, cloud-specific KMS encryption clients, and cloud
   secret stores;
 - OAuth authorization-code callbacks, token minting, refresh-token handling,
-  full session stores, and production identity-provider integrations;
+  persistent/server-side session stores, and production identity-provider
+  integrations;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative

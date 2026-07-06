@@ -1174,12 +1174,17 @@ role's allowed permissions for that request. When a project manifest configures
 `[security.jwt]`, service routes fail closed on missing, malformed, expired, or
 invalid bearer tokens. Verified JWT `sub`, `tenant`, and `roles` claims replace
 demo actor/role headers for route security, with `current_user.trust` set to
-`verified` and provenance set to the JWT issuer. A project manifest with
+`verified` and provenance set to the JWT issuer. When a project manifest
+configures `[security.session]`, service routes fail closed on missing,
+malformed, expired, or tampered signed session cookies. Verified session
+`actor`, `tenant`, and `roles` claims replace demo actor/role headers for route
+security, with `current_user.trust` set to `verified` and provenance set to the
+session id. A project manifest with
 `[security].tenant_isolation = true` makes `num route`, `num serve`, and
 `num serve-once` reject cross-tenant service requests before the route body
 executes and emit a structured tenant error plus audit event. Token minting,
-OAuth callback handling, refresh tokens, session stores, and a hardened
-production HTTP server runtime are not implemented yet.
+OAuth callback handling, refresh tokens, persistent server-side session stores,
+and a hardened production HTTP server runtime are not implemented yet.
 
 Service-route failures use a stable JSON response body:
 

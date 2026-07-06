@@ -383,6 +383,14 @@ num route app.num POST /refunds BillingApi \
   --correlation-id corr_42
 ```
 
+For auth-configured dry-runs, pass the request credential header explicitly:
+
+```bash
+num route app.num POST /billing/summary BillingApi --bearer "$JWT"
+num route app.num POST /billing/summary BillingApi \
+  --cookie "num_session=$SIGNED_SESSION"
+```
+
 `num route` prints the route response body. Success responses are plain `ok`;
 failure responses are JSON and use the same contract as `num serve` and
 `num serve-once`:
@@ -478,6 +486,10 @@ Current limitations:
   verified before route execution; missing, invalid, expired, wrong-issuer, or
   wrong-audience tokens return a structured `401` auth error, and verified
   `sub`/`tenant`/`roles` claims populate `current_user` and permissions;
+- when `[security.session]` is configured, the named signed session cookie is
+  verified before route execution; missing, malformed, expired, or tampered
+  cookies return a structured `401` auth error, and verified
+  `actor`/`tenant`/`roles` claims populate `current_user` and permissions;
 - permissions can also be injected by the CLI for demo purposes;
 - configured `[connectors]` process commands run before the demo connector
   fallback.
