@@ -216,8 +216,9 @@ optional = true
 Supported fields:
 
 - `provider` - provider family label such as `vault`, `kms`, or
-  `cloud-secrets`. `vault` has the first runtime adapter slice; KMS and cloud
-  secret providers remain metadata-only.
+  `cloud-secrets`. `vault` has the first secret-store runtime adapter slice.
+  KMS has an encryption-provider boundary and deterministic fake provider for
+  tests; cloud-specific KMS clients still remain provider-client work.
 - `address` - Vault base address metadata. Address values are not secret
   values, but deploy plans still record them separately from credential
   presence.
@@ -241,6 +242,15 @@ Vault responses, and invalid response shapes. Its bundled HTTP transport is
 limited to `http://` fixture/dev endpoints for deterministic tests; production
 Vault HTTPS transport and additional auth methods are future provider-client
 work.
+
+The KMS encryption boundary uses `Encrypted<T>` envelopes and provider-neutral
+key ids such as `alias/billing/refunds` or a cloud provider's non-secret key
+resource name. Runtime configuration and deploy artifacts should carry only key
+ids, algorithm metadata, and credential environment variable names. Raw key
+bytes, PEM material, and credential values are not accepted as key ids and must
+stay outside `num.toml`, generated artifacts, and logs. The bundled fake KMS
+provider is deterministic test infrastructure, not a production cloud KMS
+client.
 
 `num deploy` and `num deploy --check` include a `secrets` section in their JSON
 plans. Missing credential environment variables for non-optional backends block

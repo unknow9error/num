@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added a KMS-style encryption provider boundary over `Encrypted<T>` with
+  provider-neutral key ids, deterministic fake KMS tests, structured
+  missing/denied/unavailable errors, and metadata-only credential handling.
+
 ## 0.4.9 - 2026-07-03
 
 ### Patch

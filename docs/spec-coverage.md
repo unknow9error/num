@@ -349,6 +349,10 @@ Implemented:
   recognition, algorithm/key/created-at metadata, provider-backed
   encrypt/decrypt helpers, deterministic test provider coverage, redacted
   envelope JSON/debug views, and decrypted secret privacy/trust labels;
+- KMS-style encryption provider boundary over `Encrypted<T>` with
+  provider-neutral key ids, metadata-only credential env names, structured
+  missing/denied/unavailable provider errors, raw-key rejection, and
+  deterministic fake KMS coverage;
 - runtime redaction of `Secret<T>` values and secret-like connector failures in
   trace/debug JSON, structured runtime errors, process connector JSON
   conversion, and service error responses;
@@ -712,8 +716,8 @@ Major full-spec areas not implemented in v0.4.9:
 - provider-specific edge adapters and rollout execution for Cloudflare Workers,
   Vercel Edge, Netlify Edge, Deno Deploy, or similar platforms;
 - production external secrets manager provider clients such as Vault HTTPS with
-  non-token auth methods, production KMS encryption providers, and cloud secret
-  stores;
+  non-token auth methods, cloud-specific KMS encryption clients, and cloud
+  secret stores;
 - tenant isolation enforcement across every non-workflow runtime surface;
 - locale-specific sanitizer catalogs beyond project-configured sanitizer packs;
 - locale/provider-specific scalar validation catalogs beyond the conservative
