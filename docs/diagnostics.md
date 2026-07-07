@@ -49,8 +49,8 @@ diagnostic has:
 - `N1401` - `match` arm references an unknown enum variant or union member.
 - `N1402` - `match` contains duplicate variant or wildcard arms.
 - `N1403` - `match` is non-exhaustive and has no wildcard arm.
-- `N1404` - `match` destructuring references a non-struct member or unknown
-  field.
+- `N1404` - `match` destructuring references a non-struct member, unsupported
+  payload shape, or unknown field.
 - `N1405` - `match` destructuring repeats a field or binding name.
 - `N1406` - `match` guard expression is not `Bool`.
 

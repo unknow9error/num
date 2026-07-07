@@ -505,7 +505,7 @@ fn stmts(stmts: &[Stmt], level: usize, out: &mut String) {
                             out.push_str(name);
                             if let Some(payload) = payload {
                                 out.push('(');
-                                out.push_str(payload);
+                                format_match_payload(payload, out);
                                 out.push(')');
                             }
                             if !bindings.is_empty() {
@@ -555,6 +555,26 @@ fn stmts(stmts: &[Stmt], level: usize, out: &mut String) {
                 out.push_str(&indent);
                 out.push_str("}\n");
             }
+        }
+    }
+}
+
+fn format_match_payload(payload: &MatchPayloadPattern, out: &mut String) {
+    match payload {
+        MatchPayloadPattern::Binding(name) => out.push_str(name),
+        MatchPayloadPattern::Destructure {
+            type_name,
+            bindings,
+        } => {
+            out.push_str(type_name);
+            out.push_str(" { ");
+            for (index, binding) in bindings.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                format_match_binding(binding, out);
+            }
+            out.push_str(" }");
         }
     }
 }

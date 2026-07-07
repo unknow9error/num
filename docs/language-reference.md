@@ -1335,6 +1335,17 @@ names from that union alias. A match without `_` must cover every enum variant
 or union member. For simple binding expressions such as `match result`, union
 arms narrow the binding to the matched member type inside the arm.
 Enum payload arms can bind the payload with `Variant(payload_name)`.
+When the payload is a structured type, the payload can also be destructured by
+naming the payload type inside the parentheses:
+
+```num
+match event {
+    Submitted(Submission { email, score: risk_score }) => {
+        audit(email)
+    }
+}
+```
+
 Structured union member arms can destructure fields with
 `Type { field, other: alias }`.
 Nested structured fields can be destructured by naming the nested type:
@@ -1365,8 +1376,8 @@ bindings are introduced, so it can reference names such as `score` or
 destructured fields. Guard expressions must type-check as `Bool`. A guarded arm
 does not make a match exhaustive because the guard can evaluate to `false`;
 include an unguarded arm or `_` fallback for every remaining case. Broader
-general destructuring patterns beyond structured union member fields are not
-implemented yet.
+general destructuring patterns beyond structured enum payloads and structured
+union member fields are not implemented yet.
 
 ### `return`
 

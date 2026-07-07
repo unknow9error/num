@@ -3362,6 +3362,153 @@ fn label(status: PaymentStatus) -> Text {
     }
 
     #[test]
+    fn accepts_enum_payload_struct_destructuring() {
+        let source = r#"
+module tests.matching
+
+type Submission {
+    email: Email
+    score: Int
+}
+
+enum Event {
+    Submitted(Submission)
+    Ignored
+}
+
+workflow main(event: Event) {
+    match event {
+        Submitted(Submission { email, score: risk_score }) => {
+            let actual_email: Email = email
+            let actual_score: Int = risk_score
+        }
+        Ignored => {
+            audit("ignored")
+        }
+    }
+}
+"#;
+
+        assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn rejects_enum_payload_destructuring_with_wrong_payload_type_name() {
+        let source = r#"
+module tests.matching
+
+type Submission {
+    email: Email
+}
+
+type OtherPayload {
+    email: Email
+}
+
+enum Event {
+    Submitted(Submission)
+    Ignored
+}
+
+workflow main(event: Event) {
+    match event {
+        Submitted(OtherPayload { email }) => {
+            audit(email)
+        }
+        Ignored => {
+            audit("ignored")
+        }
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N1404"));
+    }
+
+    #[test]
+    fn rejects_enum_payload_destructuring_non_struct_payload() {
+        let source = r#"
+module tests.matching
+
+enum PaymentStatus {
+    Failed(Text)
+    Paid
+}
+
+workflow main(status: PaymentStatus) {
+    match status {
+        Failed(Text { value }) => {
+            audit(value)
+        }
+        Paid => {
+            audit("paid")
+        }
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N1404"));
+    }
+
+    #[test]
+    fn rejects_private_enum_payload_destructured_field_sent_without_policy() {
+        let source = r#"
+module tests.matching
+
+type Submission {
+    email: Email from UserInput private
+}
+
+enum Event {
+    Submitted(Submission)
+    Ignored
+}
+
+workflow main(event: Event) {
+    match event {
+        Submitted(Submission { email }) => {
+            external.crm.send(email)
+        }
+        Ignored => {
+            audit("ignored")
+        }
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2400"));
+    }
+
+    #[test]
+    fn rejects_untrusted_enum_payload_destructured_field_sent_to_external_service() {
+        let source = r#"
+module tests.matching
+
+type Submission {
+    message: Text from UserInput public untrusted
+}
+
+enum Event {
+    Submitted(Submission)
+    Ignored
+}
+
+workflow main(event: Event) {
+    match event {
+        Submitted(Submission { message }) => {
+            external.crm.send(message)
+        }
+        Ignored => {
+            audit("ignored")
+        }
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2411"));
+    }
+
+    #[test]
     fn accepts_match_arm_guard_with_payload_binding() {
         let source = r#"
 module tests.matching
@@ -3679,6 +3826,40 @@ audit("ok")
         let formatted = formatter::format_module(&compiled.module);
         assert!(formatted.contains("    Failed(Text)\n"));
         assert!(formatted.contains("        Failed(reason) => {\n"));
+    }
+
+    #[test]
+    fn formats_enum_payload_struct_destructuring_match_pattern() {
+        let source = r#"
+module tests.matching
+
+type Submission {
+email: Email
+score: Int
+}
+
+enum Event {
+Submitted(Submission)
+Ignored
+}
+
+workflow main(event: Event) {
+match event {
+Submitted(Submission { email, score: risk_score }) => {
+audit(email)
+}
+Ignored => {
+audit("ignored")
+}
+}
+}
+"#;
+
+        let compiled = compile("test.num", source);
+        let formatted = formatter::format_module(&compiled.module);
+        assert!(
+            formatted.contains("        Submitted(Submission { email, score: risk_score }) => {\n")
+        );
     }
 
     #[test]

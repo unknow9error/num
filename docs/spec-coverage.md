@@ -480,6 +480,8 @@ Implemented type features:
 - enum payload variants such as `Failed(Text)`;
 - context-typed enum variant constructors such as `Failed("reason")`;
 - enum payload match bindings such as `Failed(reason)`;
+- enum payload struct destructuring in `match` patterns such as
+  `Submitted(Submission { email })`;
 - union aliases that accept compatible member types;
 - union alias `match` validation, exhaustiveness, and simple binding narrowing
   inside member arms;
