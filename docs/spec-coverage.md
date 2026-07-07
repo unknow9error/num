@@ -794,6 +794,9 @@ Major full-spec areas not implemented in v0.4.12:
 - runtime observability;
 - scripted CLI debugger with workflow/action/function/connector/audit
   breakpoints over runtime trace events;
+- debug-adapter JSON boundary for `num debug --json`, including trace-backed
+  workflow thread, stack-frame, scope, variable, breakpoint, and stopped-event
+  objects plus explicit unsupported step/continue capabilities;
 - deployment planning and local artifact materialization;
 - language versioning and compatibility policy;
 - manifest migration tooling;
@@ -814,7 +817,8 @@ Major full-spec areas not implemented in v0.4.12:
 - local filesystem registry package imports, including transitive registry
   dependencies;
 - linter foundation;
-- scripted CLI debugger;
+- interactive Debug Adapter Protocol server and IDE-managed step/continue
+  sessions beyond the `num.debug.adapter.v1` JSON boundary;
 - richer workflow fixture/state simulation and AI provider simulation beyond the
   current executable unit-test, static policy-test, direct workflow expectation,
   deterministic connector fixture, and deterministic AI mock foundation;

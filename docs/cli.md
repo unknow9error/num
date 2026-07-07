@@ -200,9 +200,16 @@ Supported breakpoint kinds:
 - `connector:<namespace.method>`
 - `audit:<event>`
 
-The `--json` flag emits the debug session, hits, and full trace as structured
-JSON. This is a scripted CLI debugger foundation; step/continue interaction and
-IDE debug adapter integration are not implemented yet.
+The `--json` flag emits the debug session, hits, full trace, and a
+`debug_adapter` object. The adapter object is versioned as
+`num.debug.adapter.v1` and maps runtime trace events to a future Debug Adapter
+Protocol server shape: one workflow thread, trace-backed stack frames, scopes,
+variables, configured breakpoints, and breakpoint hit events.
+
+This is still a scripted trace-replay debugger foundation. The adapter JSON
+declares `continue`, `next`, `stepIn`, `stepOut`, `pause`, and `setVariable` as
+unsupported so IDE integrations can fail closed instead of pretending
+interactive stepping exists.
 
 ### `cost-report`
 
