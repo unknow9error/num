@@ -994,14 +994,22 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn match_pattern_payload(&mut self) -> Option<Option<String>> {
+    fn match_pattern_payload(&mut self) -> Option<Option<MatchPayloadPattern>> {
         if !self.match_symbol(Symbol::LParen) {
             return Some(None);
         }
 
-        let binding = self.expect_ident("expected payload binding in match pattern")?;
+        let target = self.expect_ident("expected payload binding in match pattern")?;
+        let payload = if self.match_symbol(Symbol::LBrace) {
+            MatchPayloadPattern::Destructure {
+                type_name: target,
+                bindings: self.match_pattern_binding_list()?,
+            }
+        } else {
+            MatchPayloadPattern::Binding(target)
+        };
         self.expect_symbol(Symbol::RParen, "expected `)` after match pattern payload")?;
-        Some(Some(binding))
+        Some(Some(payload))
     }
 
     fn match_pattern_bindings(&mut self) -> Option<Vec<MatchBinding>> {

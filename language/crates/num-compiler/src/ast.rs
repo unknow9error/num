@@ -469,10 +469,19 @@ pub struct MatchArm {
 pub enum MatchPattern {
     Variant {
         name: String,
-        payload: Option<String>,
+        payload: Option<MatchPayloadPattern>,
         bindings: Vec<MatchBinding>,
     },
     Wildcard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MatchPayloadPattern {
+    Binding(String),
+    Destructure {
+        type_name: String,
+        bindings: Vec<MatchBinding>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -19,7 +19,8 @@ use crate::{
     RiskLevel, RuntimeError, SecurityContext,
 };
 use num_compiler::ast::{
-    Declaration, Labels, MatchBinding, MatchPattern, Module, Privacy, RawExpr, Stmt, Trust,
+    Declaration, Labels, MatchBinding, MatchPattern, MatchPayloadPattern, Module, Privacy, RawExpr,
+    Stmt, Trust,
 };
 use num_compiler::expr::{self, BinaryOp, Expr};
 use std::collections::{BTreeSet, HashMap};
@@ -1271,11 +1272,34 @@ impl<'a> Runtime<'a> {
         else {
             return Ok(());
         };
-        if let Some(binding_name) = payload {
+        if let Some(payload_pattern) = payload {
             let Value::Enum(_, _, Some(payload)) = value else {
                 return Err(format!("Cannot bind missing enum payload from: {value}"));
             };
-            self.set_var(binding_name.clone(), payload.as_ref().clone());
+            match payload_pattern {
+                MatchPayloadPattern::Binding(binding_name) => {
+                    self.set_var(binding_name.clone(), payload.as_ref().clone());
+                }
+                MatchPayloadPattern::Destructure {
+                    type_name,
+                    bindings,
+                } => {
+                    let Value::Struct(payload_type, fields) = payload.as_ref() else {
+                        return Err(format!(
+                            "Cannot destructure non-struct enum payload: {}",
+                            payload.as_ref()
+                        ));
+                    };
+                    if payload_type != type_name {
+                        return Err(format!(
+                            "Cannot destructure enum payload as {type_name}: found {payload_type}"
+                        ));
+                    }
+                    for binding in bindings {
+                        self.bind_match_binding(binding, fields, payload_type)?;
+                    }
+                }
+            }
             return Ok(());
         }
         if bindings.is_empty() {

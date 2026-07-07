@@ -211,8 +211,8 @@ impl<'a> Checker<'a> {
                 continue;
             }
 
-            if let Some(payload_binding) = payload {
-                self.validate_enum_payload_pattern(arm, name, payload_binding, domain);
+            if let Some(payload_pattern) = payload {
+                self.validate_enum_payload_pattern(arm, name, payload_pattern, domain);
                 continue;
             }
 
@@ -364,7 +364,7 @@ impl<'a> Checker<'a> {
         &mut self,
         arm: &MatchArm,
         variant: &str,
-        _binding: &str,
+        payload_pattern: &MatchPayloadPattern,
         domain: Option<&MatchDomain>,
     ) {
         if !matches!(domain, Some(MatchDomain::Enum { .. })) {
@@ -384,7 +384,21 @@ impl<'a> Checker<'a> {
             return;
         };
         match self.enum_variant_payload(&enum_ty, variant) {
-            Some(Some(_)) => {}
+            Some(Some(payload_ty)) => {
+                if let MatchPayloadPattern::Destructure {
+                    type_name,
+                    bindings,
+                } = payload_pattern
+                {
+                    self.validate_enum_payload_destructuring(
+                        arm,
+                        variant,
+                        &payload_ty,
+                        type_name,
+                        bindings,
+                    );
+                }
+            }
             Some(None) => self.diagnostics.push(
                 Diagnostic::error(
                     "N1404",
@@ -395,6 +409,60 @@ impl<'a> Checker<'a> {
                 .with_help("remove `(payload)` or declare a payload type on the variant"),
             ),
             None => {}
+        }
+    }
+
+    fn validate_enum_payload_destructuring(
+        &mut self,
+        arm: &MatchArm,
+        variant: &str,
+        payload_ty: &TypeRef,
+        type_name: &str,
+        bindings: &[MatchBinding],
+    ) {
+        let payload_base = type_base_name(&payload_ty.raw);
+        if payload_base != type_name {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N1404",
+                    format!(
+                        "enum variant `{variant}` payload has type `{}`, not `{type_name}`",
+                        payload_ty.raw
+                    ),
+                    arm.span.clone(),
+                )
+                .with_reason("payload destructuring must name the variant payload struct type")
+                .with_help(format!("use `{payload_base}` for this payload pattern")),
+            );
+            return;
+        }
+        if self.type_fields.get(&payload_base).is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N1404",
+                    format!(
+                        "match pattern `{variant}` cannot destructure non-struct payload `{}`",
+                        payload_ty.raw
+                    ),
+                    arm.span.clone(),
+                )
+                .with_reason("payload destructuring requires a declared struct payload type")
+                .with_help("bind the payload directly or use a struct payload type"),
+            );
+            return;
+        }
+
+        let mut seen_fields = HashSet::new();
+        let mut seen_bindings = HashSet::new();
+        for binding in bindings {
+            self.validate_match_binding(
+                arm,
+                &payload_base,
+                payload_ty,
+                binding,
+                &mut seen_fields,
+                &mut seen_bindings,
+            );
         }
     }
 
@@ -428,7 +496,7 @@ impl<'a> Checker<'a> {
         if let (Some(MatchDomain::Enum { .. }), MatchPattern::Variant { name, payload, .. }) =
             (domain, pattern)
         {
-            let Some(binding_name) = payload else {
+            let Some(payload_pattern) = payload else {
                 return;
             };
             let Some(enum_ty) = enum_type_from_domain(domain) else {
@@ -437,18 +505,27 @@ impl<'a> Checker<'a> {
             let Some(Some(payload_ty)) = self.enum_variant_payload(&enum_ty, name) else {
                 return;
             };
-            arm_env.insert(
-                binding_name.clone(),
-                Binding {
-                    ty: Some(payload_ty.clone()),
-                    labels: Labels::default(),
-                    mutable: false,
-                    uncertain: self.is_uncertain_type(&payload_ty),
-                    option_checked: false,
-                    result_checked: None,
-                    secret: self.resolve_aliases(&payload_ty).is_secret(),
-                },
-            );
+            match payload_pattern {
+                MatchPayloadPattern::Binding(binding_name) => {
+                    arm_env.insert(
+                        binding_name.clone(),
+                        Binding {
+                            ty: Some(payload_ty.clone()),
+                            labels: Labels::default(),
+                            mutable: false,
+                            uncertain: self.is_uncertain_type(&payload_ty),
+                            option_checked: false,
+                            result_checked: None,
+                            secret: self.resolve_aliases(&payload_ty).is_secret(),
+                        },
+                    );
+                }
+                MatchPayloadPattern::Destructure { bindings, .. } => {
+                    for binding in bindings {
+                        self.bind_match_binding(arm_env, &payload_ty, binding);
+                    }
+                }
+            }
             return;
         }
 

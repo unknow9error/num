@@ -1003,6 +1003,70 @@ workflow main() {
     }
 
     #[test]
+    fn test_runtime_destructures_enum_payload_struct() {
+        let source = r#"
+module test.enum_payload_destructure
+
+type Submission {
+    email: Email
+    score: Int
+}
+
+enum Event {
+    Submitted(Submission)
+    Ignored
+}
+
+connector logger {
+    send(email: Email) -> Unit
+}
+
+workflow main(event: Event) {
+    match event {
+        Submitted(Submission { email, score: risk_score }) => {
+            logger.send(email)
+        }
+        Ignored => {
+            logger.send("ignored@example.com")
+        }
+    }
+}
+"#;
+        let compilation = compile("test.num", source);
+        let received = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+        let received_for_handler = received.clone();
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register("logger.send", move |args| {
+            *received_for_handler.borrow_mut() =
+                args.first().cloned().unwrap_or(Value::Null).to_string();
+            Ok(Value::Null)
+        });
+        let mut submission = HashMap::new();
+        submission.insert(
+            "email".to_string(),
+            Value::String("user@example.com".to_string()),
+        );
+        submission.insert("score".to_string(), Value::Int(91));
+        let mut args = HashMap::new();
+        args.insert(
+            "event".to_string(),
+            Value::Enum(
+                "Event".to_string(),
+                "Submitted".to_string(),
+                Some(Box::new(Value::Struct(
+                    "Submission".to_string(),
+                    submission,
+                ))),
+            ),
+        );
+        let mut runtime = Runtime::with_connectors(&compilation.module, vec![], Box::new(registry));
+        let res = runtime.run_workflow("main", args);
+
+        assert!(res.is_ok());
+        assert_eq!(received.borrow().as_str(), "\"user@example.com\"");
+    }
+
+    #[test]
     fn test_runtime_skips_false_match_guard() {
         let source = r#"
 module test.match_guard
