@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.14 - 2026-07-07
+
+### Patch
+
 - Added enum payload struct destructuring for `match` patterns, preserving
   field privacy/trust labels and rejecting unsupported payload shapes with
   `N1404` diagnostics.
