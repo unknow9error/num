@@ -766,6 +766,9 @@ impl<'a> Parser<'a> {
         if self.match_ident_text("expect_audit") {
             return Some(Stmt::ExpectAudit(self.expect_audit_stmt()));
         }
+        if self.match_ident_text("mock_ai_scan") {
+            return self.mock_ai_scan_stmt().map(Stmt::MockAiScan);
+        }
         if self.match_ident_text("mock_ai") {
             return self.mock_ai_stmt().map(Stmt::MockAi);
         }
@@ -876,6 +879,30 @@ impl<'a> Parser<'a> {
             call,
             value,
             confidence,
+            span,
+        })
+    }
+
+    fn mock_ai_scan_stmt(&mut self) -> Option<MockAiScanStmt> {
+        let span = self.previous().span.clone();
+        let call = RawExpr {
+            text: self.collect_until_symbol(Symbol::FatArrow),
+            span: span.clone(),
+        };
+        self.expect_symbol(Symbol::FatArrow, "expected `=>` after AI scanner mock call")?;
+        let outcome = self.expect_ident("expected AI scanner outcome")?;
+        let reason = if self.match_ident_text("reason") {
+            Some(RawExpr {
+                text: self.collect_until_line_or(Symbol::RBrace),
+                span: span.clone(),
+            })
+        } else {
+            None
+        };
+        Some(MockAiScanStmt {
+            call,
+            outcome,
+            reason,
             span,
         })
     }

@@ -50,6 +50,7 @@ Implemented statement forms:
 - `expect_audit`
 - `mock_connector`
 - `mock_ai`
+- `mock_ai_scan`
 - `require`
 - `transaction`
 - `transaction saga`
@@ -138,6 +139,9 @@ The compiler checks:
   saga compensation audits, and idempotent action replay behavior;
 - deterministic `test ai` mocks through `mock_ai ai.method(...) => Value
   confidence <number>` for declared `Uncertain<T>` AI connector methods;
+- deterministic `test ai` scanner fixtures through
+  `mock_ai_scan ai.method(...) => pass|suspicious|block [reason Text]`,
+  including audit events and redacted fail-closed block errors;
 - `return` value compatibility with declared `fn`, `workflow`, and `action`
   result types;
 - supported expression syntax;
@@ -243,10 +247,11 @@ Implemented:
   checkout cache;
 - deployment environment validation metadata from `[environment]` in deploy
   plans, materialized artifact metadata, and generated runbooks;
-- AI provider/model alias manifest metadata from `[ai]` and
-  `[ai.models.<alias>]`, including default model, provider label, model id,
-  timeout/cost metadata, and deploy-check validation of credential environment
-  names without credential values;
+- AI provider/model alias and scanner catalog manifest metadata from `[ai]`,
+  `[ai.models.<alias>]`, and `[ai.scanners.<alias>]`, including default model,
+  provider label, model id, timeout/cost metadata, scanner mode/redaction
+  metadata, and deploy-check validation of credential environment names without
+  credential values;
 - explicit Docker registry image publish handoff metadata in deploy plans and
   `deploy/image-publish.json`, including registry/image/tag strategy, publish
   reference, and credentials references without credential values;
@@ -669,17 +674,19 @@ It also rejects untrusted values passed into `ai.*` prompt/tool-call arguments
 unless the value first flows through an explicit trust gateway such as
 `sanitize(...)`, `validate_trust(...)`, `verify_trust(...)`, or
 `require_human_review(...)`. This provides a static prompt-injection boundary
-for user input and retrieved content. The examples demonstrate
-human-in-the-loop branches.
+for user input and retrieved content. `test ai` blocks can add deterministic
+scanner fixtures with pass, suspicious, and fail-closed block outcomes, and
+`num.toml` can carry scanner catalog metadata for deployment planning. The
+examples demonstrate human-in-the-loop branches and mocked AI decisions.
 
 Not yet implemented:
 
 - real AI provider integration;
 - runtime model registry or provider execution beyond manifest alias metadata;
-- runtime prompt-injection scanners and configurable scanner catalogs;
+- live runtime prompt-injection scanner providers beyond deterministic
+  `test ai` fixtures;
 - tool-call sandboxing;
 - AI policy configuration;
-- richer AI test fixtures beyond deterministic `mock_ai` responses.
 - workflow fixtures for distributed state simulation beyond the checked-in
   lifecycle examples.
 

@@ -444,6 +444,18 @@ fn stmts(stmts: &[Stmt], level: usize, out: &mut String) {
                 out.push_str(stmt.confidence.text.trim());
                 out.push('\n');
             }
+            Stmt::MockAiScan(stmt) => {
+                out.push_str(&indent);
+                out.push_str("mock_ai_scan ");
+                out.push_str(&format_call_expr(&stmt.call.text));
+                out.push_str(" => ");
+                out.push_str(&stmt.outcome);
+                if let Some(reason) = &stmt.reason {
+                    out.push_str(" reason ");
+                    out.push_str(&format_call_expr(&reason.text));
+                }
+                out.push('\n');
+            }
             Stmt::MockConnector(stmt) => {
                 out.push_str(&indent);
                 out.push_str("mock_connector ");

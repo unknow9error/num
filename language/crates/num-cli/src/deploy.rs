@@ -69,6 +69,7 @@ pub struct SecretBackendDeployment {
 pub struct AiDeployment {
     pub default_model: Option<String>,
     pub models: Vec<AiModelDeployment>,
+    pub scanners: Vec<AiScannerDeployment>,
     pub status: String,
     pub missing_required: Vec<String>,
 }
@@ -82,6 +83,15 @@ pub struct AiModelDeployment {
     pub timeout_ms: Option<u64>,
     pub max_cost: Option<String>,
     pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AiScannerDeployment {
+    pub alias: String,
+    pub provider: String,
+    pub mode: String,
+    pub block_threshold: Option<String>,
+    pub audit_redaction: String,
 }
 
 #[derive(Debug, Clone)]
@@ -448,6 +458,12 @@ impl DeploymentPlan {
                 "AI models: status={}, declared={}\n",
                 self.ai.status,
                 self.ai.models.len()
+            ));
+        }
+        if !self.ai.scanners.is_empty() {
+            out.push_str(&format!(
+                "AI scanners: declared={}\n",
+                self.ai.scanners.len()
             ));
         }
         if self.image_publish.enabled {
@@ -1523,6 +1539,7 @@ pub fn build_deploy_check_report(
                 "status": if ai_blocking { "blocking" } else { &plan.ai.status },
                 "default_model": plan.ai.default_model,
                 "models": plan.ai.models.iter().map(AiModelDeployment::to_json).collect::<Vec<_>>(),
+                "scanners": plan.ai.scanners.iter().map(AiScannerDeployment::to_json).collect::<Vec<_>>(),
                 "missing_required": plan.ai.missing_required,
             },
             "image_publish": plan.image_publish.to_json(),
@@ -1599,6 +1616,12 @@ impl AiDeployment {
             .iter()
             .map(AiModelDeployment::from_manifest_model)
             .collect::<Vec<_>>();
+        let scanners = manifest
+            .ai
+            .scanners
+            .iter()
+            .map(AiScannerDeployment::from_manifest_scanner)
+            .collect::<Vec<_>>();
         let missing_required = models
             .iter()
             .flat_map(|model| {
@@ -1618,6 +1641,7 @@ impl AiDeployment {
         Self {
             default_model: manifest.ai.default_model.clone(),
             models,
+            scanners,
             status: status.to_string(),
             missing_required,
         }
@@ -1627,6 +1651,7 @@ impl AiDeployment {
         json!({
             "default_model": self.default_model,
             "models": self.models.iter().map(AiModelDeployment::to_json).collect::<Vec<_>>(),
+            "scanners": self.scanners.iter().map(AiScannerDeployment::to_json).collect::<Vec<_>>(),
             "status": self.status,
             "missing_required": self.missing_required,
         })
@@ -1666,6 +1691,28 @@ impl AiModelDeployment {
             "timeout_ms": self.timeout_ms,
             "max_cost": self.max_cost,
             "status": self.status,
+        })
+    }
+}
+
+impl AiScannerDeployment {
+    fn from_manifest_scanner(scanner: &package::PackageAiScanner) -> Self {
+        Self {
+            alias: scanner.alias.clone(),
+            provider: scanner.provider.clone(),
+            mode: scanner.mode.clone(),
+            block_threshold: scanner.block_threshold.clone(),
+            audit_redaction: scanner.audit_redaction.clone(),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "alias": self.alias,
+            "provider": self.provider,
+            "mode": self.mode,
+            "block_threshold": self.block_threshold,
+            "audit_redaction": self.audit_redaction,
         })
     }
 }
@@ -3697,6 +3744,12 @@ model = "gpt-4.1-mini"
 credential_env = ["NUM_TEST_AI_MISSING_KEY", "NUM_TEST_AI_PRESENT_KEY"]
 timeout_ms = 5000
 max_cost = "0.10 USD"
+
+[ai.scanners.prompt-guard]
+provider = "fixture"
+mode = "block"
+block_threshold = "blocked"
+audit_redaction = "redacted"
 "#,
         );
         let compilation = compile("main.num", "module app.main\n\nworkflow main() {}\n");
@@ -3710,6 +3763,15 @@ max_cost = "0.10 USD"
         assert_eq!(plan.ai.models[0].provider, "openai");
         assert_eq!(plan.ai.models[0].model, "gpt-4.1-mini");
         assert_eq!(plan.ai.models[0].status, "missing-required");
+        assert_eq!(plan.ai.scanners.len(), 1);
+        assert_eq!(plan.ai.scanners[0].alias, "prompt-guard");
+        assert_eq!(plan.ai.scanners[0].provider, "fixture");
+        assert_eq!(plan.ai.scanners[0].mode, "block");
+        assert_eq!(
+            plan.ai.scanners[0].block_threshold,
+            Some("blocked".to_string())
+        );
+        assert_eq!(plan.ai.scanners[0].audit_redaction, "redacted");
         assert_eq!(
             plan.ai.missing_required,
             vec!["fast:NUM_TEST_AI_MISSING_KEY"]
@@ -3730,6 +3792,12 @@ max_cost = "0.10 USD"
         assert_eq!(
             plan.to_json()["ai"]["models"][0]["credential_env"][1]["present"],
             true
+        );
+        assert_eq!(plan.to_json()["ai"]["scanners"][0]["alias"], "prompt-guard");
+        assert_eq!(plan.to_json()["ai"]["scanners"][0]["mode"], "block");
+        assert_eq!(
+            report["gates"]["ai"]["scanners"][0]["audit_redaction"],
+            "redacted"
         );
         assert_eq!(report["status"], "blocked");
         assert_eq!(report["gates"]["ai"]["status"], "blocking");

@@ -180,6 +180,7 @@ pub fn completions(prefix: &str) -> Vec<&'static str> {
         "expect_workflow_failure",
         "expect_audit",
         "mock_ai",
+        "mock_ai_scan",
         "mock_connector",
         "confidence",
         "public",

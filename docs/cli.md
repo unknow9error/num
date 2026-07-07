@@ -155,7 +155,11 @@ declared non-AI connector methods and `expect_audit "event"` audit-trail
 expectations.
 `test ai` blocks support deterministic `mock_ai ai.method(...) => Value
 confidence <number>` responses for declared AI connector methods returning
-`Uncertain<T>`.
+`Uncertain<T>`. They also support deterministic scanner fixtures:
+`mock_ai_scan ai.method(...) => pass|suspicious|block [reason Text]`. `pass`
+and `suspicious` record auditable scanner outcomes before the mocked AI call;
+`block` fails closed and redacts sensitive reason text in runtime errors and
+trace details.
 
 ### `trace`
 

@@ -552,6 +552,40 @@ fn demo_security_context(permissions: Vec<String>) -> SecurityContext {
     }
 }
 
+#[derive(Debug, Clone)]
+enum AiScanDecision {
+    Pass { reason: Option<String> },
+    Suspicious { reason: Option<String> },
+    Block { reason: Option<String> },
+}
+
+impl AiScanDecision {
+    fn from_outcome(outcome: &str, reason: Option<String>) -> Result<Self, String> {
+        match outcome {
+            "pass" => Ok(Self::Pass { reason }),
+            "suspicious" => Ok(Self::Suspicious { reason }),
+            "block" => Ok(Self::Block { reason }),
+            other => Err(format!("Unknown AI scanner outcome: {other}")),
+        }
+    }
+
+    fn outcome(&self) -> &'static str {
+        match self {
+            Self::Pass { .. } => "pass",
+            Self::Suspicious { .. } => "suspicious",
+            Self::Block { .. } => "block",
+        }
+    }
+
+    fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Pass { reason } | Self::Suspicious { reason } | Self::Block { reason } => {
+                reason.as_deref()
+            }
+        }
+    }
+}
+
 pub struct Runtime<'a> {
     module: &'a Module,
     scopes: Vec<HashMap<String, Value>>,
@@ -563,6 +597,7 @@ pub struct Runtime<'a> {
     saga_rollbacks: Vec<RawExpr>,
     connectors: Box<dyn ConnectorExecutor + 'a>,
     ai_mocks: HashMap<String, Value>,
+    ai_scans: HashMap<String, AiScanDecision>,
     connector_mocks: HashMap<String, Value>,
     idempotency: MemoryIdempotencyStore,
     costs: CostLedger,
@@ -608,6 +643,7 @@ impl<'a> Runtime<'a> {
             saga_rollbacks: Vec::new(),
             connectors,
             ai_mocks: HashMap::new(),
+            ai_scans: HashMap::new(),
             connector_mocks: HashMap::new(),
             idempotency: MemoryIdempotencyStore::new(),
             costs: CostLedger::new(),
@@ -668,6 +704,35 @@ impl<'a> Runtime<'a> {
         self.next_trace_sequence = self.next_trace_sequence.saturating_add(1);
         self.traces
             .push(RuntimeTraceEvent::new(sequence, kind, target, detail));
+    }
+
+    fn apply_ai_scan_decision(
+        &mut self,
+        target: &str,
+        decision: &AiScanDecision,
+    ) -> Result<(), String> {
+        let reason = decision.reason().map(redaction::redact_text);
+        let event = format!("ai_scan.{}:{target}", decision.outcome());
+        self.audits.push(event.clone());
+        self.trace(RuntimeTraceKind::AuditLogged, event, reason.clone());
+        match decision {
+            AiScanDecision::Pass { .. } => Ok(()),
+            AiScanDecision::Suspicious { .. } => {
+                runtime_println!(
+                    self,
+                    "    [AI SCAN] {target} suspicious{}",
+                    reason
+                        .as_ref()
+                        .map(|reason| format!(": {reason}"))
+                        .unwrap_or_default()
+                );
+                Ok(())
+            }
+            AiScanDecision::Block { .. } => {
+                let detail = reason.unwrap_or_else(|| "scanner blocked prompt".to_string());
+                Err(format!("AI scanner rejected {target}: {detail}"))
+            }
+        }
     }
 
     fn enter_budget_scope(&mut self, scope: impl Into<String>, raw: Option<&str>) -> bool {
@@ -1112,6 +1177,17 @@ impl<'a> Runtime<'a> {
                 let mocked = Value::Uncertain(Box::new(value), confidence);
                 runtime_println!(self, "  [AI MOCK] {target} => {mocked}");
                 self.ai_mocks.insert(target, mocked);
+                Ok(ExecSignal::Continue)
+            }
+            Stmt::MockAiScan(scan_stmt) => {
+                let target = ai_mock_target(&scan_stmt.call.text)?;
+                let reason = match &scan_stmt.reason {
+                    Some(reason) => Some(self.eval_expr(reason)?.to_string()),
+                    None => None,
+                };
+                let decision = AiScanDecision::from_outcome(&scan_stmt.outcome, reason)?;
+                runtime_println!(self, "  [AI SCAN MOCK] {target} => {}", decision.outcome());
+                self.ai_scans.insert(target, decision);
                 Ok(ExecSignal::Continue)
             }
             Stmt::MockConnector(mock_stmt) => {
@@ -1715,6 +1791,10 @@ impl<'a> Runtime<'a> {
                 return Ok(Value::Null);
             }
             _ => {}
+        }
+
+        if let Some(decision) = self.ai_scans.get(name).cloned() {
+            self.apply_ai_scan_decision(name, &decision)?;
         }
 
         if let Some(value) = self.ai_mocks.get(name).cloned() {
@@ -3102,6 +3182,9 @@ fn stmt_trace_target(stmt: &Stmt) -> String {
         },
         Stmt::ExpectAudit(stmt) => format!("expect_audit {}", stmt.event.text),
         Stmt::MockAi(stmt) => format!("mock_ai {}", format_call_label(&stmt.call.text)),
+        Stmt::MockAiScan(stmt) => {
+            format!("mock_ai_scan {}", format_call_label(&stmt.call.text))
+        }
         Stmt::MockConnector(stmt) => {
             format!("mock_connector {}", format_call_label(&stmt.call.text))
         }

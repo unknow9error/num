@@ -1084,6 +1084,7 @@ test workflow "refund rollback" {
 }
 
 test ai "low confidence requires review" {
+    mock_ai_scan ai.classify("refund") => suspicious reason "instruction-like phrasing"
     mock_ai ai.classify("refund") => RefundRequest confidence 0.62
     let intent: Uncertain<Intent> = ai.classify("refund")
 
@@ -1108,6 +1109,11 @@ Policy tests support static policy expectations:
   response for a declared non-AI connector method inside `test workflow`.
 - `mock_ai ai.method(...) => Value confidence 0.91` installs a deterministic
   `Uncertain<Value>` response for an AI connector method inside `test ai`.
+- `mock_ai_scan ai.method(...) => pass|suspicious|block [reason Text]` installs
+  a deterministic AI prompt scanner decision inside `test ai`. `pass` and
+  `suspicious` audit the decision and continue to the mocked AI result. `block`
+  audits the decision, redacts sensitive reason text, and fails the call before
+  `mock_ai` can return a value.
 
 Expected policy denials do not leak into the outer `num check` diagnostics, and
 the runtime does not execute the nested body. Workflow expectations must appear
@@ -1117,7 +1123,8 @@ written by runtime `audit(...)` calls.
 Connector mocks must appear inside `test workflow` blocks and target declared
 non-`Unit` connector methods. AI mocks must appear inside `test ai` blocks,
 target declared `ai.*` connector methods, and the connector result must be
-`Uncertain<T>`.
+`Uncertain<T>`. AI scanner fixtures must also appear inside `test ai` blocks
+and target direct declared `ai.*` connector calls.
 
 ## Connectors and Services
 
