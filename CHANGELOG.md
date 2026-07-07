@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.13 - 2026-07-07
+
+### Patch
+
 - Added a debug-adapter JSON boundary for `num debug --json` with stable
   trace-to-frame/scope mapping and explicit unsupported step/continue
   capabilities.
