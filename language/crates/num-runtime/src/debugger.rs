@@ -97,6 +97,53 @@ impl DebugReport {
             "breakpoints": self.breakpoints.iter().map(BreakpointSpec::to_json).collect::<Vec<_>>(),
             "hits": self.hits.iter().map(BreakpointHit::to_json).collect::<Vec<_>>(),
             "trace": self.trace.iter().map(RuntimeTraceEvent::to_json).collect::<Vec<_>>(),
+            "debug_adapter": self.to_adapter_json(),
+        })
+    }
+
+    pub fn to_adapter_json(&self) -> Value {
+        json!({
+            "protocol": "num.debug.adapter.v1",
+            "session": {
+                "workflow": self.workflow,
+                "status": if self.result.is_ok() { "completed" } else { "failed" },
+                "error": self.result.as_ref().err().map(|error| redaction::redact_text(error)),
+                "runtime_error": self.runtime_error.as_ref().map(RuntimeError::to_json),
+            },
+            "capabilities": {
+                "supports_breakpoints": true,
+                "supports_stack_frames": true,
+                "supports_scopes": true,
+                "supports_variables": true,
+                "supports_continue": false,
+                "supports_next": false,
+                "supports_step_in": false,
+                "supports_step_out": false,
+                "unsupported_requests": [
+                    "continue",
+                    "next",
+                    "stepIn",
+                    "stepOut",
+                    "pause",
+                    "setVariable"
+                ],
+                "execution_model": "scripted trace replay; breakpoints are reported as hits after workflow execution",
+            },
+            "threads": [{
+                "id": 1,
+                "name": format!("workflow:{}", self.workflow),
+            }],
+            "breakpoints": self.breakpoints.iter().enumerate().map(|(index, breakpoint)| {
+                adapter_breakpoint(index + 1, breakpoint)
+            }).collect::<Vec<_>>(),
+            "stopped_events": self.hits.iter().filter_map(|hit| {
+                let breakpoint_id = self.breakpoints.iter().position(|breakpoint| {
+                    breakpoint == &hit.breakpoint
+                })? + 1;
+                Some(adapter_stopped_event(breakpoint_id, hit))
+            }).collect::<Vec<_>>(),
+            "stack_frames": self.trace.iter().map(adapter_stack_frame).collect::<Vec<_>>(),
+            "scopes": self.trace.iter().map(adapter_scopes).collect::<Vec<_>>(),
         })
     }
 
@@ -137,6 +184,129 @@ impl BreakpointHit {
             "breakpoint": self.breakpoint.to_json(),
             "event": self.event.to_json(),
         })
+    }
+}
+
+fn adapter_breakpoint(id: usize, breakpoint: &BreakpointSpec) -> Value {
+    json!({
+        "id": id,
+        "verified": true,
+        "kind": breakpoint.kind.as_str(),
+        "target": breakpoint.target,
+        "label": breakpoint.label(),
+        "mode": "post_execution_trace_match",
+    })
+}
+
+fn adapter_stopped_event(breakpoint_id: usize, hit: &BreakpointHit) -> Value {
+    json!({
+        "reason": "breakpoint",
+        "thread_id": 1,
+        "breakpoint_id": breakpoint_id,
+        "event_sequence": hit.event.sequence,
+        "event_kind": hit.event.kind.as_str(),
+        "target": hit.event.target,
+        "frame_id": adapter_frame_id(&hit.event),
+        "frame": adapter_stack_frame(&hit.event),
+        "scopes": adapter_scopes(&hit.event),
+    })
+}
+
+fn adapter_stack_frame(event: &RuntimeTraceEvent) -> Value {
+    json!({
+        "id": adapter_frame_id(event),
+        "thread_id": 1,
+        "name": adapter_frame_name(event),
+        "source": Value::Null,
+        "line": Value::Null,
+        "column": Value::Null,
+        "presentation_hint": adapter_frame_presentation(event.kind),
+    })
+}
+
+fn adapter_scopes(event: &RuntimeTraceEvent) -> Value {
+    json!({
+        "frame_id": adapter_frame_id(event),
+        "scopes": [{
+            "name": adapter_scope_name(event.kind),
+            "expensive": false,
+            "variables": adapter_variables(event),
+        }]
+    })
+}
+
+fn adapter_variables(event: &RuntimeTraceEvent) -> Value {
+    json!([
+        {
+            "name": "sequence",
+            "value": event.sequence.to_string(),
+            "type": "u64",
+        },
+        {
+            "name": "event_kind",
+            "value": event.kind.as_str(),
+            "type": "RuntimeTraceKind",
+        },
+        {
+            "name": "target",
+            "value": redaction::redact_text(&event.target),
+            "type": "Text",
+        },
+        {
+            "name": "detail",
+            "value": event.detail.as_ref().map(|detail| redaction::redact_text(detail)).unwrap_or_default(),
+            "type": "Text?",
+        },
+    ])
+}
+
+fn adapter_frame_id(event: &RuntimeTraceEvent) -> String {
+    format!("trace:{}", event.sequence)
+}
+
+fn adapter_frame_name(event: &RuntimeTraceEvent) -> String {
+    format!(
+        "{} {}",
+        match event.kind {
+            RuntimeTraceKind::WorkflowStarted
+            | RuntimeTraceKind::WorkflowCompleted
+            | RuntimeTraceKind::WorkflowFailed => "workflow",
+            RuntimeTraceKind::ServiceRouteStarted
+            | RuntimeTraceKind::ServiceRouteCompleted
+            | RuntimeTraceKind::ServiceRouteFailed => "service_route",
+            RuntimeTraceKind::StatementStarted | RuntimeTraceKind::StatementCompleted => {
+                "statement"
+            }
+            RuntimeTraceKind::FunctionCalled => "function",
+            RuntimeTraceKind::ActionCalled => "action",
+            RuntimeTraceKind::ConnectorCalled => "connector",
+            RuntimeTraceKind::AuditLogged => "audit",
+        },
+        event.target
+    )
+}
+
+fn adapter_scope_name(kind: RuntimeTraceKind) -> &'static str {
+    match kind {
+        RuntimeTraceKind::WorkflowStarted
+        | RuntimeTraceKind::WorkflowCompleted
+        | RuntimeTraceKind::WorkflowFailed => "Workflow",
+        RuntimeTraceKind::ServiceRouteStarted
+        | RuntimeTraceKind::ServiceRouteCompleted
+        | RuntimeTraceKind::ServiceRouteFailed => "Service Route",
+        RuntimeTraceKind::StatementStarted | RuntimeTraceKind::StatementCompleted => "Statement",
+        RuntimeTraceKind::FunctionCalled => "Function",
+        RuntimeTraceKind::ActionCalled => "Action",
+        RuntimeTraceKind::ConnectorCalled => "Connector",
+        RuntimeTraceKind::AuditLogged => "Audit",
+    }
+}
+
+fn adapter_frame_presentation(kind: RuntimeTraceKind) -> &'static str {
+    match kind {
+        RuntimeTraceKind::WorkflowFailed | RuntimeTraceKind::ServiceRouteFailed => "error",
+        RuntimeTraceKind::WorkflowCompleted | RuntimeTraceKind::ServiceRouteCompleted => "return",
+        _ => "normal",
     }
 }
 
@@ -196,6 +366,97 @@ mod tests {
         assert!(report
             .render_text()
             .contains("breakpoint=ConnectorCalled:payments.find"));
+    }
+
+    #[test]
+    fn debug_adapter_model_maps_scripted_breakpoints_to_frames_and_scopes() {
+        let breakpoints = vec![
+            BreakpointSpec::parse("workflow:main").unwrap(),
+            BreakpointSpec::parse("action:issue_refund").unwrap(),
+            BreakpointSpec::parse("function:calculate_fee").unwrap(),
+            BreakpointSpec::parse("connector:payments.find").unwrap(),
+            BreakpointSpec::parse("audit:refund_issued").unwrap(),
+        ];
+        let trace = vec![
+            RuntimeTraceEvent::new(1, RuntimeTraceKind::WorkflowStarted, "main", None),
+            RuntimeTraceEvent::new(2, RuntimeTraceKind::ActionCalled, "issue_refund", None),
+            RuntimeTraceEvent::new(3, RuntimeTraceKind::FunctionCalled, "calculate_fee", None),
+            RuntimeTraceEvent::new(4, RuntimeTraceKind::ConnectorCalled, "payments.find", None),
+            RuntimeTraceEvent::new(5, RuntimeTraceKind::AuditLogged, "refund_issued", None),
+        ];
+
+        let report = DebugReport::from_trace("main", Ok(()), None, breakpoints, &trace);
+        let adapter = report.to_adapter_json();
+
+        assert_eq!(adapter["protocol"], "num.debug.adapter.v1");
+        assert_eq!(adapter["threads"][0]["name"], "workflow:main");
+        assert_eq!(adapter["breakpoints"].as_array().unwrap().len(), 5);
+        assert_eq!(adapter["stopped_events"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            adapter["stopped_events"][0]["frame"]["name"],
+            "workflow main"
+        );
+        assert_eq!(
+            adapter["stopped_events"][1]["frame"]["name"],
+            "action issue_refund"
+        );
+        assert_eq!(
+            adapter["stopped_events"][2]["frame"]["name"],
+            "function calculate_fee"
+        );
+        assert_eq!(
+            adapter["stopped_events"][3]["frame"]["name"],
+            "connector payments.find"
+        );
+        assert_eq!(
+            adapter["stopped_events"][4]["scopes"]["scopes"][0]["name"],
+            "Audit"
+        );
+        assert_eq!(
+            adapter["stopped_events"][4]["scopes"]["scopes"][0]["variables"][2]["value"],
+            "refund_issued"
+        );
+    }
+
+    #[test]
+    fn debug_adapter_model_makes_unsupported_step_continue_explicit() {
+        let report = DebugReport::from_trace("main", Ok(()), None, vec![], &[]);
+        let adapter = report.to_adapter_json();
+
+        assert_eq!(adapter["capabilities"]["supports_continue"], false);
+        assert_eq!(adapter["capabilities"]["supports_next"], false);
+        assert_eq!(adapter["capabilities"]["supports_step_in"], false);
+        assert_eq!(adapter["capabilities"]["supports_step_out"], false);
+        assert!(adapter["capabilities"]["unsupported_requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "continue"));
+        assert_eq!(
+            adapter["capabilities"]["execution_model"],
+            "scripted trace replay; breakpoints are reported as hits after workflow execution"
+        );
+    }
+
+    #[test]
+    fn debug_json_includes_adapter_boundary_without_dropping_cli_trace() {
+        let breakpoint = BreakpointSpec::parse("workflow:main").unwrap();
+        let trace = vec![RuntimeTraceEvent::new(
+            1,
+            RuntimeTraceKind::WorkflowStarted,
+            "main",
+            None,
+        )];
+
+        let report = DebugReport::from_trace("main", Ok(()), None, vec![breakpoint], &trace);
+        let payload = report.to_json();
+
+        assert_eq!(payload["trace"][0]["kind"], "WorkflowStarted");
+        assert_eq!(payload["debug_adapter"]["protocol"], "num.debug.adapter.v1");
+        assert_eq!(
+            payload["debug_adapter"]["stopped_events"][0]["frame_id"],
+            "trace:1"
+        );
     }
 
     #[test]

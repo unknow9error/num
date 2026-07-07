@@ -97,6 +97,7 @@ Not implemented yet:
 - extension-managed installation of the CLI outside release installers;
 - multi-root project graph awareness;
 - advanced refactors beyond module/import rename;
-- IDE debugger integration; scripted CLI debugging is available through
-  `num debug`;
+- IDE debugger UI integration; scripted CLI debugging is available through
+  `num debug`, and `num debug --json` exposes a `num.debug.adapter.v1` JSON
+  boundary for a future Debug Adapter Protocol server;
 - test explorer integration.
