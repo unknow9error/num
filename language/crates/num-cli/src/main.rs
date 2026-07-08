@@ -779,14 +779,28 @@ fn run() -> Result<(), String> {
         "connector-sdk" => connector_sdk_cli::run(args),
         "import" => match args.next().as_deref() {
             Some("openapi") => {
-                let path = args.next().map(PathBuf::from).ok_or_else(|| {
-                    "usage: num import openapi <openapi.json|yaml> [module.name]".to_string()
+                let mut client = false;
+                let first = args.next().ok_or_else(|| {
+                    "usage: num import openapi [--client] <openapi.json|yaml> [module.name]"
+                        .to_string()
                 })?;
+                let raw_path = if first == "--client" {
+                    client = true;
+                    args.next().ok_or_else(|| {
+                        "usage: num import openapi [--client] <openapi.json|yaml> [module.name]"
+                            .to_string()
+                    })?
+                } else {
+                    first
+                };
+                let path = PathBuf::from(raw_path);
                 let module_name = args.next();
-                print!(
-                    "{}",
+                let output = if client {
+                    openapi::import_openapi_client(&path, module_name.as_deref())?
+                } else {
                     openapi::import_openapi(&path, module_name.as_deref())?
-                );
+                };
+                print!("{output}");
                 Ok(())
             }
             Some("sql") => {
@@ -1714,7 +1728,7 @@ fn version_json() -> serde_json::Value {
 
 fn help_text() -> String {
     format!(
-        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] [--bearer <jwt>] [--cookie <cookie-header>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi <json|yaml> [module]      Generate .num connector contracts\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num import sql --plan <old.sql> <new.sql>    Compare SQL schema files and report a migration plan\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
+        "num {}\n\nCommands:\n  num check <file.num|dir>                     Parse and validate num source\n  num lint <file.num|dir>                      Run project quality/security lints\n  num fmt [--write|--check] <file.num|dir>     Format source or verify formatting\n  num ir <file.num>                            Print lowered IR\n  num run <file.num|dir> [--json]              Validate and workflow runtime dry-run\n  num test <file.num|dir>                      Run .num test declarations\n  num trace <file.num|dir>                     Run workflow and print runtime trace JSON\n  num debug <file.num|dir> [workflow]          Run workflow with scripted breakpoints\n  num deploy [project-dir|file] [--check|--apply|--kubernetes-dry-run] Build/materialize deployment artifacts\n  num compat [project-dir|file] [--json]       Check language/schema compatibility\n  num migrate [project-dir|file] [--write] [--json] Plan or apply manifest migrations\n  num migrate [project-dir|file] --source [--json] Plan source migrations\n  num upgrade-version [project-dir|file]       Plan/apply manifest version upgrades\n  num bench [fixture-root] [--json|--compare] Benchmark lex/parse/check fixtures\n  num release-plan [CHANGELOG.md] [--json]     Compute SemVer release bump\n  num version [--json]                         Print CLI/language/schema versions\n  num registry <publish|list|index|install>    Manage local package registries\n  num workflow <enqueue|drain|lease-heartbeat> Queue/drain durable workflow events\n  num connector <probe>                        Probe process connector bindings\n  num connector-sdk [project-dir|file]         Generate connector implementation SDKs\n  num cost-report <file.num|dir> [--json]      Run workflow and summarize action costs\n  num audit-report <events.jsonl> [--json]     Summarize audit JSONL events\n  num workflow-report <state-root|project> [--json] Summarize workflow state files\n  num route <file.num|dir> <METHOD> <PATH> [service] [--tenant <tenant>] [--bearer <jwt>] [--cookie <cookie-header>] Dry-run a service route\n  num serve <file.num|dir> [addr] [service]    Serve HTTP requests for a service\n  num serve-once <file.num|dir> [addr] [service] Serve one HTTP request for a service\n  num new <name>                               Create a new num project\n  num lock [project-dir|file] [--check|--migrate] Generate, validate, or migrate num.lock\n  num import openapi [--client] <json|yaml> [module] Generate .num contracts or a TS client stub\n  num import sql <schema.sql> [module]         Generate .num database contracts\n  num import sql --plan <old.sql> <new.sql>    Compare SQL schema files and report a migration plan\n  num completions <bash|fish|zsh>              Print shell completion script\n  num lsp                                      Start the LSP server\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1765,6 +1779,8 @@ _num()
         import)
             if [[ $cword -eq 2 ]]; then
                 COMPREPLY=( $(compgen -W "openapi sql" -- "$cur") )
+            elif [[ "${words[2]}" == "openapi" && $cword -eq 3 ]]; then
+                COMPREPLY=( $(compgen -W "--client" -- "$cur") $(compgen -f -- "$cur") )
             else
                 COMPREPLY=( $(compgen -f -- "$cur") )
             fi
@@ -1827,6 +1843,7 @@ complete -c num -f -n "__fish_seen_subcommand_from registry" -a "publish list in
 complete -c num -f -n "__fish_seen_subcommand_from workflow" -a "enqueue drain lease-heartbeat"
 complete -c num -f -n "__fish_seen_subcommand_from connector" -a "probe"
 complete -c num -f -n "__fish_seen_subcommand_from import" -a "openapi sql"
+complete -c num -f -n "__fish_seen_subcommand_from openapi" -l "client" -d "Generate a TypeScript OpenAPI transport client stub"
 complete -c num -f -n "__fish_seen_subcommand_from completions" -a "bash fish zsh"
 
 complete -c num -n "__fish_seen_subcommand_from check lint fmt ir run test trace debug deploy compat migrate upgrade-version bench release-plan connector-sdk cost-report route serve serve-once lock" -a "(__fish_complete_suffix .num)"
@@ -1908,7 +1925,7 @@ _num() {
       _files -/
       ;;
     import)
-      _values 'import kind' openapi sql
+      _arguments '3:import kind:(openapi sql)' '4:openapi option or file:(--client)'
       ;;
     registry)
       _values 'registry command' publish list index install

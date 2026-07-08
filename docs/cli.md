@@ -1123,6 +1123,7 @@ document.
 ```bash
 num import openapi openapi.json generated.billing > src/billing_api.num
 num import openapi openapi.yaml generated.billing > src/billing_api.num
+num import openapi --client openapi.json generated.billing > generated/billing_client.ts
 ```
 
 The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
@@ -1158,13 +1159,22 @@ The importer currently handles a focused OpenAPI 3 JSON/YAML subset:
 - scalar schemas map to `Text`, `Int`, `Float`, `Bool`, `Json`, `List<T>`, and
   nullable fields map to `Option<T>`.
 
+`--client` emits a minimal TypeScript transport stub from the same OpenAPI
+metadata. The stub includes component type declarations, a
+`NumOpenApiTransport` interface, and one client method per operation. Generated
+methods preserve the HTTP method, path template, path parameters, query
+parameters, and JSON request body in a request envelope passed to the injected
+transport. The transport is intentionally supplied by the application so auth,
+serialization, retries, TLS, tracing, and actual HTTP execution stay explicit.
+
 Executable authentication bindings, `oneOf` beyond named object union aliases,
 broad composition beyond simple object `allOf` merges, executable paginated
-clients, executable callbacks/links, generated runtime clients, and
+clients, executable callbacks/links, generated full runtime clients, and
 automatically correct production policies are not implemented yet. Pagination
 comments are review metadata only: edit generated connector wrappers, policies,
-and runtime code before relying on them in production. Unsupported security
-schemes are emitted as comments rather than silently dropped.
+transport code, and runtime code before relying on them in production.
+Unsupported security schemes are emitted as comments rather than silently
+dropped.
 
 ### `import sql`
 

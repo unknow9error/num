@@ -605,6 +605,10 @@ Implemented:
   comments, and simple `allOf` object-schema merges for generated component
   types, plus component-level `oneOf` union aliases when every variant is a
   local `$ref` to a representable object schema.
+- OpenAPI TypeScript client stub generation for the focused import subset,
+  preserving operation names, HTTP methods, path templates, path/query
+  parameters, JSON request bodies, response type names, and unsupported auth or
+  pagination metadata as review comments behind an injected transport boundary.
 - SQL schema import for a focused database-contract subset: `CREATE TABLE`
   columns, common scalar types, nullable columns, inline primary keys, table
   types, single-column and composite table-level primary keys, basic
@@ -625,7 +629,8 @@ Implemented:
 Not yet implemented:
 
 - managed connector hosting;
-- generated network-native runtime clients;
+- generated network-native runtime clients beyond the minimal OpenAPI
+  TypeScript transport stub;
 - connector SDK targets beyond TypeScript/Python declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
@@ -636,7 +641,8 @@ Not yet implemented:
 - full OpenAPI coverage such as executable authentication bindings,
   automatically correct production policies, `oneOf` beyond named object union
   aliases, broad composition beyond simple object `allOf` merges, executable
-  paginated clients, executable callbacks/links, and generated runtime clients.
+  paginated clients, executable callbacks/links, and generated full runtime
+  clients.
 - full SQL/database import coverage such as executable foreign-key relation
   loading, expression/partial/dialect-specific indexes, executable migrations,
   dialect-specific features, and generated runtime clients.
