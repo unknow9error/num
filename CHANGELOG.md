@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.24 - 2026-07-08
+
+### Patch
+
 - Added a runtime connector registration boundary for hosted implementations,
   including context-aware in-process handlers, registered method introspection,
   structured hosted failures, and documentation for local runtime selection.
