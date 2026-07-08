@@ -410,6 +410,7 @@ Demonstrates:
 - generated Python stubs for process connector implementations.
 - generated Java interface contracts plus a tiny Java implementation fixture.
 - generated C safe-wrapper header contracts plus a tiny C syntax fixture.
+- generated Rust JSON-ABI contract traits plus a tiny Rust fixture crate.
 
 Useful commands:
 
@@ -427,9 +428,13 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language c \
   --out examples/connector_echo_pipeline/generated/num_connectors.h
+num connector-sdk examples/connector_echo_pipeline \
+  --language rust \
+  --out examples/connector_echo_pipeline/generated/num_connectors.rs
 cc -std=c11 -fsyntax-only \
   -I examples/connector_echo_pipeline/generated \
   examples/connector_echo_pipeline/c/echo_connector_fixture.c
+cargo test --manifest-path examples/connector_echo_pipeline/rust/Cargo.toml
 num run examples/connector_echo_pipeline
 ```
 

@@ -643,6 +643,11 @@ Implemented:
   `NumCContext` timeout/audit metadata, and structured `NumCStatus` failures,
   while unsafe or unsupported C boundary shapes stay explicit as
   `NumCUnsupported`.
+- Rust connector implementation contract generation for visible `.num` structs,
+  aliases, enums, top-level functions, connector method signatures, explicit
+  request/tenant/audit context, serde_json JSON ABI values, and structured
+  `NumConnectorError` panic/error mapping through generated `num_invoke_*`
+  wrappers without executable Rust module loading.
 - Runtime connector registration boundary for embedded hosted implementations:
   `StaticConnectorRegistry` registers supported `connector.method` names,
   context-aware handlers receive `ConnectorCallContext`, `ChainedConnectorExecutor`
@@ -655,7 +660,7 @@ Not yet implemented:
   boundary;
 - generated network-native runtime clients beyond the minimal OpenAPI
   TypeScript transport stub;
-- connector SDK targets beyond TypeScript/Python/Java/C declarations;
+- connector SDK targets beyond TypeScript/Python/Java/C/Rust declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;
@@ -663,6 +668,8 @@ Not yet implemented:
   generation, async callbacks, and executable Java connector adapters;
 - raw native C calls, raw pointers, callbacks, shared memory, unmanaged native
   threads, and executable C runtime adapters;
+- raw Rust pointer interop, shared mutable state across the boundary, unmanaged
+  native threads, and executable Rust runtime adapters;
 - production database adapters beyond the generated SQL TypeScript client
   boundary;
 - managed/network connector cancellation beyond local process timeout
