@@ -60,6 +60,42 @@ pub struct OcrResultValue {
     pub trust: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedDocumentTextValue {
+    pub document: DocumentValue,
+    pub text: String,
+    pub provider: String,
+    pub model: String,
+    pub source: String,
+    pub privacy: String,
+    pub trust: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentExtractionMetadataValue {
+    pub document: DocumentValue,
+    pub title: String,
+    pub author: String,
+    pub language: String,
+    pub page_count: i64,
+    pub provider: String,
+    pub source: String,
+    pub privacy: String,
+    pub trust: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentExtractionErrorValue {
+    pub document: DocumentValue,
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+    pub provider: String,
+    pub source: String,
+    pub privacy: String,
+    pub trust: String,
+}
+
 impl std::fmt::Display for DocumentValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -126,6 +162,36 @@ impl std::fmt::Display for OcrResultValue {
             f,
             "<ocr_result image=\"{}\" provider=\"{}\" confidence={:.2} trust=\"{}\">",
             self.image.document.id, self.provider, self.confidence, self.trust
+        )
+    }
+}
+
+impl std::fmt::Display for ExtractedDocumentTextValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<extracted_document_text document=\"{}\" provider=\"{}\" trust=\"{}\">",
+            self.document.id, self.provider, self.trust
+        )
+    }
+}
+
+impl std::fmt::Display for DocumentExtractionMetadataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<document_extraction_metadata document=\"{}\" provider=\"{}\" pages={}>",
+            self.document.id, self.provider, self.page_count
+        )
+    }
+}
+
+impl std::fmt::Display for DocumentExtractionErrorValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<document_extraction_error document=\"{}\" code=\"{}\" retryable={}>",
+            self.document.id, self.code, self.retryable
         )
     }
 }
@@ -297,6 +363,93 @@ impl OcrResultValue {
     }
 }
 
+impl ExtractedDocumentTextValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "document" => Some(crate::interpreter::Value::Document(self.document.clone())),
+            "text" => Some(crate::interpreter::Value::String(self.text.clone())),
+            "provider" => Some(crate::interpreter::Value::String(self.provider.clone())),
+            "model" => Some(crate::interpreter::Value::String(self.model.clone())),
+            "source" => Some(crate::interpreter::Value::String(self.source.clone())),
+            "privacy" => Some(crate::interpreter::Value::String(self.privacy.clone())),
+            "trust" => Some(crate::interpreter::Value::String(self.trust.clone())),
+            _ => self.document.field(field),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "document": self.document.to_json(),
+            "text": self.text,
+            "provider": self.provider,
+            "model": self.model,
+            "source": self.source,
+            "privacy": self.privacy,
+            "trust": self.trust,
+        })
+    }
+}
+
+impl DocumentExtractionMetadataValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "document" => Some(crate::interpreter::Value::Document(self.document.clone())),
+            "title" => Some(crate::interpreter::Value::String(self.title.clone())),
+            "author" => Some(crate::interpreter::Value::String(self.author.clone())),
+            "language" => Some(crate::interpreter::Value::String(self.language.clone())),
+            "page_count" => Some(crate::interpreter::Value::Int(self.page_count)),
+            "provider" => Some(crate::interpreter::Value::String(self.provider.clone())),
+            "source" => Some(crate::interpreter::Value::String(self.source.clone())),
+            "privacy" => Some(crate::interpreter::Value::String(self.privacy.clone())),
+            "trust" => Some(crate::interpreter::Value::String(self.trust.clone())),
+            _ => self.document.field(field),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "document": self.document.to_json(),
+            "title": self.title,
+            "author": self.author,
+            "language": self.language,
+            "page_count": self.page_count,
+            "provider": self.provider,
+            "source": self.source,
+            "privacy": self.privacy,
+            "trust": self.trust,
+        })
+    }
+}
+
+impl DocumentExtractionErrorValue {
+    pub fn field(&self, field: &str) -> Option<crate::interpreter::Value> {
+        match field {
+            "document" => Some(crate::interpreter::Value::Document(self.document.clone())),
+            "code" => Some(crate::interpreter::Value::String(self.code.clone())),
+            "message" => Some(crate::interpreter::Value::String(self.message.clone())),
+            "retryable" => Some(crate::interpreter::Value::Bool(self.retryable)),
+            "provider" => Some(crate::interpreter::Value::String(self.provider.clone())),
+            "source" => Some(crate::interpreter::Value::String(self.source.clone())),
+            "privacy" => Some(crate::interpreter::Value::String(self.privacy.clone())),
+            "trust" => Some(crate::interpreter::Value::String(self.trust.clone())),
+            _ => self.document.field(field),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        json!({
+            "document": self.document.to_json(),
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            "provider": self.provider,
+            "source": self.source,
+            "privacy": self.privacy,
+            "trust": self.trust,
+        })
+    }
+}
+
 pub fn value_from_json(json: &JsonValue) -> Result<DocumentValue, String> {
     let object = json
         .as_object()
@@ -460,6 +613,90 @@ pub fn ocr_result_from_json(json: &JsonValue) -> Result<OcrResultValue, String> 
     })
 }
 
+pub fn extracted_document_text_from_json(
+    json: &JsonValue,
+) -> Result<ExtractedDocumentTextValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$extracted_document_text")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for ExtractedDocumentText".to_string())?;
+    let document = object
+        .get("document")
+        .ok_or_else(|| "ExtractedDocumentText field `document` is required".to_string())
+        .and_then(value_from_json)?;
+    Ok(ExtractedDocumentTextValue {
+        document,
+        text: required_string(object, "text")?,
+        provider: required_string(object, "provider")?,
+        model: required_string(object, "model")?,
+        source: optional_string(object, "source")?,
+        privacy: optional_string(object, "privacy")?,
+        trust: optional_string(object, "trust")?,
+    })
+}
+
+pub fn document_extraction_metadata_from_json(
+    json: &JsonValue,
+) -> Result<DocumentExtractionMetadataValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$document_extraction_metadata")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for DocumentExtractionMetadata".to_string())?;
+    let document = object
+        .get("document")
+        .ok_or_else(|| "DocumentExtractionMetadata field `document` is required".to_string())
+        .and_then(value_from_json)?;
+    Ok(DocumentExtractionMetadataValue {
+        document,
+        title: optional_string(object, "title")?,
+        author: optional_string(object, "author")?,
+        language: optional_string(object, "language")?,
+        page_count: required_i64(object, "page_count")?,
+        provider: required_string(object, "provider")?,
+        source: optional_string(object, "source")?,
+        privacy: optional_string(object, "privacy")?,
+        trust: optional_string(object, "trust")?,
+    })
+}
+
+pub fn document_extraction_error_from_json(
+    json: &JsonValue,
+) -> Result<DocumentExtractionErrorValue, String> {
+    let object = json
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("$document_extraction_error")
+                .and_then(JsonValue::as_object)
+                .or(Some(object))
+        })
+        .ok_or_else(|| "expected object for DocumentExtractionError".to_string())?;
+    let document = object
+        .get("document")
+        .ok_or_else(|| "DocumentExtractionError field `document` is required".to_string())
+        .and_then(value_from_json)?;
+    Ok(DocumentExtractionErrorValue {
+        document,
+        code: required_string(object, "code")?,
+        message: required_string(object, "message")?,
+        retryable: required_bool(object, "retryable")?,
+        provider: required_string(object, "provider")?,
+        source: optional_string(object, "source")?,
+        privacy: optional_string(object, "privacy")?,
+        trust: optional_string(object, "trust")?,
+    })
+}
+
 pub fn connector_json(value: &DocumentValue) -> JsonValue {
     json!({ "$document": value.to_json() })
 }
@@ -486,6 +723,20 @@ pub fn image_connector_json(value: &ImageValue) -> JsonValue {
 
 pub fn ocr_result_connector_json(value: &OcrResultValue) -> JsonValue {
     json!({ "$ocr_result": value.to_json() })
+}
+
+pub fn extracted_document_text_connector_json(value: &ExtractedDocumentTextValue) -> JsonValue {
+    json!({ "$extracted_document_text": value.to_json() })
+}
+
+pub fn document_extraction_metadata_connector_json(
+    value: &DocumentExtractionMetadataValue,
+) -> JsonValue {
+    json!({ "$document_extraction_metadata": value.to_json() })
+}
+
+pub fn document_extraction_error_connector_json(value: &DocumentExtractionErrorValue) -> JsonValue {
+    json!({ "$document_extraction_error": value.to_json() })
 }
 
 pub fn parse_pdf_metadata(document: DocumentValue, bytes: &[u8]) -> Result<PdfValue, String> {
@@ -608,6 +859,63 @@ pub fn ocr_result(
     })
 }
 
+pub fn extracted_document_text(
+    document: DocumentValue,
+    text: String,
+    provider: String,
+    model: String,
+) -> ExtractedDocumentTextValue {
+    ExtractedDocumentTextValue {
+        source: format!("DocumentExtraction:{provider}"),
+        privacy: document.privacy.clone(),
+        trust: "untrusted".to_string(),
+        document,
+        text,
+        provider,
+        model,
+    }
+}
+
+pub fn document_extraction_metadata(
+    document: DocumentValue,
+    title: String,
+    author: String,
+    language: String,
+    page_count: i64,
+    provider: String,
+) -> DocumentExtractionMetadataValue {
+    DocumentExtractionMetadataValue {
+        source: format!("DocumentExtraction:{provider}"),
+        privacy: document.privacy.clone(),
+        trust: "untrusted".to_string(),
+        document,
+        title,
+        author,
+        language,
+        page_count,
+        provider,
+    }
+}
+
+pub fn document_extraction_error(
+    document: DocumentValue,
+    code: String,
+    message: String,
+    retryable: bool,
+    provider: String,
+) -> DocumentExtractionErrorValue {
+    DocumentExtractionErrorValue {
+        source: format!("DocumentExtraction:{provider}"),
+        privacy: document.privacy.clone(),
+        trust: "trusted".to_string(),
+        document,
+        code,
+        message,
+        retryable,
+        provider,
+    }
+}
+
 fn required_string(object: &Map<String, JsonValue>, key: &str) -> Result<String, String> {
     object
         .get(key)
@@ -637,6 +945,13 @@ fn required_f64(object: &Map<String, JsonValue>, key: &str) -> Result<f64, Strin
         .get(key)
         .and_then(JsonValue::as_f64)
         .ok_or_else(|| format!("Document field `{key}` must be a number"))
+}
+
+fn required_bool(object: &Map<String, JsonValue>, key: &str) -> Result<bool, String> {
+    object
+        .get(key)
+        .and_then(JsonValue::as_bool)
+        .ok_or_else(|| format!("Document field `{key}` must be a boolean"))
 }
 
 fn parse_png_dimensions(bytes: &[u8]) -> Result<(String, i64, i64), String> {

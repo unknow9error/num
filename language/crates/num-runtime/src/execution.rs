@@ -380,6 +380,15 @@ fn runtime_value_to_json(value: &Value) -> JsonValue {
         Value::Spreadsheet(value) => json!({"kind": "Spreadsheet", "value": value.to_json()}),
         Value::Image(value) => json!({"kind": "Image", "value": value.to_json()}),
         Value::OcrResult(value) => json!({"kind": "OcrResult", "value": value.to_json()}),
+        Value::ExtractedDocumentText(value) => {
+            json!({"kind": "ExtractedDocumentText", "value": value.to_json()})
+        }
+        Value::DocumentExtractionMetadata(value) => {
+            json!({"kind": "DocumentExtractionMetadata", "value": value.to_json()})
+        }
+        Value::DocumentExtractionError(value) => {
+            json!({"kind": "DocumentExtractionError", "value": value.to_json()})
+        }
         Value::Money(minor_units, currency) => {
             json!({"kind": "Money", "minor_units": minor_units, "currency": currency})
         }
@@ -519,6 +528,27 @@ fn json_to_runtime_value(value: &JsonValue) -> Result<Value, RuntimeError> {
                 .ok_or_else(|| storage_error("missing OCR result value"))?,
         )
         .map(Value::OcrResult)
+        .map_err(storage_error),
+        "ExtractedDocumentText" => crate::document::extracted_document_text_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing extracted document text value"))?,
+        )
+        .map(Value::ExtractedDocumentText)
+        .map_err(storage_error),
+        "DocumentExtractionMetadata" => crate::document::document_extraction_metadata_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing document extraction metadata value"))?,
+        )
+        .map(Value::DocumentExtractionMetadata)
+        .map_err(storage_error),
+        "DocumentExtractionError" => crate::document::document_extraction_error_from_json(
+            value
+                .get("value")
+                .ok_or_else(|| storage_error("missing document extraction error value"))?,
+        )
+        .map(Value::DocumentExtractionError)
         .map_err(storage_error),
         "Money" => Ok(Value::Money(
             i128_field(value, "minor_units")?,
@@ -1080,6 +1110,68 @@ mod tests {
 
         let store = FileIdempotencyStore::new(&root);
         let record = store.load("document/parse").unwrap().unwrap();
+
+        assert_eq!(record.outcome, ExecutionOutcome::Succeeded(value));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_idempotency_store_round_trips_document_extraction_records() {
+        let root = unique_test_dir("document-extraction");
+        let action = action_spec("extract_document", Some("document/extract"));
+        let document = crate::document::DocumentValue {
+            id: "doc_1".to_string(),
+            name: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size_bytes: 4096,
+            source: "Upload".to_string(),
+            privacy: "private".to_string(),
+            trust: "untrusted".to_string(),
+        };
+        let value = Value::Struct(
+            "DocumentExtractionRecord".to_string(),
+            HashMap::from([
+                (
+                    "text".to_string(),
+                    Value::ExtractedDocumentText(crate::document::extracted_document_text(
+                        document.clone(),
+                        "Invoice total".to_string(),
+                        "fake-doc-extractor".to_string(),
+                        "fixture-v1".to_string(),
+                    )),
+                ),
+                (
+                    "metadata".to_string(),
+                    Value::DocumentExtractionMetadata(
+                        crate::document::document_extraction_metadata(
+                            document.clone(),
+                            "Contract".to_string(),
+                            "Ada".to_string(),
+                            "en".to_string(),
+                            3,
+                            "fake-doc-extractor".to_string(),
+                        ),
+                    ),
+                ),
+                (
+                    "failure".to_string(),
+                    Value::DocumentExtractionError(crate::document::document_extraction_error(
+                        document,
+                        "unsupported_encrypted_pdf".to_string(),
+                        "encrypted PDFs require a reviewed connector".to_string(),
+                        false,
+                        "fake-doc-extractor".to_string(),
+                    )),
+                ),
+            ]),
+        );
+        let mut executor = ActionExecutor::new(FileIdempotencyStore::new(&root));
+        executor
+            .execute(&action, RetryPolicy::none(), None, |_| Ok(value.clone()))
+            .unwrap();
+
+        let store = FileIdempotencyStore::new(&root);
+        let record = store.load("document/extract").unwrap().unwrap();
 
         assert_eq!(record.outcome, ExecutionOutcome::Succeeded(value));
         let _ = std::fs::remove_dir_all(root);

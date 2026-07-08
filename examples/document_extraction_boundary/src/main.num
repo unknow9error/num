@@ -1,0 +1,84 @@
+module examples.document_extraction_boundary
+
+enum DocumentTextExtraction {
+    TextExtracted(ExtractedDocumentText)
+    TextFailed(DocumentExtractionError)
+}
+
+enum DocumentMetadataExtraction {
+    MetadataExtracted(DocumentExtractionMetadata)
+    MetadataFailed(DocumentExtractionError)
+}
+
+connector documents {
+    extract_text(document: Document) -> DocumentTextExtraction
+    extract_metadata(document: Document) -> DocumentMetadataExtraction
+}
+
+policy DocumentExtractionPolicy {
+    allow private Upload -> documents.extract_text
+    allow private Upload -> documents.extract_metadata
+}
+
+workflow inspect_document(document: Document from Upload private untrusted) {
+    let text_result: DocumentTextExtraction = documents.extract_text(document)
+    match text_result {
+        TextExtracted(extracted) => {
+            audit("document_text_extracted")
+            audit(extracted.source)
+            audit(extracted.privacy)
+            audit(extracted.trust)
+            audit(extracted.provider)
+        }
+        TextFailed(error) => {
+            audit("document_extraction_failed")
+            audit(error.code)
+            audit(error.message)
+            audit(error.retryable)
+            audit(error.source)
+        }
+    }
+
+    let metadata_result: DocumentMetadataExtraction = documents.extract_metadata(document)
+    match metadata_result {
+        MetadataExtracted(metadata) => {
+            audit("document_metadata_extracted")
+            audit(metadata.title)
+            audit(metadata.language)
+            audit(metadata.page_count)
+            audit(metadata.privacy)
+            audit(metadata.trust)
+        }
+        MetadataFailed(error) => {
+            audit("document_metadata_failed")
+            audit(error.code)
+        }
+    }
+}
+
+workflow summarize_after_review(extracted: ExtractedDocumentText from DocumentExtraction private untrusted) {
+    let prompt: Text trusted = sanitize(extracted.text)
+    let summary: Uncertain<Text> = ai.summarize(prompt)
+    if summary.confidence < 0.85 {
+        require_human_review(extracted)
+    }
+    audit(summary.value)
+}
+
+test workflow "fake extractor success" {
+    mock_connector documents.extract_text(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted")) => DocumentTextExtraction.TextExtracted(extracted_document_text(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"), "Invoice total", "fake-doc-extractor", "fixture-v1"))
+    mock_connector documents.extract_metadata(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted")) => DocumentMetadataExtraction.MetadataExtracted(document_extraction_metadata(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"), "Contract", "Ada", "en", 3, "fake-doc-extractor"))
+    expect_workflow_success inspect_document(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"))
+    expect_audit "document_text_extracted"
+    expect_audit "document_metadata_extracted"
+    expect_audit "DocumentExtraction:fake-doc-extractor"
+}
+
+test workflow "fake extractor failure" {
+    mock_connector documents.extract_text(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted")) => DocumentTextExtraction.TextFailed(document_extraction_error(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted"), "unsupported_encrypted_pdf", "encrypted PDFs require a reviewed connector", false, "fake-doc-extractor"))
+    mock_connector documents.extract_metadata(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted")) => DocumentMetadataExtraction.MetadataFailed(document_extraction_error(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted"), "unsupported_encrypted_pdf", "encrypted PDFs require a reviewed connector", false, "fake-doc-extractor"))
+    expect_workflow_success inspect_document(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted"))
+    expect_audit "document_extraction_failed"
+    expect_audit "document_metadata_failed"
+    expect_audit "unsupported_encrypted_pdf"
+}

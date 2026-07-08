@@ -278,6 +278,27 @@ Useful command:
 num check examples/image_ocr_metadata/src/main.num
 ```
 
+## `document_extraction_boundary`
+
+Path: `examples/document_extraction_boundary/src/main.num`
+
+Demonstrates:
+
+- connector signatures for document text and metadata extraction;
+- explicit success/failure outcome enums instead of runtime `Result<T,E>`;
+- deterministic fake extractor fixtures with `mock_connector`;
+- preserving source/privacy/trust labels on extracted text and metadata;
+- structured, auditable extraction failures;
+- sanitizing extracted text before AI use and routing low-confidence AI output
+  to human review.
+
+Useful commands:
+
+```bash
+num check examples/document_extraction_boundary/src/main.num
+num test examples/document_extraction_boundary/src/main.num
+```
+
 ## `datetime_deadlines`
 
 Path: `examples/datetime_deadlines/src/main.num`

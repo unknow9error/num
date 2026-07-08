@@ -4,7 +4,8 @@ use crate::connectors::{
 };
 use crate::cost::{CostEntry, CostLedger};
 use crate::document::{
-    DocumentValue, DocxValue, ImageValue, OcrResultValue, PdfValue, SpreadsheetSheetValue,
+    DocumentExtractionErrorValue, DocumentExtractionMetadataValue, DocumentValue, DocxValue,
+    ExtractedDocumentTextValue, ImageValue, OcrResultValue, PdfValue, SpreadsheetSheetValue,
     SpreadsheetValue,
 };
 use crate::execution::{ActionExecutor, MemoryIdempotencyStore, RetryPolicy};
@@ -64,6 +65,9 @@ pub enum Value {
     Spreadsheet(SpreadsheetValue),
     Image(ImageValue),
     OcrResult(OcrResultValue),
+    ExtractedDocumentText(ExtractedDocumentTextValue),
+    DocumentExtractionMetadata(DocumentExtractionMetadataValue),
+    DocumentExtractionError(DocumentExtractionErrorValue),
     Money(i128, String),
     ExchangeRate {
         from: String,
@@ -110,6 +114,9 @@ impl std::fmt::Display for Value {
             Value::Spreadsheet(spreadsheet) => write!(f, "{spreadsheet}"),
             Value::Image(image) => write!(f, "{image}"),
             Value::OcrResult(result) => write!(f, "{result}"),
+            Value::ExtractedDocumentText(value) => write!(f, "{value}"),
+            Value::DocumentExtractionMetadata(value) => write!(f, "{value}"),
+            Value::DocumentExtractionError(value) => write!(f, "{value}"),
             Value::Money(amount, currency) => write!(f, "{}.00 {}", amount / 100, currency),
             Value::ExchangeRate {
                 from,
@@ -361,6 +368,18 @@ fn value_to_idempotency_key(value: Value) -> String {
             value.provider,
             value.model,
             value.trust
+        ),
+        Value::ExtractedDocumentText(value) => format!(
+            "document-text:{}:{}:{}:{}",
+            value.document.id, value.text, value.provider, value.trust
+        ),
+        Value::DocumentExtractionMetadata(value) => format!(
+            "document-extraction-metadata:{}:{}:{}:{}:{}",
+            value.document.id, value.title, value.language, value.page_count, value.provider
+        ),
+        Value::DocumentExtractionError(value) => format!(
+            "document-extraction-error:{}:{}:{}:{}",
+            value.document.id, value.code, value.retryable, value.provider
         ),
         Value::Money(minor_units, currency) => format!("{minor_units}:{currency}"),
         Value::ExchangeRate {
@@ -1490,6 +1509,17 @@ impl<'a> Runtime<'a> {
                     Value::OcrResult(result) => result
                         .field(field)
                         .ok_or_else(|| format!("OcrResult value has no field '{}'", field)),
+                    Value::ExtractedDocumentText(value) => value.field(field).ok_or_else(|| {
+                        format!("ExtractedDocumentText value has no field '{}'", field)
+                    }),
+                    Value::DocumentExtractionMetadata(value) => {
+                        value.field(field).ok_or_else(|| {
+                            format!("DocumentExtractionMetadata value has no field '{}'", field)
+                        })
+                    }
+                    Value::DocumentExtractionError(value) => value.field(field).ok_or_else(|| {
+                        format!("DocumentExtractionError value has no field '{}'", field)
+                    }),
                     Value::Uncertain(val, conf) => match field.as_str() {
                         "confidence" => Ok(Value::Float(conf)),
                         "value" => Ok(*val),
@@ -1728,7 +1758,10 @@ impl<'a> Runtime<'a> {
             | "spreadsheet_sheet_metadata"
             | "spreadsheet_metadata"
             | "image_metadata"
-            | "ocr_result" => {
+            | "ocr_result"
+            | "extracted_document_text"
+            | "document_extraction_metadata"
+            | "document_extraction_error" => {
                 return self.call_document_helper(name, args);
             }
             "pdf_parse_metadata"
@@ -2593,6 +2626,73 @@ impl<'a> Runtime<'a> {
                 .map(Value::OcrResult)
                 .map_err(|reason| format!("{name} failed: {reason}"));
         }
+        if name == "extracted_document_text" {
+            if args.len() != 4 {
+                return Err(format!(
+                    "{name} expects a Document, text, provider, and model"
+                ));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let text = expect_text_arg(name, "text", args.next().unwrap_or(Value::Null))?;
+            let provider = expect_text_arg(name, "provider", args.next().unwrap_or(Value::Null))?;
+            let model = expect_text_arg(name, "model", args.next().unwrap_or(Value::Null))?;
+            return Ok(Value::ExtractedDocumentText(
+                crate::document::extracted_document_text(document, text, provider, model),
+            ));
+        }
+        if name == "document_extraction_metadata" {
+            if args.len() != 6 {
+                return Err(format!(
+                    "{name} expects a Document, title, author, language, page_count, and provider"
+                ));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let title = expect_text_arg(name, "title", args.next().unwrap_or(Value::Null))?;
+            let author = expect_text_arg(name, "author", args.next().unwrap_or(Value::Null))?;
+            let language = expect_text_arg(name, "language", args.next().unwrap_or(Value::Null))?;
+            let page_count = match args.next().unwrap_or(Value::Null) {
+                Value::Int(value) => value,
+                other => return Err(format!("{name} expects Int page_count, got {other}")),
+            };
+            let provider = expect_text_arg(name, "provider", args.next().unwrap_or(Value::Null))?;
+            return Ok(Value::DocumentExtractionMetadata(
+                crate::document::document_extraction_metadata(
+                    document, title, author, language, page_count, provider,
+                ),
+            ));
+        }
+        if name == "document_extraction_error" {
+            if args.len() != 5 {
+                return Err(format!(
+                    "{name} expects a Document, code, message, retryable, and provider"
+                ));
+            }
+            let mut args = args.into_iter();
+            let document = match args.next().unwrap_or(Value::Null) {
+                Value::Document(value) => value,
+                other => return Err(format!("{name} expects Document metadata, got {other}")),
+            };
+            let code = expect_text_arg(name, "code", args.next().unwrap_or(Value::Null))?;
+            let message = expect_text_arg(name, "message", args.next().unwrap_or(Value::Null))?;
+            let retryable = match args.next().unwrap_or(Value::Null) {
+                Value::Bool(value) => value,
+                other => return Err(format!("{name} expects Bool retryable, got {other}")),
+            };
+            let provider = expect_text_arg(name, "provider", args.next().unwrap_or(Value::Null))?;
+            return Ok(Value::DocumentExtractionError(
+                crate::document::document_extraction_error(
+                    document, code, message, retryable, provider,
+                ),
+            ));
+        }
         if name != "document_metadata" {
             return Err(format!("unknown document helper `{name}`"));
         }
@@ -3311,18 +3411,18 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Int(i) => i.to_string(),
         Value::Float(f) => f.to_string(),
         Value::Decimal(value) => format!("decimal_parse(\"{value}\")"),
-        Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+        Value::String(s) => format!("\"{}\"", string_literal_contents(s)),
         Value::Bytes(bytes) => format!("bytes_from_base64(\"{}\")", hashing::base64_encode(bytes)),
-        Value::Xml(raw) => format!("xml_parse(\"{}\")", raw.replace('"', "\\\"")),
+        Value::Xml(raw) => format!("xml_parse(\"{}\")", string_literal_contents(raw)),
         Value::Document(document) => format!(
             "document_metadata(\"{}\", \"{}\", \"{}\", {}, \"{}\", \"{}\", \"{}\")",
-            document.id.replace('"', "\\\""),
-            document.name.replace('"', "\\\""),
-            document.mime_type.replace('"', "\\\""),
+            string_literal_contents(&document.id),
+            string_literal_contents(&document.name),
+            string_literal_contents(&document.mime_type),
             document.size_bytes,
-            document.source.replace('"', "\\\""),
-            document.privacy.replace('"', "\\\""),
-            document.trust.replace('"', "\\\"")
+            string_literal_contents(&document.source),
+            string_literal_contents(&document.privacy),
+            string_literal_contents(&document.trust)
         ),
         Value::Pdf(pdf) => format!(
             "pdf_metadata({}, {})",
@@ -3332,13 +3432,13 @@ fn value_to_literal_str(val: &Value) -> String {
         Value::Docx(docx) => format!(
             "docx_metadata({}, \"{}\", \"{}\", {})",
             value_to_literal_str(&Value::Document(docx.document.clone())),
-            docx.title.replace('"', "\\\""),
-            docx.creator.replace('"', "\\\""),
+            string_literal_contents(&docx.title),
+            string_literal_contents(&docx.creator),
             docx.paragraph_count
         ),
         Value::SpreadsheetSheet(sheet) => format!(
             "spreadsheet_sheet_metadata(\"{}\", {}, {}, {})",
-            sheet.name.replace('"', "\\\""),
+            string_literal_contents(&sheet.name),
             sheet.row_count,
             sheet.column_count,
             sheet.header_row
@@ -3362,15 +3462,39 @@ fn value_to_literal_str(val: &Value) -> String {
             value_to_literal_str(&Value::Document(image.document.clone())),
             image.width,
             image.height,
-            image.format.replace('"', "\\\"")
+            string_literal_contents(&image.format)
         ),
         Value::OcrResult(result) => format!(
             "ocr_result({}, \"{}\", {}, \"{}\", \"{}\")",
             value_to_literal_str(&Value::Image(result.image.clone())),
-            result.text.replace('"', "\\\""),
+            string_literal_contents(&result.text),
             result.confidence,
-            result.provider.replace('"', "\\\""),
-            result.model.replace('"', "\\\"")
+            string_literal_contents(&result.provider),
+            string_literal_contents(&result.model)
+        ),
+        Value::ExtractedDocumentText(value) => format!(
+            "extracted_document_text({}, \"{}\", \"{}\", \"{}\")",
+            value_to_literal_str(&Value::Document(value.document.clone())),
+            string_literal_contents(&value.text),
+            string_literal_contents(&value.provider),
+            string_literal_contents(&value.model)
+        ),
+        Value::DocumentExtractionMetadata(value) => format!(
+            "document_extraction_metadata({}, \"{}\", \"{}\", \"{}\", {}, \"{}\")",
+            value_to_literal_str(&Value::Document(value.document.clone())),
+            string_literal_contents(&value.title),
+            string_literal_contents(&value.author),
+            string_literal_contents(&value.language),
+            value.page_count,
+            string_literal_contents(&value.provider)
+        ),
+        Value::DocumentExtractionError(value) => format!(
+            "document_extraction_error({}, \"{}\", \"{}\", {}, \"{}\")",
+            value_to_literal_str(&Value::Document(value.document.clone())),
+            string_literal_contents(&value.code),
+            string_literal_contents(&value.message),
+            value.retryable,
+            string_literal_contents(&value.provider)
         ),
         Value::Money(amount, currency) => {
             let major = (*amount as f64) / 100.0;
@@ -3383,10 +3507,10 @@ fn value_to_literal_str(val: &Value) -> String {
             source,
         } => format!(
             "exchange_rate(\"{}\", \"{}\", decimal_parse(\"{}\"), \"{}\")",
-            from.replace('"', "\\\""),
-            to.replace('"', "\\\""),
+            string_literal_contents(from),
+            string_literal_contents(to),
             rate,
-            source.replace('"', "\\\"")
+            string_literal_contents(source)
         ),
         Value::Quantity(amount, unit) => {
             format!("{} {}", amount, unit)
@@ -3446,4 +3570,13 @@ fn value_to_literal_str(val: &Value) -> String {
             None => format!("{}::{}", name, variant),
         },
     }
+}
+
+fn string_literal_contents(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+        .replace('"', "\\\"")
 }

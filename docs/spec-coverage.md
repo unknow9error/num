@@ -302,6 +302,11 @@ Implemented:
 - first-slice `Image` and `OcrResult` metadata wrappers with safe PNG/JPEG
   dimension parsing, deterministic OCR handoff values, typed field access, and
   runtime/connector persistence conversion without OCR provider execution;
+- first-slice document extraction boundary values (`ExtractedDocumentText`,
+  `DocumentExtractionMetadata`, `DocumentExtractionError`) with connector JSON,
+  idempotency persistence, deterministic fake extractor fixtures, structured
+  failure audit data, and source/privacy/trust preservation without built-in
+  PDF/DOCX/OCR text parser execution;
 - stdlib `DateTime` and `Duration<Hour>` helpers for explicit UTC ISO timestamp
   parsing/formatting, hour-duration parsing/formatting, DateTime +/- Duration
   arithmetic, and DateTime comparison;

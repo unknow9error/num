@@ -37,6 +37,14 @@ pub fn value_from_json(module: &Module, ty: &TypeRef, json: &JsonValue) -> Resul
         "Spreadsheet" => crate::document::spreadsheet_from_json(json).map(Value::Spreadsheet),
         "Image" => crate::document::image_from_json(json).map(Value::Image),
         "OcrResult" => crate::document::ocr_result_from_json(json).map(Value::OcrResult),
+        "ExtractedDocumentText" => crate::document::extracted_document_text_from_json(json)
+            .map(Value::ExtractedDocumentText),
+        "DocumentExtractionMetadata" => {
+            crate::document::document_extraction_metadata_from_json(json)
+                .map(Value::DocumentExtractionMetadata)
+        }
+        "DocumentExtractionError" => crate::document::document_extraction_error_from_json(json)
+            .map(Value::DocumentExtractionError),
         "Bool" | "Boolean" => json
             .as_bool()
             .map(Value::Bool)

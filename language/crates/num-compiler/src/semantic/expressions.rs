@@ -159,6 +159,9 @@ impl<'a> Checker<'a> {
                             | "Spreadsheet"
                             | "Image"
                             | "OcrResult"
+                            | "ExtractedDocumentText"
+                            | "DocumentExtractionMetadata"
+                            | "DocumentExtractionError"
                     ) {
                         self.document_field(raw, &base_ty, field);
                     } else {
@@ -309,6 +312,11 @@ impl<'a> Checker<'a> {
             "Spreadsheet" => spreadsheet_member_type(field).is_some(),
             "Image" => image_member_type(field).is_some(),
             "OcrResult" => ocr_result_member_type(field).is_some(),
+            "ExtractedDocumentText" => extracted_document_text_member_type(field).is_some(),
+            "DocumentExtractionMetadata" => {
+                document_extraction_metadata_member_type(field).is_some()
+            }
+            "DocumentExtractionError" => document_extraction_error_member_type(field).is_some(),
             _ => false,
         };
         if exists {
@@ -584,6 +592,15 @@ impl<'a> Checker<'a> {
         if base_name == "OcrResult" {
             return ocr_result_member_type(field);
         }
+        if base_name == "ExtractedDocumentText" {
+            return extracted_document_text_member_type(field);
+        }
+        if base_name == "DocumentExtractionMetadata" {
+            return document_extraction_metadata_member_type(field);
+        }
+        if base_name == "DocumentExtractionError" {
+            return document_extraction_error_member_type(field);
+        }
         let args = generic_args(&base_ty.raw);
         let substitutions = self
             .type_generic_params
@@ -770,6 +787,50 @@ fn ocr_result_member_type(field: &str) -> Option<TypeRef> {
             raw: "Float".to_string(),
         }),
         _ => None,
+    }
+}
+
+fn extracted_document_text_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "text" | "provider" | "model" | "source" | "privacy" | "trust" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        _ => document_member_type(field),
+    }
+}
+
+fn document_extraction_metadata_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "title" | "author" | "language" | "provider" | "source" | "privacy" | "trust" => {
+            Some(TypeRef {
+                raw: "Text".to_string(),
+            })
+        }
+        "page_count" => Some(TypeRef {
+            raw: "Int".to_string(),
+        }),
+        _ => document_member_type(field),
+    }
+}
+
+fn document_extraction_error_member_type(field: &str) -> Option<TypeRef> {
+    match field {
+        "document" => Some(TypeRef {
+            raw: "Document".to_string(),
+        }),
+        "code" | "message" | "provider" | "source" | "privacy" | "trust" => Some(TypeRef {
+            raw: "Text".to_string(),
+        }),
+        "retryable" => Some(TypeRef {
+            raw: "Bool".to_string(),
+        }),
+        _ => document_member_type(field),
     }
 }
 
