@@ -8,13 +8,17 @@ src/main.num
   -> python/echo.py
   -> generated/connectors.d.ts
   -> generated/connectors.py
+  -> generated/NumConnectorSdk.java
   -> javascript/echo-consumer.js
+  -> java/EchoConnectorFixture.java
 ```
 
 `num` owns the connector contract and workflow checks. Python owns the real
 process implementation and imports the generated Python stub for the egress
 context shape. JavaScript/TypeScript consumers can use the generated types
 without owning the `.num` parser or policy model.
+Java/JVM consumers can implement the generated Java interfaces and checked
+failure contract without a Num-owned JVM runtime.
 
 ## Check the Num contract
 
@@ -39,10 +43,18 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language python \
   --out examples/connector_echo_pipeline/generated/connectors.py
+num connector-sdk examples/connector_echo_pipeline \
+  --language java \
+  --out examples/connector_echo_pipeline/generated/NumConnectorSdk.java
 ```
 
-The generated files are intentionally checked in so JS/TS and Python consumers
-can inspect the contract without running the generator first.
+The generated files are intentionally checked in so JS/TS, Python, and JVM
+consumers can inspect the contract without running the generator first.
+
+The Java fixture in `java/EchoConnectorFixture.java` implements the generated
+interfaces. It is a compile-time contract fixture only; classpath management,
+JVM lifecycle, async callbacks, and runtime adapter execution are outside this
+example.
 
 ## Run the workflow
 

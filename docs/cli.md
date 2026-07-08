@@ -677,6 +677,9 @@ num connector-sdk examples/contract_driven_refund \
 num connector-sdk examples/connector_echo_pipeline \
   --language python \
   --out examples/connector_echo_pipeline/generated/connectors.py
+num connector-sdk examples/connector_echo_pipeline \
+  --language java \
+  --out examples/connector_echo_pipeline/generated/NumConnectorSdk.java
 num connector-sdk examples/contract_driven_refund --json
 ```
 
@@ -708,6 +711,23 @@ Python mappings are intentionally conservative. `Text`, `Email`, `Uuid`,
 generated wrappers. Unsupported or invalid Python identifiers fall back to
 `Any` or a sanitized `field_<name>` attribute so the generated stub remains
 importable while preserving the checked `.num` contract as the source of truth.
+
+The Java generator emits one `NumConnectorSdk.java` contract file:
+
+- nested records for `NumConnectorContext` and `NumConnectorArgLabel`, carrying
+  the runtime request, tenant, actor, policy, correlation, and argument-label
+  envelope;
+- records for `.num` structs and aliases, Java enums or sealed interfaces for
+  `.num` enums, and interfaces for connector namespaces;
+- a `NumFunctions` interface for visible top-level `fn` declarations;
+- JVM-friendly mappings: `Text`, `Email`, `Uuid`, `Date`, `DateTime`,
+  `Decimal`, `Url`, and `PhoneNumber` map to `String`; `Int` maps to `long`;
+  `Float` to `double`; `Bool` to `boolean`; `Json` to `Object`; `List<T>` to
+  `List<T>`; `Map<K,V>` to `Map<String,V>`; `Option<T>` to `Optional<T>`;
+  `Result<T,E>` to a generated sealed `Result<T,E>`; `Money<C>` to `Money`;
+- `NumConnectorException extends Exception` with `code`, `message`, and
+  `retryable`. Future JVM adapters must map that checked failure into Num's
+  structured connector runtime error shape.
 
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
@@ -752,12 +772,15 @@ connectors receive this context in stdin under `egress`:
 }
 ```
 
-Generated TypeScript and Python SDKs expose the same shape as
-`NumConnectorEgressContext` and add an optional `context` parameter to connector
-methods. External workers should treat `capability`, `tenant`, `actor`,
-`correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
-that leaves a single Num runtime instance. This is not managed connector
-hosting, auth/secrets binding, or a generated network client runtime yet.
+Generated TypeScript, Python, and Java SDKs expose the same egress context shape
+(`NumConnectorEgressContext` in TypeScript/Python, `NumConnectorContext` in
+Java) and add a `context` parameter to connector methods. External workers
+should treat `capability`, `tenant`, `actor`, `correlation_id`, and
+`arg_labels` as the audit/enforcement envelope for data that leaves a single Num
+runtime instance. This is not managed connector hosting, auth/secrets binding,
+or a generated network client runtime yet. For Java specifically, it is also
+not JVM lifecycle management, classpath resolution, Maven/Gradle publishing,
+Kotlin generation, async callbacks, or an executable JVM adapter.
 
 Projects can also bind a connector method directly to a local JavaScript module
 under `[javascript]` in `num.toml`:

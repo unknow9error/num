@@ -634,16 +634,22 @@ Implemented:
 - Python connector implementation SDK generation for visible `.num` structs,
   aliases, enums, connector method signatures, and connector egress context
   stubs, with unsupported shapes falling back to `Any`.
+- Java connector implementation contract generation for visible `.num` structs,
+  aliases, enums, top-level functions, connector method signatures, connector
+  context records, and checked structured connector failures without JVM runtime
+  embedding.
 
 Not yet implemented:
 
 - managed connector hosting;
 - generated network-native runtime clients beyond the minimal OpenAPI
   TypeScript transport stub;
-- connector SDK targets beyond TypeScript/Python declarations;
+- connector SDK targets beyond TypeScript/Python/Java declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;
+- JVM runtime embedding, classpath management, Maven/Gradle publishing, Kotlin
+  generation, async callbacks, and executable Java connector adapters;
 - production database adapters beyond the generated SQL TypeScript client
   boundary;
 - managed/network connector cancellation beyond local process timeout
