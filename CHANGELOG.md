@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.25 - 2026-07-08
+
 ### Patch
 
 - Added Rust connector SDK contract generation with a serde_json JSON ABI,
