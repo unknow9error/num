@@ -614,6 +614,10 @@ Implemented:
   types, single-column and composite table-level primary keys, basic
   foreign-key relation hint comments, simple index metadata comments, and basic
   database connector methods.
+- SQL TypeScript client stub generation for the focused schema import subset,
+  preserving table metadata, primary-key finder methods, list/insert methods,
+  indexes, foreign-key hints, nullable columns, and original SQL column names
+  behind an injected driver boundary with a recording driver for contract tests.
 - SQL schema migration-plan reports for the focused import subset, comparing
   two schema snapshots for added/removed tables, added/removed/changed columns,
   and primary-key changes in deterministic text or JSON form.
@@ -635,7 +639,8 @@ Not yet implemented:
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;
-- generated database clients;
+- production database adapters beyond the generated SQL TypeScript client
+  boundary;
 - managed/network connector cancellation beyond local process timeout
   termination;
 - full OpenAPI coverage such as executable authentication bindings,
@@ -645,7 +650,7 @@ Not yet implemented:
   clients.
 - full SQL/database import coverage such as executable foreign-key relation
   loading, expression/partial/dialect-specific indexes, executable migrations,
-  dialect-specific features, and generated runtime clients.
+  dialect-specific features, and generated production runtime clients.
 
 ### Policies
 

@@ -4,6 +4,11 @@
 
 ### Patch
 
+- Added `num import sql --client` TypeScript database client stub generation
+  for the focused SQL importer subset, preserving table metadata, primary-key
+  finders, insert/list methods, indexes, foreign-key hints, and an injected
+  driver boundary with a recording driver for contract tests.
+
 ## 0.4.19 - 2026-07-08
 
 ### Patch
