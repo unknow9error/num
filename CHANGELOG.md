@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.15 - 2026-07-08
+
+### Patch
+
 - Added deterministic `test ai` scanner fixtures with pass, suspicious, and
   fail-closed block outcomes, plus manifest scanner catalog metadata for deploy
   plans.
