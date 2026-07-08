@@ -408,6 +408,7 @@ Demonstrates:
 - `num connector probe` as the connector smoke test;
 - generated TypeScript declarations for JavaScript/TypeScript consumers;
 - generated Python stubs for process connector implementations.
+- generated Java interface contracts plus a tiny Java implementation fixture.
 
 Useful commands:
 
@@ -419,6 +420,9 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language python \
   --out examples/connector_echo_pipeline/generated/connectors.py
+num connector-sdk examples/connector_echo_pipeline \
+  --language java \
+  --out examples/connector_echo_pipeline/generated/NumConnectorSdk.java
 num run examples/connector_echo_pipeline
 ```
 

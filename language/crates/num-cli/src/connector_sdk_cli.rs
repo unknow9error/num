@@ -22,6 +22,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
             connector_sdk::render_typescript_sdk(&program.module)
         }
         ConnectorSdkLanguageArg::Python => connector_sdk::render_python_sdk(&program.module),
+        ConnectorSdkLanguageArg::Java => connector_sdk::render_java_sdk(&program.module),
     };
 
     if let Some(out_path) = &options.out_path {
@@ -62,6 +63,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
 enum ConnectorSdkLanguageArg {
     TypeScript,
     Python,
+    Java,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,13 +87,14 @@ fn parse_args(
             "--language" | "--lang" => {
                 let raw = args
                     .next()
-                    .ok_or_else(|| "usage: --language <typescript|python>".to_string())?;
+                    .ok_or_else(|| "usage: --language <typescript|python|java>".to_string())?;
                 language = match raw.as_str() {
                     "typescript" | "ts" => ConnectorSdkLanguageArg::TypeScript,
                     "python" | "py" => ConnectorSdkLanguageArg::Python,
+                    "java" | "jvm" => ConnectorSdkLanguageArg::Java,
                     other => {
                         return Err(format!(
-                            "unsupported connector SDK language `{other}`; supported: typescript, python"
+                            "unsupported connector SDK language `{other}`; supported: typescript, python, java"
                         ))
                     }
                 };
@@ -166,6 +169,28 @@ mod tests {
         assert_eq!(
             options.out_path,
             Some(PathBuf::from("generated/connectors.py"))
+        );
+    }
+
+    #[test]
+    fn parses_java_connector_sdk_args() {
+        let (path, options) = parse_args(
+            [
+                "examples/refund_workflow".to_string(),
+                "--language".to_string(),
+                "java".to_string(),
+                "--out".to_string(),
+                "generated/NumConnectorSdk.java".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("examples/refund_workflow"));
+        assert_eq!(options.language, ConnectorSdkLanguageArg::Java);
+        assert_eq!(
+            options.out_path,
+            Some(PathBuf::from("generated/NumConnectorSdk.java"))
         );
     }
 }
