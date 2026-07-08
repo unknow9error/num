@@ -1,6 +1,6 @@
 [package]
 name = "num"
-version = "0.4.24"
+version = "0.4.25"
 edition = "2021"
 license = "MIT"
 description = "Command line tools for the num language"
