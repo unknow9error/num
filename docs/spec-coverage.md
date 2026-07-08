@@ -638,18 +638,25 @@ Implemented:
   aliases, enums, top-level functions, connector method signatures, connector
   context records, and checked structured connector failures without JVM runtime
   embedding.
+- C connector safe-wrapper contract generation for visible `.num` structs,
+  aliases, simple enums, top-level functions, connector method signatures,
+  `NumCContext` timeout/audit metadata, and structured `NumCStatus` failures,
+  while unsafe or unsupported C boundary shapes stay explicit as
+  `NumCUnsupported`.
 
 Not yet implemented:
 
 - managed connector hosting;
 - generated network-native runtime clients beyond the minimal OpenAPI
   TypeScript transport stub;
-- connector SDK targets beyond TypeScript/Python/Java declarations;
+- connector SDK targets beyond TypeScript/Python/Java/C declarations;
 - connector authentication/secrets;
 - full JavaScript runtime embedding, generated JS host SDKs, npm package
   management, and network-native JS worker hosting;
 - JVM runtime embedding, classpath management, Maven/Gradle publishing, Kotlin
   generation, async callbacks, and executable Java connector adapters;
+- raw native C calls, raw pointers, callbacks, shared memory, unmanaged native
+  threads, and executable C runtime adapters;
 - production database adapters beyond the generated SQL TypeScript client
   boundary;
 - managed/network connector cancellation beyond local process timeout
