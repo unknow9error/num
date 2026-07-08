@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.18 - 2026-07-08
+
+### Patch
+
 - Added parser, formatter, semantic metadata checks, and IR/debug metadata for
   `actor` declarations while keeping actor handler execution explicitly
   unsupported until runtime support exists.
