@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 const REGISTRY_METADATA_FILE: &str = ".num-package.json";
 const REGISTRY_METADATA_SCHEMA: u32 = 1;
+const REMOTE_REGISTRY_PROTOCOL_KIND: &str = "num.registry.remote.v1";
+const REMOTE_REGISTRY_API_PREFIX: &str = "/v1";
 
 #[derive(Debug, Clone)]
 pub struct LocalRegistry {
@@ -655,7 +657,9 @@ impl RegistryIndexReport {
     pub fn to_json(&self) -> Value {
         json!({
             "schema": self.schema,
+            "kind": "num.registry.index.v1",
             "registry_root": self.registry_root.display().to_string(),
+            "remote_protocol": remote_registry_protocol_json(),
             "packages": self.packages.iter().map(RegistryIndexPackage::to_json).collect::<Vec<_>>(),
         })
     }
@@ -690,21 +694,175 @@ impl RegistryIndexPackage {
     fn to_json(&self) -> Value {
         json!({
             "name": self.name,
-            "versions": self.versions.iter().map(RegistryIndexVersion::to_json).collect::<Vec<_>>(),
+            "metadata_endpoint": remote_package_metadata_endpoint(&self.name),
+            "versions_endpoint": remote_package_versions_endpoint(&self.name),
+            "versions": self.versions.iter().map(|version| version.to_json(&self.name)).collect::<Vec<_>>(),
         })
     }
 }
 
 impl RegistryIndexVersion {
-    fn to_json(&self) -> Value {
+    fn to_json(&self, package_name: &str) -> Value {
         json!({
             "version": self.version,
             "language": self.language,
             "manifest_schema": self.manifest_schema,
             "content_hash": self.content_hash,
+            "integrity": registry_integrity_json(&self.content_hash),
             "file_count": self.file_count,
             "metadata_path": self.metadata_path.display().to_string(),
+            "metadata_endpoint": remote_package_version_metadata_endpoint(package_name, &self.version),
+            "download_endpoint": remote_package_download_endpoint(package_name, &self.version),
+            "download_by_hash_endpoint": remote_package_blob_endpoint(package_name, &self.content_hash),
         })
+    }
+}
+
+fn remote_registry_protocol_json() -> Value {
+    json!({
+        "kind": REMOTE_REGISTRY_PROTOCOL_KIND,
+        "base_path": REMOTE_REGISTRY_API_PREFIX,
+        "methods": {
+            "package_metadata": "GET /v1/packages/{name}",
+            "version_listing": "GET /v1/packages/{name}/versions",
+            "version_metadata": "GET /v1/packages/{name}/versions/{version}",
+            "download_by_version": "GET /v1/packages/{name}/versions/{version}/download",
+            "download_by_hash": "GET /v1/packages/{name}/blobs/{sha256}",
+        },
+        "auth": "not-specified",
+        "publish": "out-of-scope",
+    })
+}
+
+fn registry_integrity_json(content_hash: &str) -> Value {
+    let (algorithm, value) = split_content_hash(content_hash);
+    json!({
+        "algorithm": algorithm,
+        "value": value,
+        "digest": content_hash,
+    })
+}
+
+fn split_content_hash(content_hash: &str) -> (&str, &str) {
+    content_hash
+        .split_once(':')
+        .unwrap_or(("unknown", content_hash))
+}
+
+fn remote_package_metadata_endpoint(name: &str) -> String {
+    format!(
+        "{REMOTE_REGISTRY_API_PREFIX}/packages/{}",
+        percent_encode_path_segment(name)
+    )
+}
+
+fn remote_package_versions_endpoint(name: &str) -> String {
+    format!("{}/versions", remote_package_metadata_endpoint(name))
+}
+
+fn remote_package_version_metadata_endpoint(name: &str, version: &str) -> String {
+    format!(
+        "{}/versions/{}",
+        remote_package_metadata_endpoint(name),
+        percent_encode_path_segment(version)
+    )
+}
+
+fn remote_package_download_endpoint(name: &str, version: &str) -> String {
+    format!(
+        "{}/download",
+        remote_package_version_metadata_endpoint(name, version)
+    )
+}
+
+fn remote_package_blob_endpoint(name: &str, content_hash: &str) -> String {
+    let (_, hash_value) = split_content_hash(content_hash);
+    format!(
+        "{}/blobs/{}",
+        remote_package_metadata_endpoint(name),
+        percent_encode_path_segment(hash_value)
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
+enum RemoteRegistryRoute {
+    PackageMetadata { name: String },
+    VersionListing { name: String },
+    VersionMetadata { name: String, version: String },
+    DownloadByVersion { name: String, version: String },
+    DownloadByHash { name: String, sha256: String },
+}
+
+#[cfg(test)]
+fn parse_remote_registry_get(path: &str) -> Option<RemoteRegistryRoute> {
+    let path = path.strip_prefix(REMOTE_REGISTRY_API_PREFIX)?;
+    let parts = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["packages", name] => Some(RemoteRegistryRoute::PackageMetadata {
+            name: percent_decode_path_segment(name)?,
+        }),
+        ["packages", name, "versions"] => Some(RemoteRegistryRoute::VersionListing {
+            name: percent_decode_path_segment(name)?,
+        }),
+        ["packages", name, "versions", version] => Some(RemoteRegistryRoute::VersionMetadata {
+            name: percent_decode_path_segment(name)?,
+            version: percent_decode_path_segment(version)?,
+        }),
+        ["packages", name, "versions", version, "download"] => {
+            Some(RemoteRegistryRoute::DownloadByVersion {
+                name: percent_decode_path_segment(name)?,
+                version: percent_decode_path_segment(version)?,
+            })
+        }
+        ["packages", name, "blobs", sha256] => Some(RemoteRegistryRoute::DownloadByHash {
+            name: percent_decode_path_segment(name)?,
+            sha256: percent_decode_path_segment(sha256)?,
+        }),
+        _ => None,
+    }
+}
+
+fn percent_encode_path_segment(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+fn percent_decode_path_segment(value: &str) -> Option<String> {
+    let mut bytes = Vec::new();
+    let mut iter = value.as_bytes().iter().copied().peekable();
+    while let Some(byte) = iter.next() {
+        if byte != b'%' {
+            bytes.push(byte);
+            continue;
+        }
+        let high = iter.next()?;
+        let low = iter.next()?;
+        let decoded = (hex_value(high)? << 4) | hex_value(low)?;
+        bytes.push(decoded);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+#[cfg(test)]
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -938,7 +1096,10 @@ fn json_u32(value: &Value, field: &str) -> Result<u32, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{registry_for_manifest, LocalRegistry, REGISTRY_METADATA_FILE};
+    use super::{
+        parse_remote_registry_get, registry_for_manifest, LocalRegistry, RemoteRegistryRoute,
+        REGISTRY_METADATA_FILE,
+    };
     use crate::package::{DependencySource, PackageDependency, PackageManifest};
     use std::fs;
     use std::path::Path;
@@ -1226,10 +1387,90 @@ entry = "src/lib.num"
             report.to_json()["packages"][0]["versions"][0]["version"],
             "1.2.3"
         );
+        assert_eq!(
+            report.to_json()["kind"],
+            serde_json::Value::String("num.registry.index.v1".to_string())
+        );
+        assert_eq!(
+            report.to_json()["remote_protocol"]["methods"]["download_by_hash"],
+            "GET /v1/packages/{name}/blobs/{sha256}"
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["metadata_endpoint"],
+            "/v1/packages/shared"
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["versions_endpoint"],
+            "/v1/packages/shared/versions"
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["versions"][0]["integrity"]["algorithm"],
+            "sha256"
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["versions"][0]["integrity"]["digest"],
+            report.packages[0].versions[0].content_hash
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["versions"][0]["metadata_endpoint"],
+            "/v1/packages/shared/versions/1.2.3"
+        );
+        assert_eq!(
+            report.to_json()["packages"][0]["versions"][0]["download_endpoint"],
+            "/v1/packages/shared/versions/1.2.3/download"
+        );
+        assert!(
+            report.to_json()["packages"][0]["versions"][0]["download_by_hash_endpoint"]
+                .as_str()
+                .unwrap()
+                .starts_with("/v1/packages/shared/blobs/")
+        );
         assert!(report.render_text().contains("shared"));
         assert!(report.render_text().contains("hash=sha256:"));
 
         fs::remove_dir_all(registry_root).unwrap();
+    }
+
+    #[test]
+    fn remote_registry_protocol_routes_are_stable() {
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared-core"),
+            Some(RemoteRegistryRoute::PackageMetadata {
+                name: "shared-core".to_string()
+            })
+        );
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared-core/versions"),
+            Some(RemoteRegistryRoute::VersionListing {
+                name: "shared-core".to_string()
+            })
+        );
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared-core/versions/1.2.3"),
+            Some(RemoteRegistryRoute::VersionMetadata {
+                name: "shared-core".to_string(),
+                version: "1.2.3".to_string()
+            })
+        );
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared-core/versions/1.2.3/download"),
+            Some(RemoteRegistryRoute::DownloadByVersion {
+                name: "shared-core".to_string(),
+                version: "1.2.3".to_string()
+            })
+        );
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared%20core/blobs/abc123"),
+            Some(RemoteRegistryRoute::DownloadByHash {
+                name: "shared core".to_string(),
+                sha256: "abc123".to_string()
+            })
+        );
+        assert_eq!(
+            parse_remote_registry_get("/v1/packages/shared-core/publish"),
+            None
+        );
+        assert_eq!(parse_remote_registry_get("/v2/packages/shared-core"), None);
     }
 
     #[test]

@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added a read-only remote registry protocol contract to `num registry index`
+  output, including package metadata, version listing, version download, and
+  content-addressed download endpoint shapes with integrity fields.
+
 ## 0.4.15 - 2026-07-08
 
 ### Patch
