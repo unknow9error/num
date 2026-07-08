@@ -683,6 +683,9 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language c \
   --out examples/connector_echo_pipeline/generated/num_connectors.h
+num connector-sdk examples/connector_echo_pipeline \
+  --language rust \
+  --out examples/connector_echo_pipeline/generated/num_connectors.rs
 num connector-sdk examples/contract_driven_refund --json
 ```
 
@@ -757,6 +760,31 @@ unmanaged threads, and direct native runtime calls remain unsupported; a native
 adapter must enforce `timeout_ms` and map null pointers, error codes, panics,
 and crashes into `NumCStatus` where the host process can still observe them.
 
+The Rust generator emits one `num_connectors.rs` JSON-ABI contract file:
+
+- serde-compatible structs, aliases, enums, connector traits, and a
+  `NumFunctions` trait for visible top-level `fn` declarations;
+- `NumConnectorContext` and `NumConnectorArgLabel`, carrying the same request,
+  tenant, actor, policy, correlation, and argument-label envelope as process
+  connectors;
+- `NumConnectorError`, `NumConnectorResult<T>`, and
+  `num_connector_catch_unwind(...)` so panics and implementation errors become
+  structured connector failures with `code`, `message`, and `retryable`;
+- `num_invoke_*` wrappers for generated function and connector traits, giving
+  hosts a single safe call path that wraps trait implementations with
+  `num_connector_catch_unwind(...)`;
+- Rust mappings over the JSON ABI: `Text`, `Email`, `Uuid`, `Date`,
+  `DateTime`, `Decimal`, `Url`, and `PhoneNumber` map to `String`; `Int` to
+  `i64`; `Float` to `f64`; `Bool` to `bool`; `Unit` to `()`; `Json` and rich
+  document/media values to `serde_json::Value`; `List<T>` to `Vec<T>`;
+  `Map<K,V>` to `BTreeMap<String,V>`; `Option<T>` to `Option<T>`;
+  `Result<T,E>` to `Result<T,E>`; `Uncertain<T>`, `Secret<T>`, and `Money<C>`
+  to generated wrapper structs.
+
+The Rust target is intentionally a generated contract, not arbitrary native
+module loading. Raw pointers, shared mutable state crossing the boundary,
+unmanaged threads, and direct Rust runtime adapter execution remain unsupported.
+
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
 `timeout_ms` string in `[connectors]` inline tables; runtime commands kill and
@@ -800,9 +828,9 @@ connectors receive this context in stdin under `egress`:
 }
 ```
 
-Generated TypeScript, Python, Java, and C SDKs expose the same egress context
+Generated TypeScript, Python, Java, C, and Rust SDKs expose the same egress context
 shape (`NumConnectorEgressContext` in TypeScript/Python, `NumConnectorContext`
-in Java, `NumCContext` in C) and add a `context` parameter to connector methods.
+in Java/Rust, `NumCContext` in C) and add a `context` parameter to connector methods.
 External workers should treat `capability`, `tenant`, `actor`,
 `correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
 that leaves a single Num runtime instance. Embedded runtimes can register
@@ -815,6 +843,9 @@ it is also not JVM lifecycle management, classpath resolution, Maven/Gradle
 publishing, Kotlin generation, async callbacks, or an executable JVM adapter.
 For C specifically, it is also not raw pointer support, callback registration,
 shared memory, unmanaged threads, or direct native runtime invocation.
+For Rust specifically, it is also not raw pointer interop, shared mutable state
+across the boundary, unmanaged native threads, or executable Rust module
+loading.
 
 Projects can also bind a connector method directly to a local JavaScript module
 under `[javascript]` in `num.toml`:

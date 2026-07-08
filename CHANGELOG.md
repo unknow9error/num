@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added Rust connector SDK contract generation with a serde_json JSON ABI,
+  explicit request/tenant/audit context, structured panic/error mapping, and a
+  tiny Rust fixture crate for the connector echo example.
+
 ## 0.4.24 - 2026-07-08
 
 ### Patch

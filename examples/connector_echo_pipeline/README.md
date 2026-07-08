@@ -10,9 +10,11 @@ src/main.num
   -> generated/connectors.py
   -> generated/NumConnectorSdk.java
   -> generated/num_connectors.h
+  -> generated/num_connectors.rs
   -> javascript/echo-consumer.js
   -> java/EchoConnectorFixture.java
   -> c/echo_connector_fixture.c
+  -> rust/src/lib.rs
 ```
 
 `num` owns the connector contract and workflow checks. Python owns the real
@@ -24,6 +26,9 @@ failure contract without a Num-owned JVM runtime.
 C consumers can compile against a generated safe-wrapper header that requires
 structured status results, audit context, and timeout metadata instead of raw
 native calls.
+Rust consumers can implement generated JSON-ABI traits with explicit context and
+call through generated invoke wrappers that map panics/errors before any
+executable Rust adapter exists.
 
 ## Check the Num contract
 
@@ -54,10 +59,13 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language c \
   --out examples/connector_echo_pipeline/generated/num_connectors.h
+num connector-sdk examples/connector_echo_pipeline \
+  --language rust \
+  --out examples/connector_echo_pipeline/generated/num_connectors.rs
 ```
 
-The generated files are intentionally checked in so JS/TS, Python, JVM, and C
-consumers can inspect the contract without running the generator first.
+The generated files are intentionally checked in so JS/TS, Python, JVM, C, and
+Rust consumers can inspect the contract without running the generator first.
 
 The Java fixture in `java/EchoConnectorFixture.java` implements the generated
 interfaces. It is a compile-time contract fixture only; classpath management,
@@ -76,6 +84,18 @@ cc -std=c11 -fsyntax-only \
 It is also a compile-time contract fixture only. Raw pointers, callbacks,
 shared memory, unmanaged native threads, and executable native runtime adapter
 loading are outside this example.
+
+The Rust fixture crate in `rust/` implements the generated `EchoConnector`
+trait, calls it through the generated invoke wrapper, and checks structured
+errors plus panic mapping:
+
+```bash
+cargo test --manifest-path examples/connector_echo_pipeline/rust/Cargo.toml
+```
+
+It is also a contract fixture only. Raw pointer interop, shared mutable state
+across the boundary, unmanaged native threads, and executable Rust runtime
+adapter loading are outside this example.
 
 ## Run the workflow
 
