@@ -72,8 +72,8 @@ fn current_manifest_is_compatible() {
     let report = stdout_json(&output);
 
     assert_eq!(report[0]["status"], "compatible");
-    assert_eq!(report[0]["language"]["version"], "0.4.21");
-    assert_eq!(report[0]["language"]["current"], "0.4.21");
+    assert_eq!(report[0]["language"]["version"], "0.4.22");
+    assert_eq!(report[0]["language"]["current"], "0.4.22");
     assert_eq!(report[0]["manifest"]["schema"], 1);
     assert_eq!(report[0]["manifest"]["current_schema"], 1);
 }
@@ -298,19 +298,19 @@ fn upgrade_version_can_bump_project_version_without_breaking_compatibility() {
         "upgrade-version",
         &project_arg,
         "--project",
-        "0.4.21",
+        "0.4.22",
         "--write",
         "--json",
     ]);
     let upgrade_report = stdout_json(&upgrade);
     assert_eq!(upgrade_report["applied"], true);
     assert_eq!(upgrade_report["project"]["from"], "0.1.0");
-    assert_eq!(upgrade_report["project"]["to"], "0.4.21");
+    assert_eq!(upgrade_report["project"]["to"], "0.4.22");
 
     let compat = run_num(&["compat", &project_arg, "--json"]);
     let compat_report = stdout_json(&compat);
     assert_eq!(compat_report[0]["status"], "compatible");
-    assert_eq!(compat_report[0]["package"]["version"], "0.4.21");
+    assert_eq!(compat_report[0]["package"]["version"], "0.4.22");
 
     fs::remove_dir_all(project).unwrap();
 }

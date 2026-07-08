@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.22 - 2026-07-08
+
+### Patch
+
 - Added Java connector SDK contract generation with JVM-friendly type mappings,
   connector/function interfaces, checked structured failures, and a Java
   implementation fixture for the connector echo example.
