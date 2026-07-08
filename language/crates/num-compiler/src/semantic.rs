@@ -2519,6 +2519,9 @@ fn builtin_type_names() -> HashSet<String> {
         "Spreadsheet",
         "Image",
         "OcrResult",
+        "ExtractedDocumentText",
+        "DocumentExtractionMetadata",
+        "DocumentExtractionError",
         "Unit",
         "Distance",
         "Speed",
@@ -2571,6 +2574,9 @@ fn builtin_type_arities() -> HashMap<String, usize> {
         ("Spreadsheet", 0),
         ("Image", 0),
         ("OcrResult", 0),
+        ("ExtractedDocumentText", 0),
+        ("DocumentExtractionMetadata", 0),
+        ("DocumentExtractionError", 0),
         ("Unit", 0),
         ("Distance", 1),
         ("Speed", 1),
@@ -2946,6 +2952,9 @@ fn is_document_helper(name: &str) -> bool {
             | "spreadsheet_metadata"
             | "image_metadata"
             | "ocr_result"
+            | "extracted_document_text"
+            | "document_extraction_metadata"
+            | "document_extraction_error"
             | "pdf_parse_metadata"
             | "docx_parse_metadata"
             | "spreadsheet_parse_metadata"
@@ -2962,6 +2971,9 @@ fn document_helper_param_types(name: &str) -> Option<Vec<TypeRef>> {
         "spreadsheet_metadata" => &["Document", "Text"][..],
         "image_metadata" => &["Document", "Int", "Int", "Text"][..],
         "ocr_result" => &["Image", "Text", "Float", "Text", "Text"][..],
+        "extracted_document_text" => &["Document", "Text", "Text", "Text"][..],
+        "document_extraction_metadata" => &["Document", "Text", "Text", "Text", "Int", "Text"][..],
+        "document_extraction_error" => &["Document", "Text", "Text", "Bool", "Text"][..],
         "pdf_parse_metadata"
         | "docx_parse_metadata"
         | "spreadsheet_parse_metadata"
@@ -2987,6 +2999,9 @@ fn document_helper_result_type(name: &str) -> Option<TypeRef> {
         "spreadsheet_metadata" => "Spreadsheet",
         "image_metadata" => "Image",
         "ocr_result" => "OcrResult",
+        "extracted_document_text" => "ExtractedDocumentText",
+        "document_extraction_metadata" => "DocumentExtractionMetadata",
+        "document_extraction_error" => "DocumentExtractionError",
         "pdf_parse_metadata" => "Pdf",
         "docx_parse_metadata" => "Docx",
         "spreadsheet_parse_metadata" => "Spreadsheet",

@@ -111,6 +111,8 @@ calls. It treats use of `.confidence`, `.value`, `require_human_review`, or
 - `N2411` - untrusted data flows into an external service or high-risk action.
 - `N2412` - untrusted data flows into an `ai.*` prompt or tool call without an
   explicit trust gateway.
+  This includes `ExtractedDocumentText.text`: sanitize, validate, verify, or
+  require human review before passing extracted document text to AI.
 - `N3100` - `assert` expression does not type-check as `Bool`.
 - `N3101` - `expect_deny` did not observe a policy-denial diagnostic in its
   nested block.

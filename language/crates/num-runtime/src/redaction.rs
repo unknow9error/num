@@ -186,6 +186,36 @@ fn collect_scalar_values(value: &Value, values: &mut Vec<String>) {
             values.push(value.privacy.clone());
             values.push(value.trust.clone());
         }
+        Value::ExtractedDocumentText(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.text.clone());
+            values.push(value.provider.clone());
+            values.push(value.model.clone());
+            values.push(value.source.clone());
+            values.push(value.privacy.clone());
+            values.push(value.trust.clone());
+        }
+        Value::DocumentExtractionMetadata(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.title.clone());
+            values.push(value.author.clone());
+            values.push(value.language.clone());
+            values.push(value.page_count.to_string());
+            values.push(value.provider.clone());
+            values.push(value.source.clone());
+            values.push(value.privacy.clone());
+            values.push(value.trust.clone());
+        }
+        Value::DocumentExtractionError(value) => {
+            collect_scalar_values(&Value::Document(value.document.clone()), values);
+            values.push(value.code.clone());
+            values.push(value.message.clone());
+            values.push(value.retryable.to_string());
+            values.push(value.provider.clone());
+            values.push(value.source.clone());
+            values.push(value.privacy.clone());
+            values.push(value.trust.clone());
+        }
         Value::Money(minor_units, currency) => {
             values.push(minor_units.to_string());
             values.push(format!("{minor_units}:{currency}"));

@@ -694,6 +694,96 @@ Intentionally unsupported in this slice:
   layout analysis;
 - trusting extracted text automatically.
 
+### Document Extraction Boundary
+
+Document extraction is modeled as a connector boundary instead of an in-process
+PDF/DOCX/OCR parser. The stdlib provides value shapes for deterministic
+fixtures, connector adapters, audit logs, and persistence:
+
+- `ExtractedDocumentText.document: Document`
+- `ExtractedDocumentText.text: Text`
+- `ExtractedDocumentText.provider: Text`
+- `ExtractedDocumentText.model: Text`
+- `ExtractedDocumentText.source: Text`
+- `ExtractedDocumentText.privacy: Text`
+- `ExtractedDocumentText.trust: Text`
+- `DocumentExtractionMetadata.document: Document`
+- `DocumentExtractionMetadata.title: Text`
+- `DocumentExtractionMetadata.author: Text`
+- `DocumentExtractionMetadata.language: Text`
+- `DocumentExtractionMetadata.page_count: Int`
+- `DocumentExtractionMetadata.provider: Text`
+- `DocumentExtractionMetadata.source: Text`
+- `DocumentExtractionMetadata.privacy: Text`
+- `DocumentExtractionMetadata.trust: Text`
+- `DocumentExtractionError.document: Document`
+- `DocumentExtractionError.code: Text`
+- `DocumentExtractionError.message: Text`
+- `DocumentExtractionError.retryable: Bool`
+- `DocumentExtractionError.provider: Text`
+- `DocumentExtractionError.source: Text`
+- `DocumentExtractionError.privacy: Text`
+- `DocumentExtractionError.trust: Text`
+
+`extracted_document_text(document, text, provider, model)` and
+`document_extraction_metadata(document, title, author, language, page_count,
+provider)` preserve the source document privacy label and create untrusted
+handoff values with `source` set to `DocumentExtraction:<provider>`.
+`document_extraction_error(document, code, message, retryable, provider)`
+creates a structured, auditable failure value with the same document privacy
+label.
+
+A connector should return an explicit success-or-failure outcome enum:
+
+```num
+enum DocumentTextExtraction {
+    TextExtracted(ExtractedDocumentText)
+    TextFailed(DocumentExtractionError)
+}
+
+enum DocumentMetadataExtraction {
+    MetadataExtracted(DocumentExtractionMetadata)
+    MetadataFailed(DocumentExtractionError)
+}
+
+connector documents {
+    extract_text(document: Document) -> DocumentTextExtraction
+    extract_metadata(document: Document) -> DocumentMetadataExtraction
+}
+```
+
+Extracted text is untrusted by default. It must pass through an explicit trust
+gateway, or be sent for human review, before being used as an AI prompt:
+
+```num
+workflow summarize_after_review(extracted: ExtractedDocumentText from DocumentExtraction private untrusted) {
+    let prompt: Text trusted = sanitize(extracted.text)
+    let summary: Uncertain<Text> = ai.summarize(prompt)
+    if summary.confidence < 0.85 {
+        require_human_review(extracted)
+    }
+    audit(summary.value)
+}
+```
+
+Supported in this boundary:
+
+- typed connector signatures for text and metadata extraction;
+- deterministic fake extractor fixtures through `mock_connector`;
+- privacy/source/trust preservation on successful extraction values;
+- structured extraction failures with `code`, `message`, `retryable`,
+  `provider`, `source`, `privacy`, and `trust`;
+- process connector JSON and idempotency persistence for extraction values.
+
+Placeholders until later slices:
+
+- built-in PDF, DOCX, image, OCR, and layout text parsers;
+- encrypted PDF handling, handwriting recognition, table extraction, embedded
+  media extraction, and provider-specific OCR options;
+- automatic trust promotion for extracted text;
+- `Result<T,E>` runtime values for connector returns. Use explicit outcome
+  enums for deterministic workflow tests.
+
 ### DateTime and Duration Helpers
 
 `DateTime` values use explicit UTC ISO-8601 text in the first stdlib slice:

@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added document extraction boundary values, deterministic connector fixtures,
+  structured extraction failures, and documentation for sanitizing extracted
+  text before AI use.
+
 ## 0.4.20 - 2026-07-08
 
 ### Patch

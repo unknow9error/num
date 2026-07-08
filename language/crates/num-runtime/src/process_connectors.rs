@@ -212,6 +212,15 @@ pub fn value_to_json(value: &Value) -> JsonValue {
         Value::Spreadsheet(spreadsheet) => crate::document::spreadsheet_connector_json(spreadsheet),
         Value::Image(image) => crate::document::image_connector_json(image),
         Value::OcrResult(result) => crate::document::ocr_result_connector_json(result),
+        Value::ExtractedDocumentText(value) => {
+            crate::document::extracted_document_text_connector_json(value)
+        }
+        Value::DocumentExtractionMetadata(value) => {
+            crate::document::document_extraction_metadata_connector_json(value)
+        }
+        Value::DocumentExtractionError(value) => {
+            crate::document::document_extraction_error_connector_json(value)
+        }
         Value::Money(minor_units, currency) => json!({
             "minor_units": minor_units,
             "currency": currency,
@@ -353,6 +362,27 @@ fn object_from_json(object: &Map<String, JsonValue>) -> Result<Value, String> {
     if object.contains_key("$ocr_result") {
         return crate::document::ocr_result_from_json(&JsonValue::Object(object.clone()))
             .map(Value::OcrResult);
+    }
+
+    if object.contains_key("$extracted_document_text") {
+        return crate::document::extracted_document_text_from_json(&JsonValue::Object(
+            object.clone(),
+        ))
+        .map(Value::ExtractedDocumentText);
+    }
+
+    if object.contains_key("$document_extraction_metadata") {
+        return crate::document::document_extraction_metadata_from_json(&JsonValue::Object(
+            object.clone(),
+        ))
+        .map(Value::DocumentExtractionMetadata);
+    }
+
+    if object.contains_key("$document_extraction_error") {
+        return crate::document::document_extraction_error_from_json(&JsonValue::Object(
+            object.clone(),
+        ))
+        .map(Value::DocumentExtractionError);
     }
 
     if let (Some(amount), Some(unit)) = (
@@ -668,6 +698,59 @@ mod tests {
         assert_eq!(
             value_from_json(&value_to_json(&Value::OcrResult(ocr.clone()))).unwrap(),
             Value::OcrResult(ocr)
+        );
+    }
+
+    #[test]
+    fn converts_document_extraction_values_to_json() {
+        let document = crate::document::DocumentValue {
+            id: "doc_1".to_string(),
+            name: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size_bytes: 4096,
+            source: "Upload".to_string(),
+            privacy: "private".to_string(),
+            trust: "untrusted".to_string(),
+        };
+        let text = crate::document::extracted_document_text(
+            document.clone(),
+            "Invoice total".to_string(),
+            "fake-doc-extractor".to_string(),
+            "fixture-v1".to_string(),
+        );
+        let metadata = crate::document::document_extraction_metadata(
+            document.clone(),
+            "Contract".to_string(),
+            "Ada".to_string(),
+            "en".to_string(),
+            3,
+            "fake-doc-extractor".to_string(),
+        );
+        let failure = crate::document::document_extraction_error(
+            document,
+            "unsupported_encrypted_pdf".to_string(),
+            "encrypted PDFs require a reviewed connector".to_string(),
+            false,
+            "fake-doc-extractor".to_string(),
+        );
+
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::ExtractedDocumentText(text.clone()))).unwrap(),
+            Value::ExtractedDocumentText(text)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::DocumentExtractionMetadata(
+                metadata.clone()
+            )))
+            .unwrap(),
+            Value::DocumentExtractionMetadata(metadata)
+        );
+        assert_eq!(
+            value_from_json(&value_to_json(&Value::DocumentExtractionError(
+                failure.clone()
+            )))
+            .unwrap(),
+            Value::DocumentExtractionError(failure)
         );
     }
 

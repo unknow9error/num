@@ -94,6 +94,24 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         documentation: "Built-in value for OCR connector handoff results that remain untrusted by default.",
     },
     BuiltinSymbol {
+        name: "ExtractedDocumentText",
+        kind: BuiltinKind::Type,
+        signature: "ExtractedDocumentText",
+        documentation: "Built-in document extraction text handoff value that preserves document privacy and stays untrusted by default.",
+    },
+    BuiltinSymbol {
+        name: "DocumentExtractionMetadata",
+        kind: BuiltinKind::Type,
+        signature: "DocumentExtractionMetadata",
+        documentation: "Built-in document extraction metadata handoff value for connector-boundary fixtures.",
+    },
+    BuiltinSymbol {
+        name: "DocumentExtractionError",
+        kind: BuiltinKind::Type,
+        signature: "DocumentExtractionError",
+        documentation: "Built-in structured document extraction failure value for auditable connector boundaries.",
+    },
+    BuiltinSymbol {
         name: "Distance",
         kind: BuiltinKind::Type,
         signature: "Distance<Unit>",
@@ -260,6 +278,24 @@ const BUILTIN_SYMBOLS: &[BuiltinSymbol] = &[
         kind: BuiltinKind::Function,
         signature: "ocr_result(image: Image, text: Text, confidence: Float, provider: Text, model: Text) -> OcrResult",
         documentation: "Builds an untrusted OCR result for fake OCR tests and connector handoff adapters.",
+    },
+    BuiltinSymbol {
+        name: "extracted_document_text",
+        kind: BuiltinKind::Function,
+        signature: "extracted_document_text(document: Document, text: Text, provider: Text, model: Text) -> ExtractedDocumentText",
+        documentation: "Builds an untrusted extracted document text value for deterministic extraction connector fixtures.",
+    },
+    BuiltinSymbol {
+        name: "document_extraction_metadata",
+        kind: BuiltinKind::Function,
+        signature: "document_extraction_metadata(document: Document, title: Text, author: Text, language: Text, page_count: Int, provider: Text) -> DocumentExtractionMetadata",
+        documentation: "Builds untrusted document extraction metadata for deterministic extraction connector fixtures.",
+    },
+    BuiltinSymbol {
+        name: "document_extraction_error",
+        kind: BuiltinKind::Function,
+        signature: "document_extraction_error(document: Document, code: Text, message: Text, retryable: Bool, provider: Text) -> DocumentExtractionError",
+        documentation: "Builds a structured document extraction error value for auditable connector failure fixtures.",
     },
     BuiltinSymbol {
         name: "pdf_parse_metadata",

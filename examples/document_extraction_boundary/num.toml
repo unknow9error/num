@@ -1,0 +1,14 @@
+[language]
+version = "0.4.20"
+compatibility = "minor"
+manifest_schema = 1
+
+[project]
+name = "document-extraction-boundary"
+version = "0.1.0"
+source = "src"
+entry = "src/main.num"
+
+[runtime]
+workflow_store = "memory"
+audit_store = "stdout"

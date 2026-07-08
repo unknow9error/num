@@ -333,6 +333,118 @@ workflow main(document: Document, bytes: Bytes) {
     }
 
     #[test]
+    fn accepts_document_extraction_boundary_helpers() {
+        let source = r#"
+module tests.document_extraction
+
+enum DocumentTextExtraction {
+    TextExtracted(ExtractedDocumentText)
+    TextFailed(DocumentExtractionError)
+}
+
+enum DocumentMetadataExtraction {
+    MetadataExtracted(DocumentExtractionMetadata)
+    MetadataFailed(DocumentExtractionError)
+}
+
+connector documents {
+    extract_text(document: Document) -> DocumentTextExtraction
+    extract_metadata(document: Document) -> DocumentMetadataExtraction
+}
+
+policy DocumentExtractionPolicy {
+    allow private Upload -> documents.extract_text
+    allow private Upload -> documents.extract_metadata
+}
+
+workflow main(document: Document from Upload private untrusted) {
+    let text_result: DocumentTextExtraction = documents.extract_text(document)
+    match text_result {
+        TextExtracted(extracted) => {
+            let text: Text = extracted.text
+            let provider: Text = extracted.provider
+            let model: Text = extracted.model
+            let source: Text = extracted.source
+            let privacy: Text = extracted.privacy
+            let trust: Text = extracted.trust
+            audit(text)
+            audit(provider)
+            audit(model)
+            audit(source)
+            audit(privacy)
+            audit(trust)
+        }
+        TextFailed(error) => {
+            let code: Text = error.code
+            let message: Text = error.message
+            let retryable: Bool = error.retryable
+            audit(code)
+            audit(message)
+            audit(retryable)
+        }
+    }
+
+    let metadata_result: DocumentMetadataExtraction = documents.extract_metadata(document)
+    match metadata_result {
+        MetadataExtracted(metadata) => {
+            let title: Text = metadata.title
+            let author: Text = metadata.author
+            let language: Text = metadata.language
+            let pages: Int = metadata.page_count
+            audit(title)
+            audit(author)
+            audit(language)
+            audit(pages)
+        }
+        MetadataFailed(error) => {
+            audit(error.code)
+        }
+    }
+}
+"#;
+
+        assert!(
+            codes(source).is_empty(),
+            "Diagnostics: {:?}",
+            check("test.num", source)
+        );
+    }
+
+    #[test]
+    fn rejects_extracted_document_text_sent_to_ai_without_gateway() {
+        let source = r#"
+module tests.document_extraction_ai
+
+workflow main(extracted: ExtractedDocumentText from DocumentExtraction private untrusted) {
+    let summary: Uncertain<Text> = ai.summarize(extracted.text)
+    if summary.confidence < 0.85 {
+        require_human_review(extracted)
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2412"));
+    }
+
+    #[test]
+    fn accepts_extracted_document_text_after_sanitization() {
+        let source = r#"
+module tests.document_extraction_ai
+
+workflow main(extracted: ExtractedDocumentText from DocumentExtraction private untrusted) {
+    let prompt: Text trusted = sanitize(extracted.text)
+    let summary: Uncertain<Text> = ai.summarize(prompt)
+    if summary.confidence < 0.85 {
+        require_human_review(extracted)
+    }
+}
+"#;
+
+        assert!(!codes(source).contains(&"N2412"));
+        assert!(!codes(source).contains(&"N2700"));
+    }
+
+    #[test]
     fn rejects_bytes_and_xml_helper_type_mismatches() {
         let source = r#"
 module tests.bytes_xml

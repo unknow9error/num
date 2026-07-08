@@ -1912,6 +1912,81 @@ workflow main(document: Document, bytes: Bytes) {
     }
 
     #[test]
+    fn test_runtime_runs_document_extraction_helpers() {
+        let source = r#"
+module test.document_extraction
+
+workflow main(document: Document from Upload private untrusted) {
+    let text: ExtractedDocumentText = extracted_document_text(document, "Invoice total", "fake-doc-extractor", "fixture-v1")
+    let metadata: DocumentExtractionMetadata = document_extraction_metadata(document, "Contract", "Ada", "en", 3, "fake-doc-extractor")
+    let failure: DocumentExtractionError = document_extraction_error(document, "unsupported_format", "fixture cannot parse encrypted PDF", false, "fake-doc-extractor")
+    audit(text.text)
+    audit(text.provider)
+    audit(text.model)
+    audit(text.source)
+    audit(text.privacy)
+    audit(text.trust)
+    audit(metadata.title)
+    audit(metadata.author)
+    audit(metadata.language)
+    audit(metadata.page_count)
+    audit(metadata.trust)
+    audit(failure.code)
+    audit(failure.message)
+    audit(failure.retryable)
+    audit(failure.source)
+    audit(failure.privacy)
+    audit(failure.trust)
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let mut args = HashMap::new();
+        args.insert(
+            "document".to_string(),
+            Value::Document(crate::document::DocumentValue {
+                id: "doc_1".to_string(),
+                name: "contract.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                size_bytes: 4096,
+                source: "Upload".to_string(),
+                privacy: "private".to_string(),
+                trust: "untrusted".to_string(),
+            }),
+        );
+
+        runtime.run_workflow("main", args).unwrap();
+
+        assert_eq!(
+            runtime.audit_events(),
+            &[
+                "\"Invoice total\"".to_string(),
+                "\"fake-doc-extractor\"".to_string(),
+                "\"fixture-v1\"".to_string(),
+                "\"DocumentExtraction:fake-doc-extractor\"".to_string(),
+                "\"private\"".to_string(),
+                "\"untrusted\"".to_string(),
+                "\"Contract\"".to_string(),
+                "\"Ada\"".to_string(),
+                "\"en\"".to_string(),
+                "3".to_string(),
+                "\"untrusted\"".to_string(),
+                "\"unsupported_format\"".to_string(),
+                "\"fixture cannot parse encrypted PDF\"".to_string(),
+                "false".to_string(),
+                "\"DocumentExtraction:fake-doc-extractor\"".to_string(),
+                "\"private\"".to_string(),
+                "\"trusted\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn test_runtime_rejects_invalid_bytes_and_xml_inputs() {
         let source = r#"
 module test.bytes_xml
@@ -2473,6 +2548,106 @@ test workflow "pdf docx connector mocks" {
         let mut runtime = Runtime::new(&compilation.module, vec![]);
 
         assert!(runtime.run_test("pdf docx connector mocks").is_ok());
+    }
+
+    #[test]
+    fn test_runtime_runs_document_extraction_connector_mocks() {
+        let source = r#"
+module test.document_extraction_mock
+
+enum DocumentTextExtraction {
+    TextExtracted(ExtractedDocumentText)
+    TextFailed(DocumentExtractionError)
+}
+
+enum DocumentMetadataExtraction {
+    MetadataExtracted(DocumentExtractionMetadata)
+    MetadataFailed(DocumentExtractionError)
+}
+
+connector documents {
+    extract_text(document: Document) -> DocumentTextExtraction
+    extract_metadata(document: Document) -> DocumentMetadataExtraction
+}
+
+policy DocumentExtractionPolicy {
+    allow private Upload -> documents.extract_text
+    allow private Upload -> documents.extract_metadata
+}
+
+workflow load_success(document: Document from Upload private untrusted) {
+    let text_result: DocumentTextExtraction = documents.extract_text(document)
+    match text_result {
+        TextExtracted(extracted) => {
+            audit(extracted.source)
+            audit(extracted.privacy)
+            audit(extracted.trust)
+            audit(extracted.text)
+        }
+        TextFailed(error) => {
+            audit(error.code)
+        }
+    }
+
+    let metadata_result: DocumentMetadataExtraction = documents.extract_metadata(document)
+    match metadata_result {
+        MetadataExtracted(metadata) => {
+            audit(metadata.title)
+            audit(metadata.page_count)
+            audit(metadata.source)
+        }
+        MetadataFailed(error) => {
+            audit(error.code)
+        }
+    }
+}
+
+workflow load_failure(document: Document from Upload private untrusted) {
+    let text_result: DocumentTextExtraction = documents.extract_text(document)
+    match text_result {
+        TextExtracted(extracted) => {
+            audit(extracted.text)
+        }
+        TextFailed(error) => {
+            audit("document_extraction_failed")
+            audit(error.code)
+            audit(error.retryable)
+            audit(error.source)
+            audit(error.privacy)
+            audit(error.trust)
+        }
+    }
+}
+
+test workflow "document extraction connector success mock" {
+    mock_connector documents.extract_text(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted")) => DocumentTextExtraction.TextExtracted(extracted_document_text(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"), "Invoice total", "fake-doc-extractor", "fixture-v1"))
+    mock_connector documents.extract_metadata(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted")) => DocumentMetadataExtraction.MetadataExtracted(document_extraction_metadata(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"), "Contract", "Ada", "en", 3, "fake-doc-extractor"))
+    expect_workflow_success load_success(document_metadata("doc_ok", "contract.pdf", "application/pdf", 4096, "Upload", "private", "untrusted"))
+    expect_audit "Invoice total"
+    expect_audit "DocumentExtraction:fake-doc-extractor"
+}
+
+test workflow "document extraction connector failure mock" {
+    mock_connector documents.extract_text(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted")) => DocumentTextExtraction.TextFailed(document_extraction_error(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted"), "unsupported_encrypted_pdf", "encrypted PDFs require a reviewed connector", false, "fake-doc-extractor"))
+    expect_workflow_success load_failure(document_metadata("doc_fail", "encrypted.pdf", "application/pdf", 2048, "Upload", "private", "untrusted"))
+    expect_audit "document_extraction_failed"
+    expect_audit "unsupported_encrypted_pdf"
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(
+            compilation.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compilation.diagnostics
+        );
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        assert!(runtime
+            .run_test("document extraction connector success mock")
+            .is_ok());
+        assert!(runtime
+            .run_test("document extraction connector failure mock")
+            .is_ok());
     }
 
     #[test]
