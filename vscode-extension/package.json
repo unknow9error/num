@@ -2,7 +2,7 @@
   "name": "num-lang",
   "displayName": "num",
   "description": "Professional language support for num files: syntax highlighting, LSP diagnostics, hover, navigation, formatting, snippets and project commands.",
-  "version": "0.4.22",
+  "version": "0.4.23",
   "publisher": "num-lang",
   "license": "MIT",
   "engines": {

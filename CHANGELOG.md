@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.23 - 2026-07-08
+
+### Patch
+
 - Added C connector safe-wrapper header generation with explicit
   `NumCContext` timeout/audit metadata, structured `NumCStatus` failures,
   unsupported native boundary shapes, and a C compile-time fixture for the
