@@ -394,7 +394,8 @@ Not implemented yet:
 
 - distributed event-driven state machine execution;
 - preemptive async cancellation for timed-out connector calls;
-- network-native connector SDKs and managed connector hosting;
+- network-native connector SDKs and managed cloud connector hosting beyond the
+  local runtime registration boundary;
 - distributed rate-limit persistence across runtime processes;
 - distributed or cross-process cost accounting and budget persistence;
 - real compensation execution across process boundaries.

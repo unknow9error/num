@@ -487,7 +487,7 @@ pub fn require_permission(ctx: &SecurityContext, permission: &str) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::connectors::StaticConnectorRegistry;
+    use super::connectors::{ConnectorError, StaticConnectorRegistry};
     use super::interpreter::Runtime;
     use super::interpreter::Value;
     use super::observability::RuntimeTraceKind;
@@ -717,6 +717,85 @@ workflow main() {
         let res = runtime.run_workflow("main", HashMap::new());
 
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_runtime_passes_context_to_hosted_connector_registry() {
+        let source = r#"
+module test.hosted
+
+connector echo {
+    text(value: Text from UserInput private) -> Text
+}
+
+workflow main() {
+    let message: Text = echo.text("hello")
+}
+"#;
+        let compilation = compile("test.num", source);
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register_with_context("echo.text", |context, args| {
+            assert_eq!(context.connector, "echo");
+            assert_eq!(context.method_name, "text");
+            assert_eq!(context.method, "echo.text");
+            assert_eq!(context.capability, "connector:echo.text");
+            assert_eq!(context.actor, "hosted_actor");
+            assert_eq!(context.tenant, "tenant_hosted");
+            assert_eq!(context.policy_decision, "compile_time_checked");
+            assert_eq!(context.arg_labels.len(), 1);
+            assert_eq!(context.arg_labels[0].name, "value");
+            assert_eq!(context.arg_labels[0].ty, "Text");
+            assert_eq!(context.arg_labels[0].source.as_deref(), Some("UserInput"));
+            assert_eq!(context.arg_labels[0].privacy.as_deref(), Some("private"));
+            Ok(args.first().cloned().unwrap_or(Value::Null))
+        });
+        let mut runtime = Runtime::with_connectors_and_security(
+            &compilation.module,
+            security_context("hosted_actor", "tenant_hosted", []),
+            Box::new(registry),
+        );
+
+        let res = runtime.run_workflow("main", HashMap::new());
+
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_runtime_preserves_hosted_connector_structured_failure() {
+        let source = r#"
+module test.hosted_failure
+
+connector echo {
+    text(value: Text) -> Text
+}
+
+workflow main() {
+    let message: Text = echo.text("hello")
+}
+"#;
+        let compilation = compile("test.num", source);
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register_with_context("echo.text", |_context, _args| {
+            Err(ConnectorError::new(
+                "host_unavailable",
+                "managed connector host unavailable",
+                true,
+            ))
+        });
+        let mut runtime = Runtime::with_connectors(&compilation.module, vec![], Box::new(registry));
+
+        let res = runtime.run_workflow("main", HashMap::new());
+
+        assert!(res.is_err());
+        let error = runtime.last_error().unwrap();
+        assert_eq!(error.kind(), "connector_failed");
+        let json = error.to_json();
+        assert_eq!(json["connector"]["code"], "host_unavailable");
+        assert_eq!(
+            json["connector"]["message"],
+            "managed connector host unavailable"
+        );
+        assert_eq!(json["connector"]["retryable"], true);
     }
 
     #[test]

@@ -421,6 +421,17 @@ with field access support. Special object forms are available for richer values:
 { "$uncertain": { "$enum": "RiskLevel.Low" }, "confidence": 0.92 }
 ```
 
+Embedded runtimes can also host connector implementations in process through
+`StaticConnectorRegistry`. Register each supported `connector.method` name with
+`register_with_context(...)` when the implementation needs the same egress
+context that process and JavaScript connectors receive, or with `register(...)`
+for legacy argument-only handlers. `registered_methods()` returns the sorted
+method list exposed by that registry. Runtime selection is ordered: an embedded
+caller can provide an in-process/generated-client registry, CLI project commands
+then select JavaScript module bindings, process bindings, and finally the demo
+executor; if no executor handles a declared connector method, Num reports the
+structured `missing_implementation` connector error.
+
 ### `[javascript]`
 
 Local JavaScript modules can back declared connector methods through a narrow

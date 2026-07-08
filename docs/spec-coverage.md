@@ -643,10 +643,16 @@ Implemented:
   `NumCContext` timeout/audit metadata, and structured `NumCStatus` failures,
   while unsafe or unsupported C boundary shapes stay explicit as
   `NumCUnsupported`.
+- Runtime connector registration boundary for embedded hosted implementations:
+  `StaticConnectorRegistry` registers supported `connector.method` names,
+  context-aware handlers receive `ConnectorCallContext`, `ChainedConnectorExecutor`
+  selects the first executor that handles a method, and missing or failing
+  connector implementations use structured connector errors.
 
 Not yet implemented:
 
-- managed connector hosting;
+- managed cloud connector hosting beyond the local runtime registration
+  boundary;
 - generated network-native runtime clients beyond the minimal OpenAPI
   TypeScript transport stub;
 - connector SDK targets beyond TypeScript/Python/Java/C declarations;
