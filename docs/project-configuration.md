@@ -257,7 +257,7 @@ plans. Missing credential environment variables for non-optional backends block
 deploy checks; optional missing backends remain visible as
 `optional-missing`.
 
-### `[ai]` and `[ai.models.<alias>]`
+### `[ai]`, `[ai.models.<alias>]`, and `[ai.scanners.<alias>]`
 
 Projects can declare AI model aliases and provider metadata without hardcoding
 provider details in `.num` source files. This is planning metadata only: real
@@ -280,6 +280,12 @@ model = "claude-3-5-sonnet"
 credential_env = ["ANTHROPIC_API_KEY"]
 timeout_ms = 12000
 max_cost = "0.50 USD"
+
+[ai.scanners.prompt-guard]
+provider = "fixture"
+mode = "block"
+block_threshold = "blocked"
+audit_redaction = "redacted"
 ```
 
 Supported fields:
@@ -294,16 +300,25 @@ Supported fields:
 - `timeout_ms` - default provider call timeout metadata in milliseconds.
 - `max_cost` or `default_max_cost` - operator-facing cost metadata for the
   alias, stored as text until provider-specific pricing is implemented.
+- `[ai.scanners.<alias>].provider` - scanner provider label. The built-in
+  deterministic test fixture provider is `fixture`.
+- `[ai.scanners.<alias>].mode` - scanner planning mode, such as `audit` or
+  `block`.
+- `[ai.scanners.<alias>].block_threshold` or `threshold` - optional textual
+  decision threshold metadata for blocking scanners.
+- `[ai.scanners.<alias>].audit_redaction` or `redaction` - audit redaction
+  profile label. `redacted` is the default.
 
-Unknown fields under `[ai]` and `[ai.models.<alias>]` are ignored for forward
-compatibility, so manifests can carry provider-specific future metadata before
-the CLI understands it.
+Unknown fields under `[ai]`, `[ai.models.<alias>]`, and
+`[ai.scanners.<alias>]` are ignored for forward compatibility, so manifests can
+carry provider-specific future metadata before the CLI understands it.
 
 `num deploy` includes an `ai` section in JSON plans with aliases, provider
-labels, model ids, timeout/cost metadata, and credential environment name
-presence. `num deploy --check` blocks when a declared model has missing
-credential environment variables. It records names and presence only; it never
-reads or serializes credential values.
+labels, model ids, scanner catalog entries, timeout/cost metadata, and
+credential environment name presence. `num deploy --check` blocks when a
+declared model has missing credential environment variables. It records names,
+scanner metadata, and environment variable presence only; it never reads or
+serializes credential values.
 
 ### `[sanitizer_packs.<name>]`
 

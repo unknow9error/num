@@ -735,6 +735,9 @@ impl<'a> Checker<'a> {
                 Stmt::MockAi(stmt) => {
                     self.mock_ai_stmt(stmt, env, granted, expected_return, test_kind)
                 }
+                Stmt::MockAiScan(stmt) => {
+                    self.mock_ai_scan_stmt(stmt, env, granted, expected_return, test_kind)
+                }
                 Stmt::MockConnector(stmt) => {
                     self.mock_connector_stmt(stmt, env, granted, expected_return, test_kind)
                 }
@@ -870,6 +873,7 @@ impl<'a> Checker<'a> {
             | Stmt::ExpectWorkflow(_)
             | Stmt::ExpectAudit(_)
             | Stmt::MockAi(_)
+            | Stmt::MockAiScan(_)
             | Stmt::MockConnector(_)
             | Stmt::Require(_) => false,
         }
@@ -1533,6 +1537,118 @@ impl<'a> Checker<'a> {
                     );
                 }
             }
+        }
+    }
+
+    fn mock_ai_scan_stmt(
+        &mut self,
+        stmt: &MockAiScanStmt,
+        env: &HashMap<String, Binding>,
+        granted: &HashSet<String>,
+        expected_return: Option<&TypeRef>,
+        test_kind: Option<TestKind>,
+    ) {
+        if test_kind != Some(TestKind::Ai) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N3118",
+                    "AI scanner fixtures are only allowed inside `test ai` blocks",
+                    stmt.span.clone(),
+                )
+                .with_reason("mock_ai_scan defines deterministic scanner decisions for AI tests")
+                .with_help("wrap the scanner fixture in `test ai \"name\" { ... }`"),
+            );
+        }
+
+        self.expr(&stmt.call, env, granted, expected_return, None);
+        if let Some(reason) = &stmt.reason {
+            self.expr(
+                reason,
+                env,
+                granted,
+                expected_return,
+                Some(&TypeRef {
+                    raw: "Text".to_string(),
+                }),
+            );
+            if let Ok(reason_expr) = expr::parse(&reason.text) {
+                if let Some(reason_ty) = self.expr_type(&reason_expr, env) {
+                    if reason_ty.raw != "Text" {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                "N3121",
+                                format!(
+                                    "AI scanner reason must be Text, found `{}`",
+                                    reason_ty.raw
+                                ),
+                                stmt.span.clone(),
+                            )
+                            .with_reason("scanner reasons are audit text")
+                            .with_help("use a string or Text expression after `reason`"),
+                        );
+                    }
+                }
+            }
+        }
+
+        if !matches!(stmt.outcome.as_str(), "pass" | "suspicious" | "block") {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N3120",
+                    format!("unknown AI scanner outcome `{}`", stmt.outcome),
+                    stmt.span.clone(),
+                )
+                .with_reason("AI scanner fixtures must use stable deterministic outcomes")
+                .with_help("use `pass`, `suspicious`, or `block`"),
+            );
+        }
+
+        let Some(call_expr) = self.parse_expr(&stmt.call) else {
+            return;
+        };
+        let Some(path) = direct_call_path(&call_expr) else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N3119",
+                    "AI scanner target must be a direct `ai.*` call",
+                    stmt.span.clone(),
+                )
+                .with_reason("AI scanner fixtures need an explicit connector method to guard")
+                .with_help("scan a call such as `mock_ai_scan ai.classify(message) => pass`"),
+            );
+            return;
+        };
+
+        let ["ai", method] = path.as_slice() else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N3119",
+                    "AI scanner target must be a direct `ai.*` call",
+                    stmt.span.clone(),
+                )
+                .with_reason("mock_ai_scan is scoped to AI connector calls")
+                .with_help("use an `ai.<method>(...)` connector call"),
+            );
+            return;
+        };
+
+        if self
+            .connector_methods
+            .get("ai")
+            .and_then(|methods| methods.get(*method))
+            .is_none()
+        {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N3108",
+                    format!("AI connector has no method `{method}`"),
+                    stmt.span.clone(),
+                )
+                .with_reason("AI scanner fixtures must target declared AI connector methods")
+                .with_help(format!(
+                    "add `{method}(...) -> Uncertain<T>` to connector `ai`"
+                )),
+            );
         }
     }
 
@@ -2255,6 +2371,12 @@ fn flatten_exprs(body: &[Stmt]) -> Vec<&RawExpr> {
                 exprs.push(&stmt.call);
                 exprs.push(&stmt.value);
                 exprs.push(&stmt.confidence);
+            }
+            Stmt::MockAiScan(stmt) => {
+                exprs.push(&stmt.call);
+                if let Some(reason) = &stmt.reason {
+                    exprs.push(reason);
+                }
             }
             Stmt::MockConnector(stmt) => {
                 exprs.push(&stmt.call);

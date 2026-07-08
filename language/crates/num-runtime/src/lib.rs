@@ -2585,6 +2585,86 @@ test ai "ai mock controls classification" {
     }
 
     #[test]
+    fn test_runtime_runs_ai_scanner_pass_and_suspicious_fixtures() {
+        let source = r#"
+module test.ai_scanner_tests
+
+enum Intent {
+    RefundRequest
+    BillingQuestion
+}
+
+connector ai {
+    classify(message: Text) -> Uncertain<Intent>
+}
+
+test ai "scanner fixtures audit pass and suspicious decisions" {
+    mock_ai_scan ai.classify("refund") => pass reason "clean prompt"
+    mock_ai ai.classify("refund") => RefundRequest confidence 0.91
+    let intent: Uncertain<Intent> = ai.classify("refund")
+    assert intent.value == RefundRequest
+
+    mock_ai_scan ai.classify("refund") => suspicious reason "contains instruction-like phrasing"
+    let second: Uncertain<Intent> = ai.classify("refund")
+    assert second.confidence == 0.91
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+
+        assert!(runtime
+            .run_test("scanner fixtures audit pass and suspicious decisions")
+            .is_ok());
+        assert!(runtime
+            .audit_events()
+            .contains(&"ai_scan.pass:ai.classify".to_string()));
+        assert!(runtime
+            .audit_events()
+            .contains(&"ai_scan.suspicious:ai.classify".to_string()));
+    }
+
+    #[test]
+    fn test_runtime_blocks_ai_mock_when_scanner_blocks_prompt() {
+        let source = r#"
+module test.ai_scanner_block
+
+enum Intent {
+    RefundRequest
+}
+
+connector ai {
+    classify(message: Text) -> Uncertain<Intent>
+}
+
+test ai "scanner block fails closed" {
+    mock_ai_scan ai.classify("refund") => block reason "token=sk_live_123 prompt override"
+    mock_ai ai.classify("refund") => RefundRequest confidence 0.91
+    let intent: Uncertain<Intent> = ai.classify("refund")
+}
+"#;
+        let compilation = compile("test.num", source);
+        assert!(compilation.diagnostics.is_empty());
+        let mut runtime = Runtime::new(&compilation.module, vec![]);
+        let err = runtime.run_test("scanner block fails closed").unwrap_err();
+
+        assert!(err.contains("AI scanner rejected ai.classify"));
+        assert!(err.contains("<redacted>"));
+        assert!(!err.contains("sk_live_123"));
+        assert!(runtime
+            .audit_events()
+            .contains(&"ai_scan.block:ai.classify".to_string()));
+        let trace = runtime
+            .trace_events()
+            .iter()
+            .find(|event| event.target == "ai_scan.block:ai.classify")
+            .expect("scanner block should be traced");
+        let detail = trace.detail.as_deref().unwrap_or_default();
+        assert!(detail.contains("<redacted>"));
+        assert!(!detail.contains("sk_live_123"));
+    }
+
+    #[test]
     fn test_runtime_runs_connector_mocks_in_workflow_tests() {
         let source = r#"
 module test.workflow_fixtures

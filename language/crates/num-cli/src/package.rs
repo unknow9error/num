@@ -95,6 +95,7 @@ pub struct PackageSecretBackend {
 pub struct PackageAiConfig {
     pub default_model: Option<String>,
     pub models: Vec<PackageAiModel>,
+    pub scanners: Vec<PackageAiScanner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -105,6 +106,15 @@ pub struct PackageAiModel {
     pub credential_env: Vec<String>,
     pub timeout_ms: Option<u64>,
     pub max_cost: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackageAiScanner {
+    pub alias: String,
+    pub provider: String,
+    pub mode: String,
+    pub block_threshold: Option<String>,
+    pub audit_redaction: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -266,6 +276,7 @@ impl PackageManifest {
         let mut secret_backends = Vec::new();
         let mut ai_default_model = None;
         let mut ai_models = Vec::new();
+        let mut ai_scanners = Vec::new();
         let mut environment_required = Vec::new();
         let mut environment_optional = Vec::new();
         let mut deployment_target = None;
@@ -349,6 +360,13 @@ impl PackageManifest {
                         .trim();
                     upsert_ai_model(&mut ai_models, alias, &key, value);
                 }
+                section if section.starts_with("ai.scanners.") => {
+                    let alias = section
+                        .strip_prefix("ai.scanners.")
+                        .unwrap_or_default()
+                        .trim();
+                    upsert_ai_scanner(&mut ai_scanners, alias, &key, value);
+                }
                 "environment" => match key.as_str() {
                     "required" => environment_required.extend(parse_toml_string_array(value)),
                     "optional" => environment_optional.extend(parse_toml_string_array(value)),
@@ -415,6 +433,7 @@ impl PackageManifest {
         javascript.sort_by(|left, right| left.method.cmp(&right.method));
         secret_backends.sort_by(|left, right| left.id.cmp(&right.id));
         ai_models.sort_by(|left, right| left.alias.cmp(&right.alias));
+        ai_scanners.sort_by(|left, right| left.alias.cmp(&right.alias));
         sanitizer_packs.sort_by(|left, right| left.name.cmp(&right.name));
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -449,6 +468,7 @@ impl PackageManifest {
             ai: PackageAiConfig {
                 default_model: ai_default_model,
                 models: ai_models,
+                scanners: ai_scanners,
             },
             environment: PackageEnvironment {
                 required: normalize_env_names(environment_required),
@@ -1378,6 +1398,46 @@ fn upsert_ai_model(models: &mut Vec<PackageAiModel>, alias: &str, key: &str, val
     }
 }
 
+fn upsert_ai_scanner(scanners: &mut Vec<PackageAiScanner>, alias: &str, key: &str, value: &str) {
+    let alias = alias.trim();
+    if alias.is_empty() {
+        return;
+    }
+    let index = scanners.iter().position(|scanner| scanner.alias == alias);
+    let index = index.unwrap_or_else(|| {
+        scanners.push(PackageAiScanner {
+            alias: alias.to_string(),
+            provider: "fixture".to_string(),
+            mode: "audit".to_string(),
+            audit_redaction: "redacted".to_string(),
+            ..PackageAiScanner::default()
+        });
+        scanners.len() - 1
+    });
+    let scanner = &mut scanners[index];
+    match key {
+        "provider" => {
+            if let Some(provider) = parse_toml_string(value) {
+                scanner.provider = provider;
+            }
+        }
+        "mode" => {
+            if let Some(mode) = parse_toml_string(value) {
+                scanner.mode = mode;
+            }
+        }
+        "block_threshold" | "threshold" => {
+            scanner.block_threshold = parse_toml_string(value);
+        }
+        "audit_redaction" | "redaction" => {
+            if let Some(audit_redaction) = parse_toml_string(value) {
+                scanner.audit_redaction = audit_redaction;
+            }
+        }
+        _ => {}
+    }
+}
+
 fn pack_policy(pack: &PackageSanitizerPack) -> Result<TextSanitizationPolicy, String> {
     let mut policy = TextSanitizationPolicy::default();
     if let Some(trim) = pack.trim {
@@ -2155,6 +2215,17 @@ credential_env = [" OPENAI_API_KEY ", "OPENAI_ORG", "OPENAI_API_KEY"]
 timeout_ms = 5000
 max_cost = "0.10 USD"
 region = "future-region"
+
+[ai.scanners.fixture-safe]
+provider = "fixture"
+mode = "audit"
+future_rule_pack = "ignored"
+
+[ai.scanners.prompt-guard]
+provider = "fixture"
+mode = "block"
+block_threshold = "blocked"
+audit_redaction = "redacted"
 "#,
         );
 
@@ -2177,6 +2248,20 @@ region = "future-region"
         assert_eq!(manifest.ai.models[1].model, "claude-3-5-sonnet");
         assert_eq!(manifest.ai.models[1].timeout_ms, Some(12000));
         assert_eq!(manifest.ai.models[1].max_cost, Some("0.50 USD".to_string()));
+        assert_eq!(manifest.ai.scanners.len(), 2);
+        assert_eq!(manifest.ai.scanners[0].alias, "fixture-safe");
+        assert_eq!(manifest.ai.scanners[0].provider, "fixture");
+        assert_eq!(manifest.ai.scanners[0].mode, "audit");
+        assert_eq!(manifest.ai.scanners[0].block_threshold, None);
+        assert_eq!(manifest.ai.scanners[0].audit_redaction, "redacted");
+        assert_eq!(manifest.ai.scanners[1].alias, "prompt-guard");
+        assert_eq!(manifest.ai.scanners[1].provider, "fixture");
+        assert_eq!(manifest.ai.scanners[1].mode, "block");
+        assert_eq!(
+            manifest.ai.scanners[1].block_threshold,
+            Some("blocked".to_string())
+        );
+        assert_eq!(manifest.ai.scanners[1].audit_redaction, "redacted");
         assert!(!format!("{manifest:?}").contains("secret-value"));
     }
 

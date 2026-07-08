@@ -69,6 +69,7 @@ workflow handle_ticket(ticket: Ticket) {
 }
 
 test ai "refund intent can be mocked" {
+    mock_ai_scan ai.classify("refund please") => pass reason "fixture-safe prompt"
     mock_ai ai.classify("refund please") => RefundRequest confidence 0.93
     let intent: Uncertain<Intent> = ai.classify("refund please")
 

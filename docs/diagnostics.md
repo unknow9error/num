@@ -139,6 +139,10 @@ calls. It treats use of `.confidence`, `.value`, `require_human_review`, or
 - `N3116` - `mock_connector` value is incompatible with the connector method
   result type.
 - `N3117` - `expect_audit` was used outside a `test workflow` block.
+- `N3118` - `mock_ai_scan` was used outside a `test ai` block.
+- `N3119` - `mock_ai_scan` did not target a direct `ai.*` connector call.
+- `N3120` - `mock_ai_scan` uses an unknown scanner outcome.
+- `N3121` - `mock_ai_scan` reason is not `Text`.
 
 The current data-flow check recognizes `external.*` calls, declared connector
 method calls, `ExternalApi`/`ConnectorApi` targets, high-risk action calls, and

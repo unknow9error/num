@@ -4801,6 +4801,85 @@ test ai "deterministic classification" {
     }
 
     #[test]
+    fn accepts_and_formats_ai_scanner_fixture_in_ai_test() {
+        let source = r#"
+module tests.ai_tests
+
+enum Intent {
+    RefundRequest
+}
+
+connector ai {
+    classify(message: Text) -> Uncertain<Intent>
+}
+
+test ai "scanner fixture" {
+    mock_ai_scan ai.classify("refund") => suspicious reason "instruction-like prompt"
+    mock_ai ai.classify("refund") => RefundRequest confidence 0.91
+}
+"#;
+
+        let compiled = compile("test.num", source);
+
+        assert!(compiled.diagnostics.is_empty());
+        let formatted = formatter::format_module(&compiled.module);
+        assert!(formatted.contains(
+            "    mock_ai_scan ai.classify(\"refund\") => suspicious reason \"instruction-like prompt\"\n"
+        ));
+    }
+
+    #[test]
+    fn rejects_ai_scanner_fixture_outside_ai_test() {
+        let source = r#"
+module tests.ai_tests
+
+connector ai {
+    classify(message: Text) -> Uncertain<Text>
+}
+
+test "wrong kind" {
+    mock_ai_scan ai.classify("refund") => pass
+}
+"#;
+
+        assert!(codes(source).contains(&"N3118"));
+    }
+
+    #[test]
+    fn rejects_ai_scanner_fixture_unknown_outcome() {
+        let source = r#"
+module tests.ai_tests
+
+connector ai {
+    classify(message: Text) -> Uncertain<Text>
+}
+
+test ai "bad scan" {
+    mock_ai_scan ai.classify("refund") => allow
+}
+"#;
+
+        assert!(codes(source).contains(&"N3120"));
+    }
+
+    #[test]
+    fn rejects_ai_scanner_fixture_non_text_reason() {
+        let source = r#"
+module tests.ai_tests
+
+connector ai {
+    classify(message: Text) -> Uncertain<Text>
+}
+
+test ai "bad scan reason" {
+    mock_ai_scan ai.classify("refund") => block reason 42
+}
+"#;
+
+        assert!(codes(source).contains(&"N3121"));
+    }
+
+    #[test]
     fn rejects_ai_mock_outside_ai_test() {
         let source = r#"
 module tests.ai_tests

@@ -321,6 +321,7 @@ pub enum Stmt {
     ExpectWorkflow(ExpectWorkflowStmt),
     ExpectAudit(ExpectAuditStmt),
     MockAi(MockAiStmt),
+    MockAiScan(MockAiScanStmt),
     MockConnector(MockConnectorStmt),
     Require(RequireStmt),
     Transaction(TransactionStmt),
@@ -341,6 +342,7 @@ impl Stmt {
             Stmt::ExpectWorkflow(stmt) => &stmt.span,
             Stmt::ExpectAudit(stmt) => &stmt.span,
             Stmt::MockAi(stmt) => &stmt.span,
+            Stmt::MockAiScan(stmt) => &stmt.span,
             Stmt::MockConnector(stmt) => &stmt.span,
             Stmt::Require(stmt) => &stmt.span,
             Stmt::Transaction(stmt) => &stmt.span,
@@ -418,6 +420,14 @@ pub struct MockAiStmt {
     pub call: RawExpr,
     pub value: RawExpr,
     pub confidence: RawExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct MockAiScanStmt {
+    pub call: RawExpr,
+    pub outcome: String,
+    pub reason: Option<RawExpr>,
     pub span: Span,
 }
 
