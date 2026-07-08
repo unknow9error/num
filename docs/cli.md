@@ -616,15 +616,31 @@ overwrite a published local version.
 versions with SemVer precedence instead of lexicographic string order. `index`
 validates each package metadata file and emits a stable machine-readable package
 index with name, version, language version, manifest schema, content hash,
-metadata path, and file count, also in SemVer order. `install` copies a
-published package from the registry into `<install-root>/<name>/<version>/`; the
-special version `latest` resolves to the highest SemVer-compatible local
-registry version before copying. When registry metadata exists, `install`
-verifies the content hash before copying and writes the metadata into the
-installed package too. The default install root is `.num/packages`. These
-commands are local registry tooling for development and private package
-workflows; `index` is the current API-ready metadata surface, while remote
-download/publish service endpoints are still platform work.
+metadata path, file count, integrity metadata, and remote-compatible endpoint
+paths, also in SemVer order. `install` copies a published package from the
+registry into `<install-root>/<name>/<version>/`; the special version `latest`
+resolves to the highest SemVer-compatible local registry version before
+copying. When registry metadata exists, `install` verifies the content hash
+before copying and writes the metadata into the installed package too. The
+default install root is `.num/packages`.
+
+`num registry index --json` also declares the first read-only remote registry
+protocol shape under `remote_protocol.kind = "num.registry.remote.v1"`:
+
+- `GET /v1/packages/{name}` returns package metadata.
+- `GET /v1/packages/{name}/versions` returns the available versions.
+- `GET /v1/packages/{name}/versions/{version}` returns version metadata,
+  including language, manifest schema, file count, and integrity fields.
+- `GET /v1/packages/{name}/versions/{version}/download` downloads by version.
+- `GET /v1/packages/{name}/blobs/{sha256}` downloads by content hash.
+
+Integrity fields use `algorithm`, `value`, and full `digest` values, where the
+digest matches the local package `content_hash` such as `sha256:<hex>`. This
+protocol slice is read-only: publishing, authentication, authorization,
+retention, and remote client downloads are still outside the implemented
+boundary. The filesystem registry remains the only executable registry backend
+today; the remote paths are a stable contract for a future service and for tests
+that need to compare local index output with the remote shape.
 
 ### `connector`
 

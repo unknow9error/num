@@ -236,7 +236,8 @@ Implemented:
 - local filesystem registry publish/list/index/install workflow for package
   development and private package sharing, including package metadata,
   SemVer-aware version ordering, `latest` install resolution, API-ready package
-  indexes, and content-hash verification;
+  indexes, content-hash verification, and a read-only remote registry protocol
+  contract for package metadata, version listing, and package download paths;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, including content-hash pins for resolved local-registry
   packages;
@@ -714,7 +715,8 @@ Not yet implemented:
 
 Major full-spec areas not implemented in v0.4.15:
 
-- remote package registry HTTP/service APIs;
+- executable remote package registry HTTP services and client downloads beyond
+  the read-only protocol contract exposed by `num registry index --json`;
 - remote registry package lockfile pinning;
 - complete standard library;
 - hardened production HTTP server runtime;

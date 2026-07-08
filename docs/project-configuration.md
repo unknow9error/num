@@ -172,12 +172,27 @@ schema, package identity, language/manifest metadata, per-file hashes, and a
 package content hash. `num registry list --registry <registry-root>` prints
 available packages. `num registry index --registry <registry-root> --json`
 validates package metadata and emits an API-ready package index containing
-package identity, language version, manifest schema, content hash, metadata
-path, and file counts. `num registry install <name> <version> --registry
-<registry-root> --to <install-root>` verifies registry metadata when present,
-then copies a package into a local vendor-style directory and writes the same
-metadata next to the installed package. Existing publish/install targets require
-`--replace` before they are overwritten.
+package identity, language version, manifest schema, content hash, integrity
+fields, metadata path, remote-compatible endpoint paths, and file counts. `num
+registry install <name> <version> --registry <registry-root> --to
+<install-root>` verifies registry metadata when present, then copies a package
+into a local vendor-style directory and writes the same metadata next to the
+installed package. Existing publish/install targets require `--replace` before
+they are overwritten.
+
+The remote registry protocol declared by `index --json` is intentionally
+read-only:
+
+- `GET /v1/packages/{name}` for package metadata;
+- `GET /v1/packages/{name}/versions` for version listings;
+- `GET /v1/packages/{name}/versions/{version}` for version metadata and
+  integrity fields;
+- `GET /v1/packages/{name}/versions/{version}/download` for version downloads;
+- `GET /v1/packages/{name}/blobs/{sha256}` for content-addressed downloads.
+
+The current CLI does not publish to, authenticate with, or download from a
+remote registry service. `[registry].path` and `NUM_REGISTRY_PATH` still point
+to the local filesystem registry used by checks, lockfiles, and installs.
 
 ### `[registry]`
 
