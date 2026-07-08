@@ -5011,6 +5011,129 @@ test workflow "wrong value" {
     }
 
     #[test]
+    fn accepts_and_formats_actor_declaration_parser_slice() {
+        let source = r#"
+module tests.actors
+
+type Cart {
+    id: Text
+}
+
+actor CartActor {
+state cart: Cart private
+fn add_item(item: Text) -> Text {
+audit("actor parsed")
+return item
+}
+}
+"#;
+
+        let compiled = compile("test.num", source);
+
+        assert!(
+            compiled.diagnostics.is_empty(),
+            "Diagnostics: {:?}",
+            compiled.diagnostics
+        );
+        let formatted = formatter::format_module(&compiled.module);
+        assert!(formatted.contains("actor CartActor {\n"));
+        assert!(formatted.contains("    state cart: Cart private\n\n"));
+        assert!(formatted.contains("    fn add_item(item: Text) -> Text {\n"));
+    }
+
+    #[test]
+    fn actor_declaration_lowers_debug_ir_metadata() {
+        let source = r#"
+module tests.actors
+
+type Cart {
+    id: Text
+}
+
+actor CartActor {
+    state cart: Cart
+
+    fn add_item(item: Text) -> Text {
+        return item
+    }
+}
+"#;
+
+        let compiled = compile("test.num", source);
+
+        assert!(compiled.diagnostics.is_empty());
+        let actor = compiled
+            .ir
+            .items
+            .iter()
+            .find(|item| item.name == "CartActor")
+            .expect("actor item lowered to IR");
+        assert_eq!(actor.kind, IrItemKind::Actor);
+        assert!(actor
+            .effects
+            .contains(&IrEffect::ActorState("cart: Cart".to_string())));
+        assert!(actor.effects.contains(&IrEffect::ActorHandler(
+            "add_item(item: Text) -> Text".to_string()
+        )));
+    }
+
+    #[test]
+    fn rejects_actor_handler_execution_before_runtime_support() {
+        let source = r#"
+module tests.actors
+
+actor CartActor {
+    state cart: Text
+
+    fn add_item(item: Text) {
+        audit("actor parsed")
+    }
+}
+
+workflow main() {
+    CartActor.add_item("sku-1")
+}
+"#;
+
+        assert!(codes(source).contains(&"N2708"));
+    }
+
+    #[test]
+    fn rejects_duplicate_actor_state_fields() {
+        let source = r#"
+module tests.actors
+
+actor CartActor {
+    state cart: Text
+    state cart: Text
+}
+"#;
+
+        assert!(codes(source).contains(&"N1200"));
+    }
+
+    #[test]
+    fn rejects_duplicate_actor_handlers() {
+        let source = r#"
+module tests.actors
+
+actor CartActor {
+    state cart: Text
+
+    fn add_item(item: Text) {
+        audit("first")
+    }
+
+    fn add_item(item: Text) {
+        audit("second")
+    }
+}
+"#;
+
+        assert!(codes(source).contains(&"N2702"));
+    }
+
+    #[test]
     fn rejects_undeclared_external_namespace() {
         let source = r#"
 module tests.externals

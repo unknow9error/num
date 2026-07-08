@@ -22,6 +22,7 @@ pub enum IrItemKind {
     Enum,
     Function,
     Workflow,
+    Actor,
     Action,
     Connector,
     Service,
@@ -35,6 +36,8 @@ pub enum IrEffect {
     DataPolicy(String),
     TypeAlias(String),
     ConnectorMethod(String),
+    ActorState(String),
+    ActorHandler(String),
     ServiceRoute(String),
     AuditRequired,
     Rollback(String),
@@ -107,6 +110,21 @@ fn lower_decl(decl: &Declaration) -> IrItem {
                 effects,
             }
         }
+        Declaration::Actor(actor) => IrItem {
+            kind: IrItemKind::Actor,
+            name: actor.name.clone(),
+            effects: actor
+                .state
+                .iter()
+                .map(|field| IrEffect::ActorState(actor_state_signature(field)))
+                .chain(
+                    actor
+                        .handlers
+                        .iter()
+                        .map(|handler| IrEffect::ActorHandler(callable_signature(handler))),
+                )
+                .collect(),
+        },
         Declaration::Action(action) => {
             let mut effects = vec![IrEffect::ExternalAction];
             effects.extend(action.requires.iter().cloned().map(IrEffect::Permission));
@@ -162,6 +180,25 @@ fn lower_decl(decl: &Declaration) -> IrItem {
             effects: Vec::new(),
         },
     }
+}
+
+fn actor_state_signature(field: &ActorStateField) -> String {
+    format!("{}: {}", field.name, field.ty.raw)
+}
+
+fn callable_signature(callable: &CallableDecl) -> String {
+    let params = callable
+        .params
+        .iter()
+        .map(|param| format!("{}: {}", param.name, param.ty.raw))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let result = callable
+        .result
+        .as_ref()
+        .map(|ty| ty.raw.as_str())
+        .unwrap_or("Unit");
+    format!("{}({params}) -> {result}", callable.name)
 }
 
 fn test_kind_name(kind: TestKind) -> &'static str {

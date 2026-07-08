@@ -121,6 +121,7 @@ struct Checker<'a> {
     enum_variant_payloads: HashMap<String, HashMap<String, Option<TypeRef>>>,
     external_namespaces: HashSet<String>,
     connector_methods: HashMap<String, HashMap<String, &'a ConnectorMethod>>,
+    actor_handlers: HashMap<String, HashMap<String, CallableSignature<'a>>>,
     method_signatures: HashMap<String, HashMap<String, CallableSignature<'a>>>,
     policy_tenant: Option<String>,
     policy_route: Option<(String, String)>,
@@ -142,6 +143,7 @@ impl<'a> Checker<'a> {
         let mut enum_variant_payloads = HashMap::new();
         let mut external_namespaces = HashSet::new();
         let mut connector_methods = HashMap::new();
+        let mut actor_handlers = HashMap::new();
         let mut method_signatures = HashMap::new();
 
         for decl in &module.declarations {
@@ -194,6 +196,25 @@ impl<'a> Checker<'a> {
                             params: &workflow.params,
                             result: workflow.result.as_ref(),
                         },
+                    );
+                }
+                Declaration::Actor(actor) => {
+                    actor_handlers.insert(
+                        actor.name.clone(),
+                        actor
+                            .handlers
+                            .iter()
+                            .map(|handler| {
+                                (
+                                    handler.name.clone(),
+                                    CallableSignature {
+                                        kind: CallableKind::Function,
+                                        params: &handler.params,
+                                        result: handler.result.as_ref(),
+                                    },
+                                )
+                            })
+                            .collect(),
                     );
                 }
                 Declaration::Policy(policy) => {
@@ -278,6 +299,7 @@ impl<'a> Checker<'a> {
             enum_variant_payloads,
             external_namespaces,
             connector_methods,
+            actor_handlers,
             method_signatures,
             policy_tenant: None,
             policy_route: None,
@@ -311,6 +333,7 @@ impl<'a> Checker<'a> {
                 Declaration::Enum(en) => self.enum_decl(en),
                 Declaration::Function(function) => self.callable(function),
                 Declaration::Workflow(workflow) => self.callable(workflow),
+                Declaration::Actor(actor) => self.actor(actor),
                 Declaration::Action(action) => self.action(action),
                 Declaration::Connector(connector) => self.connector(connector),
                 Declaration::Service(service) => self.service(service),
@@ -459,6 +482,50 @@ impl<'a> Checker<'a> {
             &action.span,
             None,
         );
+    }
+
+    fn actor(&mut self, actor: &ActorDecl) {
+        let mut state_names = HashSet::new();
+        for field in &actor.state {
+            if !state_names.insert(field.name.clone()) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N1200",
+                        format!(
+                            "duplicate state field `{}` in actor `{}`",
+                            field.name, actor.name
+                        ),
+                        field.span.clone(),
+                    )
+                    .with_help("actor state field names must be unique inside an actor"),
+                );
+            }
+            self.known_type_ref(&field.ty, &field.span);
+        }
+
+        let mut handler_names = HashSet::new();
+        for handler in &actor.handlers {
+            if !handler_names.insert(handler.name.clone()) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "N2702",
+                        format!("duplicate actor handler `{}.{}`", actor.name, handler.name),
+                        handler.span.clone(),
+                    )
+                    .with_help("actor handler names must be unique inside an actor"),
+                );
+            }
+
+            for param in &handler.params {
+                self.known_type_ref(&param.ty, &param.span);
+            }
+            if let Some(result) = &handler.result {
+                self.known_type_ref(result, &handler.span);
+            }
+            for permission in &handler.requires {
+                self.known_permission(permission, &handler.span);
+            }
+        }
     }
 
     fn connector(&mut self, connector: &ConnectorDecl) {
@@ -1110,6 +1177,7 @@ impl<'a> Checker<'a> {
         self.trust_flow(expr, &parsed, env);
         self.action_permission(expr, &parsed, granted);
         self.external_namespace(expr, &parsed, env);
+        self.actor_runtime_call(expr, &parsed);
         self.connector_call(expr, &parsed, env);
         self.direct_call(expr, &parsed, env);
         self.method_call(expr, &parsed, env);

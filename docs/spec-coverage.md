@@ -559,6 +559,29 @@ Not yet implemented:
 - general nullable/result flow analysis beyond supported `if` boolean guards
   and terminal guard branches.
 
+### Actor Syntax
+
+The parser accepts a first actor declaration slice for stateful service design.
+
+Implemented:
+
+- top-level `actor Name { ... }` declarations;
+- `state name: Type` fields with existing provenance/privacy/trust labels;
+- nested `fn` handler signatures and bodies for parser/formatter coverage;
+- state field and handler signature type validation;
+- duplicate state field and duplicate handler diagnostics;
+- IR/debug metadata for actor state fields and handler signatures;
+- explicit `N2708` diagnostics when executable code attempts to call
+  `ActorName.handler(...)` before actor runtime support exists.
+
+Not yet implemented:
+
+- actor mailboxes, scheduling, persistence, supervision, or runtime handler
+  execution;
+- handler body type checking against implicit actor state such as `self` or
+  mutable state references;
+- generated actor service/runtime adapters.
+
 ### Connector Schemas
 
 The parser accepts typed connector method signatures and the checker validates
@@ -726,7 +749,7 @@ Major full-spec areas not implemented in v0.4.17:
 - full OpenAPI import coverage beyond the current connector-contract subset;
 - full database schema import coverage beyond the current SQL contract subset;
 - full structured concurrency beyond the current lost-task static guard;
-- actor model;
+- actor runtime model beyond the parser/formatter/IR metadata slice;
 - clustered/networked queue coordination beyond the local file-backed worker
   lease and heartbeat model;
 - provider-specific serverless adapters and rollout execution for AWS Lambda,

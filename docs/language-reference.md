@@ -995,6 +995,28 @@ cancel events and persist the resulting workflow state and audit events.
 Distributed event dispatch, scheduling, and worker orchestration are not
 implemented yet.
 
+## Actors
+
+Actors reserve syntax for stateful services without enabling actor execution.
+
+```num
+actor CartActor {
+    state cart: Cart private
+
+    fn add_item(item: Item) {
+        audit("actor handler parsed")
+    }
+}
+```
+
+Actor declarations can contain `state name: Type` fields with the same labels
+as structured type fields, plus nested `fn` handler signatures and bodies for
+formatting and IR/debug metadata. The checker validates state field types,
+handler parameter/result types, duplicate state fields, duplicate handlers, and
+declared permissions. Handler bodies are parsed and formatted, but are not
+executed by the runtime yet. Calling `ActorName.handler(...)` emits `N2708`
+until actor scheduling and mailbox semantics are implemented.
+
 ## Actions
 
 Actions represent external side effects.

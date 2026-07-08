@@ -104,6 +104,7 @@ fn format_decl(decl: &Declaration, out: &mut String) {
         }
         Declaration::Function(function) => callable("fn", function, 0, out),
         Declaration::Workflow(workflow) => callable("workflow", workflow, 0, out),
+        Declaration::Actor(actor) => actor_decl(actor, out),
         Declaration::Action(action) => action_decl(action, out),
         Declaration::Connector(connector) => connector_decl(connector, out),
         Declaration::Service(service) => service_decl(service, out),
@@ -147,6 +148,30 @@ fn callable(kind: &str, callable: &CallableDecl, level: usize, out: &mut String)
     out.push_str(" {\n");
     stmts(&callable.body, level + 1, out);
     out.push_str(&indent);
+    out.push_str("}\n");
+}
+
+fn actor_decl(actor: &ActorDecl, out: &mut String) {
+    out.push_str("actor ");
+    out.push_str(&actor.name);
+    out.push_str(" {\n");
+    for field in &actor.state {
+        out.push_str("    state ");
+        out.push_str(&field.name);
+        out.push_str(": ");
+        out.push_str(&field.ty.raw);
+        format_labels(&field.labels, out);
+        out.push('\n');
+    }
+    if !actor.state.is_empty() && !actor.handlers.is_empty() {
+        out.push('\n');
+    }
+    for (index, handler) in actor.handlers.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        callable("fn", handler, 1, out);
+    }
     out.push_str("}\n");
 }
 

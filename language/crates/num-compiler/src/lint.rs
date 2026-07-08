@@ -35,6 +35,11 @@ impl Linter {
                     self.callable_params(&function.params);
                 }
                 Declaration::Action(action) => self.action(action),
+                Declaration::Actor(actor) => {
+                    for handler in &actor.handlers {
+                        self.callable_params(&handler.params);
+                    }
+                }
                 Declaration::Service(service) => self.service(service),
                 Declaration::Type(ty) => self.type_decl(ty),
                 Declaration::Permission(_)

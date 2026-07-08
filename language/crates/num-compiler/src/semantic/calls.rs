@@ -136,6 +136,32 @@ impl<'a> Checker<'a> {
         }
     }
 
+    pub(super) fn actor_runtime_call(&mut self, raw: &RawExpr, expr: &Expr) {
+        for call in expr.calls() {
+            let [actor_name, handler_name] = call.path.as_slice() else {
+                continue;
+            };
+
+            let Some(handlers) = self.actor_handlers.get(*actor_name) else {
+                continue;
+            };
+
+            let detail = if handlers.contains_key(*handler_name) {
+                format!(
+                    "actor handler `{}.{}` cannot be executed yet",
+                    actor_name, handler_name
+                )
+            } else {
+                format!("actor `{actor_name}` has no executable handler `{handler_name}`")
+            };
+            self.diagnostics.push(
+                Diagnostic::error("N2708", detail, raw.span.clone())
+                    .with_reason("actor declarations are currently parser/formatter/IR metadata only")
+                    .with_help("keep actor declarations for design documentation, but do not call actor handlers until actor runtime support lands"),
+            );
+        }
+    }
+
     pub(super) fn direct_call(
         &mut self,
         raw: &RawExpr,

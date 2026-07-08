@@ -177,6 +177,8 @@ runtime instance.
   callable signature.
 - `N2707` - built-in scalar validator, date/time helper, or decimal helper was
   called with a literal that cannot satisfy the requested scalar/date-time type.
+- `N2708` - actor handler execution was attempted before actor runtime support
+  is implemented.
 - `N2800` - duplicate service route method/path inside a `service`.
 
 ## Expressions

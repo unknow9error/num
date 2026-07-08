@@ -84,6 +84,9 @@ impl<'a> Parser<'a> {
         if self.match_keyword(Keyword::Workflow) {
             return self.callable_decl(false).map(Declaration::Workflow);
         }
+        if self.match_keyword(Keyword::Actor) {
+            return self.actor_decl().map(Declaration::Actor);
+        }
         if self.match_keyword(Keyword::Action) {
             return self.action_decl().map(Declaration::Action);
         }
@@ -107,7 +110,7 @@ impl<'a> Parser<'a> {
                 format!("expected top-level declaration, found `{}`", token.lexeme),
                 token.span,
             )
-            .with_help("use module, use, permission, role, policy, type, enum, fn, workflow, action, connector, service, or test"),
+            .with_help("use module, use, permission, role, policy, type, enum, fn, workflow, actor, action, connector, service, or test"),
         );
         None
     }
@@ -403,6 +406,77 @@ impl<'a> Parser<'a> {
             budget,
             rate_limit,
             body,
+            span,
+        })
+    }
+
+    fn actor_decl(&mut self) -> Option<ActorDecl> {
+        let span = self.previous().span.clone();
+        let name = self.expect_ident("expected actor name")?;
+        self.expect_symbol(Symbol::LBrace, "expected `{` after actor name")?;
+        let mut state = Vec::new();
+        let mut handlers = Vec::new();
+        let mut recovered_missing_close = false;
+
+        while !self.at_symbol(Symbol::RBrace) && !self.at(TokenKindRef::Eof) {
+            self.skip_newlines();
+            if self.at_symbol(Symbol::RBrace) {
+                break;
+            }
+            if self.break_on_top_level_keyword_in_block("actor") {
+                recovered_missing_close = true;
+                break;
+            }
+            if self.match_ident_text("state") {
+                if let Some(field) = self.actor_state_field() {
+                    state.push(field);
+                } else {
+                    self.consume_line();
+                }
+                continue;
+            }
+            if self.match_keyword(Keyword::Fn) {
+                if let Some(handler) = self.callable_decl(false) {
+                    handlers.push(handler);
+                }
+                continue;
+            }
+
+            let token = self.peek().clone();
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "N0101",
+                    "expected actor state field or handler declaration",
+                    token.span,
+                )
+                .with_help(
+                    "declare actor members as `state name: Type` or `fn handler(...) { ... }`",
+                ),
+            );
+            self.consume_line();
+        }
+        if !recovered_missing_close {
+            self.expect_symbol(Symbol::RBrace, "expected `}` after actor body")?;
+        }
+        Some(ActorDecl {
+            name,
+            state,
+            handlers,
+            span,
+        })
+    }
+
+    fn actor_state_field(&mut self) -> Option<ActorStateField> {
+        let span = self.previous().span.clone();
+        let name = self.expect_ident("expected actor state field name")?;
+        self.expect_symbol(Symbol::Colon, "expected `:` after actor state field name")?;
+        let ty = self.collect_type_ref();
+        let labels = self.collect_labels_until_line_or(Symbol::RBrace);
+        self.consume_line();
+        Some(ActorStateField {
+            name,
+            ty,
+            labels,
             span,
         })
     }
@@ -1460,7 +1534,7 @@ impl<'a> Parser<'a> {
     fn break_on_top_level_keyword_in_block(&mut self, block_kind: &str) -> bool {
         if let TokenKind::Keyword(keyword) = self.peek().kind {
             if is_top_level_keyword(keyword) {
-                if block_kind == "impl" && keyword == Keyword::Fn {
+                if matches!(block_kind, "impl" | "actor") && keyword == Keyword::Fn {
                     return false;
                 }
                 let token = self.peek().clone();
@@ -1591,6 +1665,7 @@ fn is_top_level_keyword(keyword: Keyword) -> bool {
             | Keyword::Enum
             | Keyword::Fn
             | Keyword::Workflow
+            | Keyword::Actor
             | Keyword::Action
             | Keyword::Connector
             | Keyword::Service

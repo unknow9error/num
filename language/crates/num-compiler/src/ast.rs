@@ -22,6 +22,7 @@ pub enum Declaration {
     Enum(EnumDecl),
     Function(CallableDecl),
     Workflow(CallableDecl),
+    Actor(ActorDecl),
     Action(ActionDecl),
     Connector(ConnectorDecl),
     Service(ServiceDecl),
@@ -39,6 +40,7 @@ impl Declaration {
             Declaration::Enum(decl) => &decl.name,
             Declaration::Function(decl) => &decl.name,
             Declaration::Workflow(decl) => &decl.name,
+            Declaration::Actor(decl) => &decl.name,
             Declaration::Action(decl) => &decl.name,
             Declaration::Connector(decl) => &decl.name,
             Declaration::Service(decl) => &decl.name,
@@ -56,6 +58,7 @@ impl Declaration {
             Declaration::Enum(decl) => &decl.span,
             Declaration::Function(decl) => &decl.span,
             Declaration::Workflow(decl) => &decl.span,
+            Declaration::Actor(decl) => &decl.span,
             Declaration::Action(decl) => &decl.span,
             Declaration::Connector(decl) => &decl.span,
             Declaration::Service(decl) => &decl.span,
@@ -155,6 +158,22 @@ pub struct CallableDecl {
     pub budget: Option<String>,
     pub rate_limit: Option<String>,
     pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActorDecl {
+    pub name: String,
+    pub state: Vec<ActorStateField>,
+    pub handlers: Vec<CallableDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActorStateField {
+    pub name: String,
+    pub ty: TypeRef,
+    pub labels: Labels,
     pub span: Span,
 }
 
