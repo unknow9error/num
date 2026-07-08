@@ -636,7 +636,10 @@ pub fn validate_project_lockfile(path: &Path) -> Result<PathBuf, String> {
     if !lock_path.is_file() {
         return Err(format!("no num.lock found at {}", lock_path.display()));
     }
-    validate_lockfile(&lock_path)?;
+    let source = fs::read_to_string(&lock_path)
+        .map_err(|err| format!("failed to read {}: {err}", lock_path.display()))?;
+    validate_lockfile_source(&lock_path, &source)?;
+    validate_lockfile_registry_pins(&manifest, &lock_path, &source)?;
     Ok(lock_path)
 }
 
@@ -810,6 +813,171 @@ struct LockPackage {
     compatibility: Option<String>,
     manifest_schema: Option<u32>,
     dependencies: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockPackagePin {
+    name: String,
+    version: String,
+    source: String,
+    content_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryLockPin {
+    name: String,
+    version: String,
+    source: String,
+    content_hash: String,
+}
+
+fn validate_lockfile_registry_pins(
+    manifest: &PackageManifest,
+    lock_path: &Path,
+    source: &str,
+) -> Result<(), String> {
+    let lock_pins = parse_lockfile_packages(source);
+    let mut by_identity = BTreeMap::new();
+    for package in lock_pins {
+        by_identity.insert(
+            (package.name, package.version, package.source),
+            package.content_hash,
+        );
+    }
+
+    let mut expected = Vec::new();
+    let mut visited = BTreeSet::new();
+    collect_registry_lock_pins(manifest, &mut visited, &mut expected)?;
+
+    for pin in expected {
+        let key = (pin.name.clone(), pin.version.clone(), pin.source.clone());
+        let Some(recorded) = by_identity.get(&key) else {
+            return Err(format!(
+                "{} is missing registry lock entry for {} {}",
+                lock_path.display(),
+                pin.name,
+                pin.version
+            ));
+        };
+        let Some(recorded_hash) = recorded else {
+            return Err(format!(
+                "{} registry package {} {} is missing required content_hash pin",
+                lock_path.display(),
+                pin.name,
+                pin.version
+            ));
+        };
+        if recorded_hash != &pin.content_hash {
+            return Err(format!(
+                "{} registry package {} {} content_hash mismatch: lockfile has {}, resolved package has {}",
+                lock_path.display(),
+                pin.name,
+                pin.version,
+                recorded_hash,
+                pin.content_hash
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_registry_lock_pins(
+    manifest: &PackageManifest,
+    visited: &mut BTreeSet<String>,
+    pins: &mut Vec<RegistryLockPin>,
+) -> Result<(), String> {
+    let key = format!("{}@{}", manifest.project.name, manifest.project.version);
+    if !visited.insert(key) {
+        return Ok(());
+    }
+
+    for dependency in &manifest.dependencies {
+        match dependency.source {
+            DependencySource::Path(_) => {
+                let dependency_manifest = load_path_dependency_manifest(manifest, dependency)?;
+                validate_dependency_manifest_identity(dependency, &dependency_manifest)?;
+                collect_registry_lock_pins(&dependency_manifest, visited, pins)?;
+            }
+            DependencySource::Registry => {
+                let Some(registry) = LocalRegistry::discover_for(manifest) else {
+                    continue;
+                };
+                let Some(resolved) = registry.resolve_with_metadata(dependency)? else {
+                    continue;
+                };
+                validate_dependency_manifest_identity(dependency, &resolved.manifest)?;
+                pins.push(RegistryLockPin {
+                    name: resolved.manifest.project.name.clone(),
+                    version: resolved.manifest.project.version.clone(),
+                    source: dependency.source.lock_source(),
+                    content_hash: resolved.content_hash,
+                });
+                collect_registry_lock_pins(&resolved.manifest, visited, pins)?;
+            }
+            DependencySource::Git(_) => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_lockfile_packages(source: &str) -> Vec<LockPackagePin> {
+    let mut packages = Vec::new();
+    let mut current: Option<LockPackagePin> = None;
+
+    for raw_line in source.lines() {
+        let line = raw_line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "[[package]]" {
+            if let Some(package) = current.take() {
+                packages.push(package);
+            }
+            current = Some(LockPackagePin {
+                name: String::new(),
+                version: String::new(),
+                source: String::new(),
+                content_hash: None,
+            });
+            continue;
+        }
+
+        let Some(package) = current.as_mut() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = normalize_toml_key(key.trim());
+        let value = value.trim();
+        match key.as_str() {
+            "name" => {
+                if let Some(name) = parse_toml_string(value) {
+                    package.name = name;
+                }
+            }
+            "version" => {
+                if let Some(version) = parse_toml_string(value) {
+                    package.version = version;
+                }
+            }
+            "source" => {
+                if let Some(source) = parse_toml_string(value) {
+                    package.source = source;
+                }
+            }
+            "content_hash" => package.content_hash = parse_toml_string(value),
+            _ => {}
+        }
+    }
+
+    if let Some(package) = current {
+        packages.push(package);
+    }
+
+    packages
 }
 
 #[cfg(test)]
@@ -2789,6 +2957,193 @@ version = "1.0.0"
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(registry).unwrap();
+    }
+
+    #[test]
+    fn lockfile_check_validates_matching_local_registry_content_pins() {
+        let root = temp_package_dir("registry_lock_check_root");
+        let registry = root.with_file_name(format!(
+            "{}_registry",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let shared = registry.join("shared").join("0.3.0");
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[registry]
+path = "{}"
+
+[dependencies]
+shared = "0.3.0"
+"#,
+                path_to_toml_string(registry.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+
+        let path = write_lockfile(&root).unwrap();
+
+        assert_eq!(validate_project_lockfile(&root).unwrap(), path);
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(registry).unwrap();
+    }
+
+    #[test]
+    fn lockfile_check_rejects_changed_local_registry_content_pin() {
+        let root = temp_package_dir("registry_lock_changed_root");
+        let registry = root.with_file_name(format!(
+            "{}_registry",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let shared = registry.join("shared").join("0.3.0");
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[registry]
+path = "{}"
+
+[dependencies]
+shared = "0.3.0"
+"#,
+                path_to_toml_string(registry.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+
+        write_lockfile(&root).unwrap();
+        fs::write(shared.join("README.md"), "changed remote package bytes").unwrap();
+        let err = validate_project_lockfile(&root).unwrap_err();
+
+        assert!(err.contains("content_hash mismatch"));
+        assert!(err.contains("shared 0.3.0"));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(registry).unwrap();
+    }
+
+    #[test]
+    fn lockfile_check_rejects_missing_registry_content_hash_pin() {
+        let root = temp_package_dir("registry_lock_missing_hash_root");
+        let registry = root.with_file_name(format!(
+            "{}_registry",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let shared = registry.join("shared").join("0.3.0");
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[registry]
+path = "{}"
+
+[dependencies]
+shared = "0.3.0"
+"#,
+                path_to_toml_string(registry.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+
+        let path = write_lockfile(&root).unwrap();
+        let without_hash = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("content_hash = "))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        fs::write(&path, without_hash).unwrap();
+        let err = validate_project_lockfile(&root).unwrap_err();
+
+        assert!(err.contains("missing required content_hash pin"));
+        assert!(err.contains("shared 0.3.0"));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(registry).unwrap();
+    }
+
+    #[test]
+    fn lockfile_check_keeps_path_dependencies_hashless() {
+        let root = temp_package_dir("path_lock_check_root");
+        let shared = root.with_file_name(format!(
+            "{}_shared",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&shared).unwrap();
+
+        write_manifest(
+            &root,
+            &format!(
+                r#"
+[project]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+shared = {{ path = "{}", version = "0.3.0" }}
+"#,
+                path_to_toml_string(shared.display().to_string())
+            ),
+        );
+        write_manifest(
+            &shared,
+            r#"
+[project]
+name = "shared"
+version = "0.3.0"
+"#,
+        );
+
+        let path = write_lockfile(&root).unwrap();
+        let lockfile = fs::read_to_string(&path).unwrap();
+
+        assert!(!lockfile.contains("content_hash = "));
+        assert_eq!(validate_project_lockfile(&root).unwrap(), path);
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(shared).unwrap();
     }
 
     #[test]

@@ -4,6 +4,10 @@
 
 ### Patch
 
+- Added `num lock --check` validation for registry package `content_hash` pins,
+  rejecting changed or hashless resolved registry packages while preserving
+  path and git lock semantics.
+
 ## 0.4.16 - 2026-07-08
 
 ### Patch

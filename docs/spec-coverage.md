@@ -240,7 +240,8 @@ Implemented:
   contract for package metadata, version listing, and package download paths;
 - deterministic transitive `num.lock` pinning for resolved path/local-registry
   dependency graphs, including content-hash pins for resolved local-registry
-  packages;
+  packages and `num lock --check` validation that rejects missing or mismatched
+  registry content pins when the registry package is resolvable;
 - deterministic git dependency checkout into `.num-git` during locking, with
   resolved commit SHA metadata in lockfiles and declared git selector labels in
   deploy plans;
@@ -717,7 +718,7 @@ Major full-spec areas not implemented in v0.4.16:
 
 - executable remote package registry HTTP services and client downloads beyond
   the read-only protocol contract exposed by `num registry index --json`;
-- remote registry package lockfile pinning;
+- live remote registry client downloads against lockfile content pins;
 - complete standard library;
 - hardened production HTTP server runtime;
 - production database connectors;

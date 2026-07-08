@@ -566,7 +566,11 @@ path/local-registry dependencies that can be resolved locally. Resolved package
 entries include sorted dependency edges. Local-registry package entries also
 include the registry package `content_hash` from `.num-package.json` metadata
 or the computed package hash when metadata has not been written yet, so
-lockfiles pin the resolved package content as well as its name and version. Git
+lockfiles pin the resolved package content as well as its name and version.
+`num lock --check` re-resolves available local-registry packages and rejects
+registry entries whose `content_hash` is missing or no longer matches the
+resolved package. Path dependency entries do not require a package hash, and git
+dependencies are pinned by the resolved commit SHA in their source label. Git
 inline tables can include `rev`, `tag`, `branch`, or `ref`; `num lock` checks
 out git dependencies into a project-local `.num-git` cache and pins the
 resolved commit SHA in the package entry source label. Git dependency URLs are
