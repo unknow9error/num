@@ -409,6 +409,7 @@ Demonstrates:
 - generated TypeScript declarations for JavaScript/TypeScript consumers;
 - generated Python stubs for process connector implementations.
 - generated Java interface contracts plus a tiny Java implementation fixture.
+- generated C safe-wrapper header contracts plus a tiny C syntax fixture.
 
 Useful commands:
 
@@ -423,6 +424,12 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language java \
   --out examples/connector_echo_pipeline/generated/NumConnectorSdk.java
+num connector-sdk examples/connector_echo_pipeline \
+  --language c \
+  --out examples/connector_echo_pipeline/generated/num_connectors.h
+cc -std=c11 -fsyntax-only \
+  -I examples/connector_echo_pipeline/generated \
+  examples/connector_echo_pipeline/c/echo_connector_fixture.c
 num run examples/connector_echo_pipeline
 ```
 

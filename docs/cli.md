@@ -680,6 +680,9 @@ num connector-sdk examples/connector_echo_pipeline \
 num connector-sdk examples/connector_echo_pipeline \
   --language java \
   --out examples/connector_echo_pipeline/generated/NumConnectorSdk.java
+num connector-sdk examples/connector_echo_pipeline \
+  --language c \
+  --out examples/connector_echo_pipeline/generated/num_connectors.h
 num connector-sdk examples/contract_driven_refund --json
 ```
 
@@ -729,6 +732,31 @@ The Java generator emits one `NumConnectorSdk.java` contract file:
   `retryable`. Future JVM adapters must map that checked failure into Num's
   structured connector runtime error shape.
 
+The C generator emits one `num_connectors.h` safe wrapper contract:
+
+- `NumCString`, `NumCMoney`, `.num` structs, aliases, and simple enums for the
+  first supported C boundary values;
+- `NumCContext` and `NumCArgLabel`, carrying connector, method, tenant, actor,
+  policy, correlation, argument-label, and `timeout_ms` audit metadata;
+- `NumCStatus` plus `num_c_ok()` and `num_c_error(...)` so adapters return
+  structured `code`, `message`, and `retryable` failures instead of raw native
+  status codes;
+- C symbols for visible top-level functions and connector methods. Non-`Unit`
+  results use an explicit out pointer and every generated symbol receives a
+  required `const NumCContext *context`.
+
+C mappings are deliberately narrower than the host-language SDKs. `Text`,
+`Email`, `Uuid`, `Date`, `DateTime`, `Decimal`, `Url`, `PhoneNumber`, and `Json`
+map to UTF-8 `NumCString`; `Int` maps to `int64_t`; `Float` to `double`;
+`Bool` to `bool`; `Money<C>` to `NumCMoney`; aliases, brands, structs, and
+simple enums map to generated C declarations. `List<T>`, `Map<K,V>`,
+`Option<T>`, `Result<T,E>`, `Uncertain<T>`, `Secret<T>`, document/image/OCR
+boundary values, generic type instantiations, and payload enum payloads map to
+`NumCUnsupported` in this first slice. Raw pointers, callbacks, shared memory,
+unmanaged threads, and direct native runtime calls remain unsupported; a native
+adapter must enforce `timeout_ms` and map null pointers, error codes, panics,
+and crashes into `NumCStatus` where the host process can still observe them.
+
 This gives backend authors a generated implementation contract for process or
 host-language connector code. Manifest-configured process connectors can set a
 `timeout_ms` string in `[connectors]` inline tables; runtime commands kill and
@@ -772,15 +800,18 @@ connectors receive this context in stdin under `egress`:
 }
 ```
 
-Generated TypeScript, Python, and Java SDKs expose the same egress context shape
-(`NumConnectorEgressContext` in TypeScript/Python, `NumConnectorContext` in
-Java) and add a `context` parameter to connector methods. External workers
-should treat `capability`, `tenant`, `actor`, `correlation_id`, and
-`arg_labels` as the audit/enforcement envelope for data that leaves a single Num
-runtime instance. This is not managed connector hosting, auth/secrets binding,
-or a generated network client runtime yet. For Java specifically, it is also
-not JVM lifecycle management, classpath resolution, Maven/Gradle publishing,
-Kotlin generation, async callbacks, or an executable JVM adapter.
+Generated TypeScript, Python, Java, and C SDKs expose the same egress context
+shape (`NumConnectorEgressContext` in TypeScript/Python, `NumConnectorContext`
+in Java, `NumCContext` in C) and add a `context` parameter to connector methods.
+External workers should treat `capability`, `tenant`, `actor`,
+`correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
+that leaves a single Num runtime instance. This is not managed connector
+hosting, auth/secrets binding, or a generated network client runtime yet. For
+Java specifically, it is also not JVM lifecycle management, classpath
+resolution, Maven/Gradle publishing, Kotlin generation, async callbacks, or an
+executable JVM adapter. For C specifically, it is also not raw pointer support,
+callback registration, shared memory, unmanaged threads, or direct native
+runtime invocation.
 
 Projects can also bind a connector method directly to a local JavaScript module
 under `[javascript]` in `num.toml`:

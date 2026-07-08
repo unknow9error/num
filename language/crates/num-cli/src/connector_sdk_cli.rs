@@ -23,6 +23,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
         }
         ConnectorSdkLanguageArg::Python => connector_sdk::render_python_sdk(&program.module),
         ConnectorSdkLanguageArg::Java => connector_sdk::render_java_sdk(&program.module),
+        ConnectorSdkLanguageArg::C => connector_sdk::render_c_sdk(&program.module),
     };
 
     if let Some(out_path) = &options.out_path {
@@ -64,6 +65,7 @@ enum ConnectorSdkLanguageArg {
     TypeScript,
     Python,
     Java,
+    C,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,14 +89,15 @@ fn parse_args(
             "--language" | "--lang" => {
                 let raw = args
                     .next()
-                    .ok_or_else(|| "usage: --language <typescript|python|java>".to_string())?;
+                    .ok_or_else(|| "usage: --language <typescript|python|java|c>".to_string())?;
                 language = match raw.as_str() {
                     "typescript" | "ts" => ConnectorSdkLanguageArg::TypeScript,
                     "python" | "py" => ConnectorSdkLanguageArg::Python,
                     "java" | "jvm" => ConnectorSdkLanguageArg::Java,
+                    "c" | "c-header" => ConnectorSdkLanguageArg::C,
                     other => {
                         return Err(format!(
-                            "unsupported connector SDK language `{other}`; supported: typescript, python, java"
+                            "unsupported connector SDK language `{other}`; supported: typescript, python, java, c"
                         ))
                     }
                 };
@@ -191,6 +194,28 @@ mod tests {
         assert_eq!(
             options.out_path,
             Some(PathBuf::from("generated/NumConnectorSdk.java"))
+        );
+    }
+
+    #[test]
+    fn parses_c_connector_sdk_args() {
+        let (path, options) = parse_args(
+            [
+                "examples/refund_workflow".to_string(),
+                "--language".to_string(),
+                "c".to_string(),
+                "--out".to_string(),
+                "generated/num_connectors.h".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("examples/refund_workflow"));
+        assert_eq!(options.language, ConnectorSdkLanguageArg::C);
+        assert_eq!(
+            options.out_path,
+            Some(PathBuf::from("generated/num_connectors.h"))
         );
     }
 }
