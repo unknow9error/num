@@ -134,12 +134,15 @@ transitive path/local-registry dependencies when those packages can be resolved
 locally. Resolved package entries include language/schema compatibility metadata
 and sorted dependency edges. Local-registry package entries also include a
 `content_hash` pin from `.num-package.json` metadata, or from the computed
-package hash when metadata has not been written yet. Git dependencies are
-checked out into a project-local `.num-git` cache during locking, and their
-lock entries pin the resolved commit SHA. Existing `.num-git` checkouts are
-reused offline only when an explicit `rev` pin is already present in the cache;
-`tag`, `branch`, and `ref` selectors fetch from `origin` before checkout
-because those selectors can move. Registry dependencies without a configured
+package hash when metadata has not been written yet. `num lock --check`
+re-resolves available local-registry packages and rejects registry lock entries
+whose `content_hash` is missing or no longer matches the resolved package. Git
+dependencies are checked out into a project-local `.num-git` cache during
+locking, and their lock entries pin the resolved commit SHA. Existing
+`.num-git` checkouts are reused offline only when an explicit `rev` pin is
+already present in the cache; `tag`, `branch`, and `ref` selectors fetch from
+`origin` before checkout because those selectors can move. Registry
+dependencies without a configured
 local registry root remain metadata-only entries.
 
 Path dependencies are included in program checks and runtime compilation. Their
