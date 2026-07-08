@@ -78,7 +78,7 @@ mod tests {
             [
                 "examples/refund_workflow".to_string(),
                 "--language".to_string(),
-                "0.4.16".to_string(),
+                "0.4.17".to_string(),
                 "--project".to_string(),
                 "1.0.0".to_string(),
                 "--write".to_string(),
@@ -89,7 +89,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(path, PathBuf::from("examples/refund_workflow"));
-        assert_eq!(options.target_language_version, "0.4.16");
+        assert_eq!(options.target_language_version, "0.4.17");
         assert_eq!(options.target_project_version, Some("1.0.0".to_string()));
         assert!(options.write);
         assert!(format_json);
