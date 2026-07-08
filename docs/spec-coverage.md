@@ -1,14 +1,14 @@
 # Num Specification Coverage
 
 This document maps the full Num technical specification to the current `num`
-v0.4.16 implementation.
+v0.4.17 implementation.
 
 The short version: the repository implements a working compiler frontend,
 semantic checker, IR, CLI, editor integration, examples, release package, and a
 mocked demo runtime. It does not yet implement the complete industrial Num
 language/runtime/platform.
 
-## Covered in v0.4.16
+## Covered in v0.4.17
 
 ### Language Surface
 
@@ -714,7 +714,7 @@ Not yet implemented:
 
 ## Not Covered Yet
 
-Major full-spec areas not implemented in v0.4.16:
+Major full-spec areas not implemented in v0.4.17:
 
 - executable remote package registry HTTP services and client downloads beyond
   the read-only protocol contract exposed by `num registry index --json`;
@@ -813,7 +813,7 @@ Major full-spec areas not implemented in v0.4.16:
 - language versioning and compatibility policy;
 - manifest migration tooling;
 - manifest version upgrade tooling;
-- compatibility matrix coverage for the current v0.4.16 manifest/schema
+- compatibility matrix coverage for the current v0.4.17 manifest/schema
   surface;
 - standard library.
 
@@ -838,7 +838,7 @@ Major full-spec areas not implemented in v0.4.16:
 
 ## Verification Commands
 
-Use these commands to verify the documented v0.4.16 surface:
+Use these commands to verify the documented v0.4.17 surface:
 
 ```bash
 cargo test
