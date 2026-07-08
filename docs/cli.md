@@ -805,13 +805,16 @@ shape (`NumConnectorEgressContext` in TypeScript/Python, `NumConnectorContext`
 in Java, `NumCContext` in C) and add a `context` parameter to connector methods.
 External workers should treat `capability`, `tenant`, `actor`,
 `correlation_id`, and `arg_labels` as the audit/enforcement envelope for data
-that leaves a single Num runtime instance. This is not managed connector
-hosting, auth/secrets binding, or a generated network client runtime yet. For
-Java specifically, it is also not JVM lifecycle management, classpath
-resolution, Maven/Gradle publishing, Kotlin generation, async callbacks, or an
-executable JVM adapter. For C specifically, it is also not raw pointer support,
-callback registration, shared memory, unmanaged threads, or direct native
-runtime invocation.
+that leaves a single Num runtime instance. Embedded runtimes can register
+context-aware hosted implementations with `StaticConnectorRegistry`, and CLI
+commands select JavaScript module bindings, process bindings, then the demo
+executor before returning the structured `missing_implementation` connector
+error. This local registration boundary is not connector auth/secrets binding,
+cloud hosting, or a generated network client runtime yet. For Java specifically,
+it is also not JVM lifecycle management, classpath resolution, Maven/Gradle
+publishing, Kotlin generation, async callbacks, or an executable JVM adapter.
+For C specifically, it is also not raw pointer support, callback registration,
+shared memory, unmanaged threads, or direct native runtime invocation.
 
 Projects can also bind a connector method directly to a local JavaScript module
 under `[javascript]` in `num.toml`:

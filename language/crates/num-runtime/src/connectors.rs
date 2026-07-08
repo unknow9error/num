@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub type ConnectorHandler = Box<dyn Fn(&[Value]) -> Result<Value, ConnectorError>>;
+pub type ConnectorContextHandler =
+    Box<dyn Fn(&ConnectorCallContext, &[Value]) -> Result<Value, ConnectorError>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorError {
@@ -96,6 +98,25 @@ pub struct ConnectorCallContext {
 }
 
 impl ConnectorCallContext {
+    pub fn for_method(method: &str) -> Self {
+        let (connector, method_name) = method
+            .split_once('.')
+            .map(|(connector, method)| (connector.to_string(), method.to_string()))
+            .unwrap_or_else(|| ("external".to_string(), method.to_string()));
+        Self {
+            connector,
+            method_name,
+            method: method.to_string(),
+            capability: format!("connector:{method}"),
+            actor: "system".to_string(),
+            tenant: "default".to_string(),
+            correlation_id: "corr_static_connector".to_string(),
+            request_id: "req_static_connector".to_string(),
+            policy_decision: "runtime_unlabeled".to_string(),
+            arg_labels: Vec::new(),
+        }
+    }
+
     pub fn to_json(&self) -> JsonValue {
         json!({
             "connector": self.connector,
@@ -160,7 +181,7 @@ impl<T: ConnectorExecutor + ?Sized> ConnectorExecutor for Arc<T> {
 
 #[derive(Default)]
 pub struct StaticConnectorRegistry {
-    handlers: HashMap<String, ConnectorHandler>,
+    handlers: HashMap<String, ConnectorContextHandler>,
 }
 
 impl StaticConnectorRegistry {
@@ -172,16 +193,41 @@ impl StaticConnectorRegistry {
     where
         F: Fn(&[Value]) -> Result<Value, String> + 'static,
     {
-        self.handlers.insert(
-            name.into(),
-            Box::new(move |args| handler(args).map_err(ConnectorError::execution)),
-        );
+        self.register_with_context(name, move |_context, args| {
+            handler(args).map_err(ConnectorError::execution)
+        });
+    }
+
+    pub fn register_with_context<F>(&mut self, name: impl Into<String>, handler: F)
+    where
+        F: Fn(&ConnectorCallContext, &[Value]) -> Result<Value, ConnectorError> + 'static,
+    {
+        self.handlers.insert(name.into(), Box::new(handler));
+    }
+
+    pub fn registered_methods(&self) -> Vec<String> {
+        let mut methods = self.handlers.keys().cloned().collect::<Vec<_>>();
+        methods.sort();
+        methods
     }
 }
 
 impl ConnectorExecutor for StaticConnectorRegistry {
     fn call(&self, name: &str, args: &[Value]) -> Option<Result<Value, ConnectorError>> {
-        self.handlers.get(name).map(|handler| handler(args))
+        self.handlers.get(name).map(|handler| {
+            let context = ConnectorCallContext::for_method(name);
+            handler(&context, args)
+        })
+    }
+
+    fn call_with_context(
+        &self,
+        context: &ConnectorCallContext,
+        args: &[Value],
+    ) -> Option<Result<Value, ConnectorError>> {
+        self.handlers
+            .get(&context.method)
+            .map(|handler| handler(context, args))
     }
 }
 
@@ -305,7 +351,8 @@ fn assign_support_ticket(args: &[Value], executor: &DemoConnectorExecutor) -> Va
 #[cfg(test)]
 mod tests {
     use super::{
-        ChainedConnectorExecutor, ConnectorExecutor, DemoConnectorExecutor, StaticConnectorRegistry,
+        ChainedConnectorExecutor, ConnectorCallContext, ConnectorError, ConnectorExecutor,
+        DemoConnectorExecutor, StaticConnectorRegistry,
     };
     use crate::interpreter::Value;
 
@@ -346,6 +393,71 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn static_registry_lists_registered_methods() {
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register("z.last", |_| Ok(Value::Null));
+        registry.register("a.first", |_| Ok(Value::Null));
+
+        assert_eq!(
+            registry.registered_methods(),
+            vec!["a.first".to_string(), "z.last".to_string()]
+        );
+    }
+
+    #[test]
+    fn static_registry_passes_context_to_hosted_handler() {
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register_with_context("echo.text", |context, args| {
+            assert_eq!(context.connector, "echo");
+            assert_eq!(context.method_name, "text");
+            assert_eq!(context.method, "echo.text");
+            assert_eq!(context.capability, "connector:echo.text");
+            assert_eq!(context.tenant, "tenant_a");
+            Ok(args.first().cloned().unwrap_or(Value::Null))
+        });
+        let context = ConnectorCallContext {
+            connector: "echo".to_string(),
+            method_name: "text".to_string(),
+            method: "echo.text".to_string(),
+            capability: "connector:echo.text".to_string(),
+            actor: "actor_a".to_string(),
+            tenant: "tenant_a".to_string(),
+            correlation_id: "corr_a".to_string(),
+            request_id: "req_a".to_string(),
+            policy_decision: "compile_time_checked".to_string(),
+            arg_labels: Vec::new(),
+        };
+
+        let result = registry
+            .call_with_context(&context, &[Value::String("hello".to_string())])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result, Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn static_registry_preserves_structured_connector_errors() {
+        let mut registry = StaticConnectorRegistry::new();
+        registry.register_with_context("echo.text", |_context, _args| {
+            Err(ConnectorError::new(
+                "upstream_unavailable",
+                "echo host unavailable",
+                true,
+            ))
+        });
+
+        let error = registry
+            .call("echo.text", &[Value::String("hello".to_string())])
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(error.code, "upstream_unavailable");
+        assert_eq!(error.message, "echo host unavailable");
+        assert!(error.retryable);
     }
 
     #[test]
