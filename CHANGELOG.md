@@ -4,6 +4,10 @@
 
 ### Patch
 
+## 0.4.19 - 2026-07-08
+
+### Patch
+
 - Added `num import openapi --client` TypeScript transport stub generation for
   the focused OpenAPI importer subset, preserving operation method/path,
   path/query parameters, JSON bodies, typed responses, and unsupported metadata
