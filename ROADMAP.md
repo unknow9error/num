@@ -36,7 +36,8 @@ technical specification.
 - Connector platform:
   - broader connector SDK language targets;
   - auth/secrets binding;
-  - generated runtime clients;
+  - generated production runtime clients beyond current transport-boundary
+    stubs;
   - process connector hardening beyond timeout enforcement and basic error
     taxonomy.
 - Deployment story:
