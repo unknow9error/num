@@ -1,0 +1,94 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Customer Portal", "version": "1.0.0" },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "CustomerProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "RefundRequest": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" },
+          "amount": { "type": "number" }
+        }
+      },
+      "RefundResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "approved": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/customers/{customer_id}": {
+      "parameters": [
+        {
+          "name": "customer_id",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "get": {
+        "operationId": "get_customer",
+        "parameters": [
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "X-Trace-Id",
+            "in": "header",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CustomerProfile" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "create_refund",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefundRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RefundResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

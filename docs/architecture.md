@@ -201,9 +201,10 @@ durable lifecycle processing.
 output for `num connector-sdk`.
 `connector_cli.rs` owns direct process connector probing for
 manifest-configured `[connectors]` bindings.
-`openapi.rs` owns generation of `.num` connector contracts from OpenAPI JSON
-and YAML, including preservation comments for authentication metadata,
-unsupported callbacks, and links.
+`openapi.rs` owns generation of `.num` connector contracts and minimal
+TypeScript transport client stubs from OpenAPI JSON and YAML, including
+preservation comments for authentication metadata, unsupported callbacks, and
+links.
 `sql_schema.rs` owns generation of `.num` table types, foreign-key relation
 hint comments, and database connector contracts from SQL schema files.
 
